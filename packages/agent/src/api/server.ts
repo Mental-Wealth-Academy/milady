@@ -4483,6 +4483,83 @@ async function handleCodingAgentsFallback(
     }
   }
 
+  // --- HITL Control primitive (see docs/followups/hitl-plan-mode.md) ---
+  //
+  // Four routes share the `CodingAgentControlBus` singleton:
+  //   GET  /api/coding-agents/control/status   — current state
+  //   POST /api/coding-agents/control/pause    — soft pause (no keys sent)
+  //   POST /api/coding-agents/control/abort    — hard interrupt (per-adapter keys)
+  //   POST /api/coding-agents/control/resume   — back to running
+  //
+  // The pause/abort/resume routes accept an optional JSON body:
+  //   { "reason": "user asked to hold on" }
+  // The reason is informational and surfaces in the status snapshot
+  // so the UI can show *why* we're halted.
+  if (method === "GET" && pathname === "/api/coding-agents/control/status") {
+    const { codingAgentControlBus } = await import(
+      "../services/coding-agent-control-bus"
+    );
+    json(res, codingAgentControlBus.snapshot());
+    return true;
+  }
+  if (method === "POST" && pathname === "/api/coding-agents/control/pause") {
+    const { codingAgentControlBus } = await import(
+      "../services/coding-agent-control-bus"
+    );
+    const body = await readJsonBody(req).catch(() => null);
+    const reason =
+      body && typeof (body as Record<string, unknown>).reason === "string"
+        ? ((body as Record<string, unknown>).reason as string)
+        : null;
+    codingAgentControlBus.applyPause(reason, []);
+    json(res, codingAgentControlBus.snapshot());
+    return true;
+  }
+  if (method === "POST" && pathname === "/api/coding-agents/control/abort") {
+    const { codingAgentControlBus } = await import(
+      "../services/coding-agent-control-bus"
+    );
+    const body = await readJsonBody(req).catch(() => null);
+    const reason =
+      body && typeof (body as Record<string, unknown>).reason === "string"
+        ? ((body as Record<string, unknown>).reason as string)
+        : null;
+    const ptyService = runtime.getService("PTY_SERVICE") as unknown as
+      | import("../services/coding-agent-control-bus").PTYServiceLike
+      | null;
+    try {
+      const targeted = await codingAgentControlBus.applyAbort(
+        ptyService,
+        reason,
+      );
+      logger.info(
+        `[coding-agents/control] abort → ${targeted.length} session(s): ${targeted.join(", ")}`,
+      );
+      json(res, codingAgentControlBus.snapshot());
+    } catch (e) {
+      logger.error(
+        `[coding-agents/control] abort failed: ${
+          e instanceof Error ? (e.stack ?? e.message) : String(e)
+        }`,
+      );
+      error(res, "Abort failed", 500);
+    }
+    return true;
+  }
+  if (method === "POST" && pathname === "/api/coding-agents/control/resume") {
+    const { codingAgentControlBus } = await import(
+      "../services/coding-agent-control-bus"
+    );
+    const body = await readJsonBody(req).catch(() => null);
+    const reason =
+      body && typeof (body as Record<string, unknown>).reason === "string"
+        ? ((body as Record<string, unknown>).reason as string)
+        : null;
+    codingAgentControlBus.applyResume(reason);
+    json(res, codingAgentControlBus.snapshot());
+    return true;
+  }
+
   // GET /api/coding-agents/scratch
   if (method === "GET" && pathname === "/api/coding-agents/scratch") {
     try {

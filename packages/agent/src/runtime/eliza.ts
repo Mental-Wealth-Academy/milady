@@ -76,7 +76,7 @@ import * as pluginSecretsManager from "@elizaos/plugin-secrets-manager";
 import * as pluginShell from "@elizaos/plugin-shell";
 import * as pluginSql from "@elizaos/plugin-sql";
 import * as pluginTrust from "@elizaos/plugin-trust";
-import * as pluginRoles from "@miladyai/plugin-roles";
+import rolesPlugin from "./roles/src/index.js";
 import * as pluginSelfControl from "@miladyai/plugin-selfcontrol";
 import {
   isMiladySettingsDebugEnabled,
@@ -126,7 +126,6 @@ import {
   SandboxManager,
   type SandboxMode,
 } from "../services/sandbox-manager.js";
-import * as pluginAgentOrchestrator from "./agent-orchestrator-compat.js";
 import { CORE_PLUGINS, OPTIONAL_CORE_PLUGINS } from "./core-plugins.js";
 import { seedBundledKnowledge } from "./default-knowledge.js";
 import { createElizaPlugin } from "./eliza-plugin.js";
@@ -137,6 +136,18 @@ import {
 } from "./native-runtime-features.js";
 import { installRuntimePluginLifecycle } from "./plugin-lifecycle.js";
 import { shouldEnableTrajectoryLoggingByDefault } from "./trajectory-persistence.js";
+
+const require = createRequire(import.meta.url);
+// Keep the orchestrator plugin behind a runtime require of the local compat
+// wrapper. A static ESM import here causes tsdown/rolldown to inline the
+// workspace-linked plugin source and emit a broken synthetic `default2`
+// re-export in cloud bundles.
+let pluginAgentOrchestrator: unknown = null;
+try {
+  pluginAgentOrchestrator = require("./agent-orchestrator-compat");
+} catch {
+  pluginAgentOrchestrator = null;
+}
 
 type SignalShutdownContext = {
   getRuntime: () => AgentRuntime;
@@ -221,7 +232,9 @@ export const STATIC_ELIZA_PLUGINS: Record<string, unknown> = {
   "@elizaos/plugin-local-embedding": pluginLocalEmbedding,
   "@elizaos/plugin-secrets-manager": pluginSecretsManager,
   "@elizaos/plugin-form": pluginForm,
-  "@elizaos/plugin-agent-orchestrator": pluginAgentOrchestrator,
+  ...(pluginAgentOrchestrator
+    ? { "@elizaos/plugin-agent-orchestrator": pluginAgentOrchestrator }
+    : {}),
   "@elizaos/plugin-cron": pluginCron,
   "@elizaos/plugin-shell": pluginShell,
   "@elizaos/plugin-plugin-manager": pluginPluginManager,
@@ -234,7 +247,6 @@ export const STATIC_ELIZA_PLUGINS: Record<string, unknown> = {
   "@elizaos/plugin-elizacloud": pluginElizacloud,
   "@elizaos/plugin-trust": pluginTrust,
   "@miladyai/plugin-selfcontrol": pluginSelfControl,
-  "@miladyai/plugin-roles": pluginRoles,
   "@elizaos/plugin-personality": pluginPersonality,
   "@elizaos/plugin-experience": pluginExperience,
 };
@@ -572,8 +584,8 @@ function isLikelyOpenAiTextModel(value: string | undefined): boolean {
  * Normalize known-bad provider compatibility shims before plugin resolution.
  *
  * A common failure mode is routing the OpenAI plugin through Groq's
- * OpenAI-compatible base URL while leaving OpenAI defaults (`gpt-5`,
- * `gpt-5-mini`) in place. Structured XML/object generation then fails during
+ * OpenAI-compatible base URL while leaving OpenAI defaults (`gpt-5.4`,
+ * `gpt-5.4-mini`) in place. Structured XML/object generation then fails during
  * message handling because Groq does not serve those model IDs.
  *
  * When we can confidently detect that state, rewrite the effective runtime
@@ -1133,6 +1145,7 @@ export function shouldIgnoreMissingPluginExport(pluginName: string): boolean {
  */
 export function isEnvKeyAllowedForForwarding(key: string): boolean {
   const upper = key.toUpperCase();
+  if (upper === "ALLOW_NO_DATABASE") return false;
   // Block blockchain private keys
   if (upper.includes("PRIVATE_KEY")) return false;
   if (upper.startsWith("EVM_") || upper.startsWith("SOLANA_")) return false;
@@ -1149,11 +1162,38 @@ export function isEnvKeyAllowedForForwarding(key: string): boolean {
     upper === "ELIZAOS_CLOUD_API_KEY" ||
     upper === "ELIZAOS_CLOUD_ENABLED" ||
     upper === "ELIZAOS_CLOUD_BASE_URL" ||
+    upper === "ELIZAOS_CLOUD_NANO_MODEL" ||
+    upper === "ELIZAOS_CLOUD_MEDIUM_MODEL" ||
     upper === "ELIZAOS_CLOUD_SMALL_MODEL" ||
-    upper === "ELIZAOS_CLOUD_LARGE_MODEL"
+    upper === "ELIZAOS_CLOUD_LARGE_MODEL" ||
+    upper === "ELIZAOS_CLOUD_MEGA_MODEL" ||
+    upper === "ELIZAOS_CLOUD_RESPONSE_HANDLER_MODEL" ||
+    upper === "ELIZAOS_CLOUD_SHOULD_RESPOND_MODEL" ||
+    upper === "ELIZAOS_CLOUD_ACTION_PLANNER_MODEL" ||
+    upper === "ELIZAOS_CLOUD_PLANNER_MODEL"
   )
     return false;
   return true;
+}
+
+function assertPersistentDatabaseRequired(
+  runtime: Pick<AgentRuntime, "getSetting" | "agentId">,
+): void {
+  const raw =
+    runtime.getSetting("ALLOW_NO_DATABASE") ?? process.env.ALLOW_NO_DATABASE;
+  const normalized = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "yes" ||
+    normalized === "on"
+  ) {
+    throw new Error(
+      `Milady requires persistent database storage and does not permit ALLOW_NO_DATABASE (agent ${runtime.agentId}). Remove ALLOW_NO_DATABASE from config/env and use @elizaos/plugin-sql.`,
+    );
+  }
 }
 
 function isElizaCloudManagedProcessEnvKey(key: string): boolean {
@@ -1162,8 +1202,15 @@ function isElizaCloudManagedProcessEnvKey(key: string): boolean {
     upper === "ELIZAOS_CLOUD_API_KEY" ||
     upper === "ELIZAOS_CLOUD_ENABLED" ||
     upper === "ELIZAOS_CLOUD_BASE_URL" ||
+    upper === "ELIZAOS_CLOUD_NANO_MODEL" ||
+    upper === "ELIZAOS_CLOUD_MEDIUM_MODEL" ||
     upper === "ELIZAOS_CLOUD_SMALL_MODEL" ||
-    upper === "ELIZAOS_CLOUD_LARGE_MODEL"
+    upper === "ELIZAOS_CLOUD_LARGE_MODEL" ||
+    upper === "ELIZAOS_CLOUD_MEGA_MODEL" ||
+    upper === "ELIZAOS_CLOUD_RESPONSE_HANDLER_MODEL" ||
+    upper === "ELIZAOS_CLOUD_SHOULD_RESPOND_MODEL" ||
+    upper === "ELIZAOS_CLOUD_ACTION_PLANNER_MODEL" ||
+    upper === "ELIZAOS_CLOUD_PLANNER_MODEL"
   );
 }
 
@@ -1569,14 +1616,18 @@ export async function autoFetchCloudGithubToken(
 export function applyCloudConfigToEnv(config: ElizaConfig): void {
   migrateLegacyRuntimeConfig(config as Record<string, unknown>);
   const cloud = config.cloud;
-  if (!cloud) return;
+
+  const isCloudContainer =
+    process.env.MILADY_CLOUD_PROVISIONED === "1" ||
+    process.env.ELIZA_CLOUD_PROVISIONED === "1";
+  if (!cloud && !isCloudContainer) return;
   const topology = resolveElizaCloudTopology(config as Record<string, unknown>);
 
   // Cloud inference is selected from the canonical onboarding connection, not
   // just from raw cloud flags. This keeps linked cloud auth from re-enabling
   // Eliza Cloud after the user has switched to a local or remote provider.
-  const effectivelyEnabled = topology.services.inference;
-  const shouldLoadCloudPlugin = topology.shouldLoadPlugin;
+  const effectivelyEnabled = topology.services.inference || isCloudContainer;
+  const shouldLoadCloudPlugin = topology.shouldLoadPlugin || isCloudContainer;
 
   const setCloudUsageEnv = (key: string, enabled: boolean): void => {
     if (enabled) {
@@ -1587,14 +1638,17 @@ export function applyCloudConfigToEnv(config: ElizaConfig): void {
   };
 
   if (isMiladySettingsDebugEnabled()) {
-    const c = cloud as Record<string, unknown>;
+    const c = (cloud ?? {}) as Record<string, unknown>;
     logger.debug(
-      `[milady][settings][runtime] applyCloudConfigToEnv inference=${effectivelyEnabled} shouldLoadPlugin=${shouldLoadCloudPlugin} cloud=${JSON.stringify(settingsDebugCloudSummary(c))}`,
+      `[milady][settings][runtime] applyCloudConfigToEnv inference=${effectivelyEnabled} shouldLoadPlugin=${shouldLoadCloudPlugin} isCloudContainer=${isCloudContainer} cloud=${JSON.stringify(settingsDebugCloudSummary(c))}`,
     );
   }
 
-  setCloudUsageEnv("ELIZAOS_CLOUD_USE_INFERENCE", topology.services.inference);
-  setCloudUsageEnv("ELIZAOS_CLOUD_USE_TTS", topology.services.tts);
+  setCloudUsageEnv("ELIZAOS_CLOUD_USE_INFERENCE", effectivelyEnabled);
+  setCloudUsageEnv(
+    "ELIZAOS_CLOUD_USE_TTS",
+    topology.services.tts || isCloudContainer,
+  );
   setCloudUsageEnv("ELIZAOS_CLOUD_USE_MEDIA", topology.services.media);
   setCloudUsageEnv(
     "ELIZAOS_CLOUD_USE_EMBEDDINGS",
@@ -1610,7 +1664,7 @@ export function applyCloudConfigToEnv(config: ElizaConfig): void {
 
   if (shouldLoadCloudPlugin) {
     logger.info(
-      `[eliza] Cloud config: inference=${topology.services.inference}, runtime=${topology.runtime}, hasApiKey=${Boolean(cloud.apiKey)}, baseUrl=${cloud.baseUrl ?? "(default)"}`,
+      `[eliza] Cloud config: inference=${topology.services.inference}, runtime=${topology.runtime}, hasApiKey=${Boolean(cloud?.apiKey || process.env.ELIZAOS_CLOUD_API_KEY)}, baseUrl=${cloud?.baseUrl ?? "(default)"}, isCloudContainer=${isCloudContainer}`,
     );
     // Only propagate the API key when cloud is enabled AND it is a real
     // credential — never set the literal "[REDACTED]" placeholder (which can
@@ -1619,47 +1673,101 @@ export function applyCloudConfigToEnv(config: ElizaConfig): void {
     // in process.env still auto-loads @elizaos/plugin-elizacloud and steals
     // TEXT_LARGE even if the JSON says cloud is off.
     const isRealApiKey =
-      cloud.apiKey && cloud.apiKey.trim().toUpperCase() !== "[REDACTED]";
+      cloud?.apiKey && cloud.apiKey.trim().toUpperCase() !== "[REDACTED]";
     if (isRealApiKey) {
       process.env.ELIZAOS_CLOUD_API_KEY = cloud.apiKey;
-    } else {
+    } else if (!isCloudContainer) {
       delete process.env.ELIZAOS_CLOUD_API_KEY;
     }
-    if (cloud.baseUrl) {
+    if (cloud?.baseUrl) {
       process.env.ELIZAOS_CLOUD_BASE_URL = cloud.baseUrl;
-    } else {
+    } else if (!isCloudContainer) {
       delete process.env.ELIZAOS_CLOUD_BASE_URL;
     }
   } else {
+    delete process.env.ELIZAOS_CLOUD_NANO_MODEL;
+    delete process.env.ELIZAOS_CLOUD_MEDIUM_MODEL;
     delete process.env.ELIZAOS_CLOUD_SMALL_MODEL;
     delete process.env.ELIZAOS_CLOUD_LARGE_MODEL;
+    delete process.env.ELIZAOS_CLOUD_MEGA_MODEL;
+    delete process.env.ELIZAOS_CLOUD_RESPONSE_HANDLER_MODEL;
+    delete process.env.ELIZAOS_CLOUD_SHOULD_RESPOND_MODEL;
+    delete process.env.ELIZAOS_CLOUD_ACTION_PLANNER_MODEL;
+    delete process.env.ELIZAOS_CLOUD_PLANNER_MODEL;
     delete process.env.ELIZAOS_CLOUD_API_KEY;
     delete process.env.ELIZAOS_CLOUD_BASE_URL;
   }
 
-  // Propagate model names so the cloud plugin picks them up.  Falls back to
+  // Propagate model names so the cloud plugin picks them up. Falls back to
   // sensible defaults when cloud is enabled but no explicit selection exists.
   // Skip when inferenceMode is "byok"/"local" or services.inference is off —
   // user's own keys handle models.
   // If the user chose a subscription provider, treat that as "byok" unless
   // they explicitly set inferenceMode to "cloud".
+  const llmText = resolveServiceRoutingInConfig(config as Record<string, unknown>)
+    ?.llmText;
   const models = (config as Record<string, unknown>).models as
-    | { small?: string; large?: string }
+    | {
+        nano?: string;
+        small?: string;
+        medium?: string;
+        large?: string;
+        mega?: string;
+      }
     | undefined;
-  if (topology.services.inference) {
-    const small = models?.small || "openai/gpt-5-mini";
-    const large = models?.large || "anthropic/claude-sonnet-4.5";
+  if (effectivelyEnabled) {
+    const nano = llmText?.nanoModel || models?.nano || "openai/gpt-5.4-nano";
+    const small = llmText?.smallModel || models?.small || "minimax/minimax-m2.7";
+    const medium =
+      llmText?.mediumModel || models?.medium || small;
+    const large =
+      llmText?.largeModel || models?.large || "anthropic/claude-sonnet-4.6";
+    const mega = llmText?.megaModel || models?.mega || large;
+    const responseHandlerModel =
+      llmText?.responseHandlerModel || llmText?.shouldRespondModel;
+    const actionPlannerModel =
+      llmText?.actionPlannerModel || llmText?.plannerModel;
     process.env.SMALL_MODEL = small;
+    process.env.NANO_MODEL = nano;
+    process.env.MEDIUM_MODEL = medium;
     process.env.LARGE_MODEL = large;
+    process.env.MEGA_MODEL = mega;
+    if (responseHandlerModel) {
+      process.env.ELIZAOS_CLOUD_RESPONSE_HANDLER_MODEL = responseHandlerModel;
+      process.env.ELIZAOS_CLOUD_SHOULD_RESPOND_MODEL = responseHandlerModel;
+    } else {
+      delete process.env.ELIZAOS_CLOUD_RESPONSE_HANDLER_MODEL;
+      delete process.env.ELIZAOS_CLOUD_SHOULD_RESPOND_MODEL;
+    }
+    if (actionPlannerModel) {
+      process.env.ELIZAOS_CLOUD_ACTION_PLANNER_MODEL = actionPlannerModel;
+      process.env.ELIZAOS_CLOUD_PLANNER_MODEL = actionPlannerModel;
+    } else {
+      delete process.env.ELIZAOS_CLOUD_ACTION_PLANNER_MODEL;
+      delete process.env.ELIZAOS_CLOUD_PLANNER_MODEL;
+    }
+    process.env.ELIZAOS_CLOUD_NANO_MODEL = nano;
+    process.env.ELIZAOS_CLOUD_MEDIUM_MODEL = medium;
     process.env.ELIZAOS_CLOUD_SMALL_MODEL = small;
     process.env.ELIZAOS_CLOUD_LARGE_MODEL = large;
+    process.env.ELIZAOS_CLOUD_MEGA_MODEL = mega;
   } else if (shouldLoadCloudPlugin) {
     // Cloud plugin may still be active for non-inference services; keep model
     // routing local by clearing the cloud model aliases.
+    delete process.env.ELIZAOS_CLOUD_NANO_MODEL;
+    delete process.env.ELIZAOS_CLOUD_MEDIUM_MODEL;
     delete process.env.ELIZAOS_CLOUD_SMALL_MODEL;
     delete process.env.ELIZAOS_CLOUD_LARGE_MODEL;
+    delete process.env.ELIZAOS_CLOUD_MEGA_MODEL;
+    delete process.env.ELIZAOS_CLOUD_RESPONSE_HANDLER_MODEL;
+    delete process.env.ELIZAOS_CLOUD_SHOULD_RESPOND_MODEL;
+    delete process.env.ELIZAOS_CLOUD_ACTION_PLANNER_MODEL;
+    delete process.env.ELIZAOS_CLOUD_PLANNER_MODEL;
+    delete process.env.NANO_MODEL;
+    delete process.env.MEDIUM_MODEL;
     delete process.env.SMALL_MODEL;
     delete process.env.LARGE_MODEL;
+    delete process.env.MEGA_MODEL;
   }
 
   // Propagate per-service disable flags so downstream code can check them
@@ -1764,8 +1872,8 @@ export function applyDatabaseConfigToEnv(config: ElizaConfig): void {
       );
 
       // Remove stale postmaster.pid left by a crashed process. Without this,
-      // PGlite sees the lock and either fails or triggers the destructive
-      // resetPgliteDataDir path, wiping all conversation history.
+      // PGlite sees the lock and either fails or, with explicit destructive
+      // recovery enabled, triggers the resetPgliteDataDir path.
       cleanStalePglitePid(dataDir);
     }
   }
@@ -1782,8 +1890,8 @@ type PglitePidFileStatus =
 type PgliteRecoveryAction =
   | "none"
   | "retry-without-reset"
-  | "reset-data-dir"
-  | "fail-active-lock";
+  | "fail-active-lock"
+  | "fail-manual-reset";
 
 function reconcilePglitePidFile(dataDir: string): PglitePidFileStatus {
   const pidPath = path.join(dataDir, "postmaster.pid");
@@ -1899,6 +2007,15 @@ function isPgliteLockError(err: unknown): boolean {
 
 /** @internal Exported for testing. */
 export function isRecoverablePgliteInitError(err: unknown): boolean {
+  const code = pluginSql.getPgliteErrorCode(err);
+  if (
+    code === pluginSql.PGLITE_ERROR_CODES.ACTIVE_LOCK ||
+    code === pluginSql.PGLITE_ERROR_CODES.CORRUPT_DATA ||
+    code === pluginSql.PGLITE_ERROR_CODES.MANUAL_RESET_REQUIRED
+  ) {
+    return true;
+  }
+
   const haystack = collectErrorMessages(err).join("\n").toLowerCase();
   if (!haystack) return false;
 
@@ -1918,11 +2035,15 @@ export function isRecoverablePgliteInitError(err: unknown): boolean {
     "checkpoint failed",
     "checksum mismatch",
     "corrupt",
+    "could not read blocks",
+    "read only ",
+    "unreachable code should not be executed",
+    "_pgl_backend",
   ].some((needle) => haystack.includes(needle));
 
   if (hasMigrationsSchema) return true;
   if (hasAbort && hasPglite) return true;
-  if (hasRecoverableStorageSignal && (hasPglite || hasSqlite)) return true;
+  if (hasRecoverableStorageSignal) return true;
   return false;
 }
 
@@ -1931,13 +2052,28 @@ export function getPgliteRecoveryAction(
   err: unknown,
   dataDir: string,
 ): PgliteRecoveryAction {
+  const code = pluginSql.getPgliteErrorCode(err);
+  if (code === pluginSql.PGLITE_ERROR_CODES.ACTIVE_LOCK) {
+    return "fail-active-lock";
+  }
+  if (
+    code === pluginSql.PGLITE_ERROR_CODES.CORRUPT_DATA ||
+    code === pluginSql.PGLITE_ERROR_CODES.MANUAL_RESET_REQUIRED
+  ) {
+    return "fail-manual-reset";
+  }
+
   if (!isRecoverablePgliteInitError(err)) return "none";
-  if (!isPgliteLockError(err)) return "reset-data-dir";
 
   const pidStatus = reconcilePglitePidFile(dataDir);
+  const treatPidAsActiveLock =
+    code === pluginSql.PGLITE_ERROR_CODES.ACTIVE_LOCK || isPgliteLockError(err);
   if (
+    treatPidAsActiveLock &&
     pidStatus === "active" ||
+    treatPidAsActiveLock &&
     pidStatus === "active-unconfirmed" ||
+    treatPidAsActiveLock &&
     pidStatus === "check-failed"
   ) {
     return "fail-active-lock";
@@ -1945,13 +2081,62 @@ export function getPgliteRecoveryAction(
   if (pidStatus === "cleared-stale" || pidStatus === "cleared-malformed") {
     return "retry-without-reset";
   }
-  return "reset-data-dir";
+  return "fail-manual-reset";
 }
 
 function createActivePgliteLockError(dataDir: string, err: unknown): Error {
-  return new Error(
-    `PGLite data dir is already in use at ${dataDir}. Close the other Eliza process or set a different PGLITE_DATA_DIR before retrying.`,
-    { cause: err },
+  if (
+    pluginSql.getPgliteErrorCode(err) === pluginSql.PGLITE_ERROR_CODES.ACTIVE_LOCK &&
+    err instanceof Error
+  ) {
+    return err;
+  }
+  return pluginSql.createPgliteInitError(
+    pluginSql.PGLITE_ERROR_CODES.ACTIVE_LOCK,
+    `PGLite data dir is already in use at ${dataDir}. Close the other Milady or Eliza process, or set a different PGLITE_DATA_DIR before retrying.`,
+    { cause: err, dataDir },
+  );
+}
+
+function formatPgliteFailure(err: unknown): string {
+  return collectErrorMessages(err)[0] ?? formatError(err);
+}
+
+function createManualResetRequiredPgliteError(
+  dataDir: string,
+  err: unknown,
+): Error {
+  if (
+    pluginSql.getPgliteErrorCode(err) ===
+      pluginSql.PGLITE_ERROR_CODES.MANUAL_RESET_REQUIRED &&
+    err instanceof Error
+  ) {
+    return err;
+  }
+
+  const errorText = formatPgliteFailure(err);
+  const cause =
+    pluginSql.getPgliteErrorCode(err) === pluginSql.PGLITE_ERROR_CODES.CORRUPT_DATA
+      ? err
+      : pluginSql.createPgliteInitError(
+          pluginSql.PGLITE_ERROR_CODES.CORRUPT_DATA,
+          `PGlite data dir at ${dataDir} appears corrupt or unreadable: ${errorText}`,
+          { cause: err, dataDir },
+        );
+
+  return pluginSql.createPgliteInitError(
+    pluginSql.PGLITE_ERROR_CODES.MANUAL_RESET_REQUIRED,
+    `PGlite initialization failed for ${dataDir}: ${errorText}. Stop Milady, then rename or delete only this directory before retrying: ${dataDir}`,
+    { cause, dataDir },
+  );
+}
+
+export function isFatalPgliteStartupError(err: unknown): boolean {
+  const code = pluginSql.getPgliteErrorCode(err);
+  return (
+    code === pluginSql.PGLITE_ERROR_CODES.ACTIVE_LOCK ||
+    code === pluginSql.PGLITE_ERROR_CODES.CORRUPT_DATA ||
+    code === pluginSql.PGLITE_ERROR_CODES.MANUAL_RESET_REQUIRED
   );
 }
 
@@ -1962,35 +2147,6 @@ function resolveActivePgliteDataDir(config: ElizaConfig): string | null {
   const configured = process.env.PGLITE_DATA_DIR?.trim();
   const dataDir = configured || resolveDefaultPgliteDataDir(config);
   return resolveUserPath(dataDir);
-}
-
-async function resetPgliteDataDir(dataDir: string): Promise<void> {
-  const normalized = path.resolve(dataDir);
-  const root = path.parse(normalized).root;
-  if (normalized === root) {
-    throw new Error(`Refusing to reset unsafe PGLite path: ${normalized}`);
-  }
-
-  const stamp = new Date()
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\..*$/, "")
-    .replace("T", "-");
-  const backupDir = `${normalized}.corrupt-${stamp}`;
-
-  if (existsSync(normalized)) {
-    try {
-      await fs.rename(normalized, backupDir);
-      logger.warn(`[eliza] Backed up existing PGLite data dir to ${backupDir}`);
-    } catch (err) {
-      logger.warn(
-        `[eliza] Failed to back up PGLite data dir (${formatError(err)}); deleting ${normalized} instead`,
-      );
-      await fs.rm(normalized, { recursive: true, force: true });
-    }
-  }
-
-  await fs.mkdir(normalized, { recursive: true });
 }
 
 /** Call whichever init method the adapter exposes (.init or .initialize). */
@@ -2026,24 +2182,17 @@ async function initializeDatabaseAdapter(
     if (recoveryAction === "fail-active-lock") {
       throw createActivePgliteLockError(pgliteDataDir, err);
     }
-
-    if (recoveryAction === "retry-without-reset") {
-      logger.warn(
-        `[eliza] PGLite init failed (${formatError(err)}). Cleared a stale PGLite lock in ${pgliteDataDir} and retrying without resetting data.`,
-      );
-    } else {
-      logger.warn(
-        `[eliza] PGLite init failed (${formatError(err)}). Resetting local DB at ${pgliteDataDir} and retrying once.`,
-      );
-      await resetPgliteDataDir(pgliteDataDir);
-      process.env.PGLITE_DATA_DIR = pgliteDataDir;
+    if (recoveryAction === "fail-manual-reset") {
+      throw createManualResetRequiredPgliteError(pgliteDataDir, err);
     }
+
+    logger.warn(
+      `[eliza] PGLite init failed (${formatError(err)}). Cleared a stale PGLite lock in ${pgliteDataDir} and retrying without resetting data.`,
+    );
 
     await callAdapterInit(runtime.adapter);
     logger.info(
-      recoveryAction === "retry-without-reset"
-        ? "[eliza] Database adapter recovered after clearing a stale PGLite lock"
-        : "[eliza] Database adapter recovered after resetting PGLite data",
+      "[eliza] Database adapter recovered after clearing a stale PGLite lock",
     );
   }
 
@@ -2488,18 +2637,13 @@ async function registerSqlPluginWithRecovery(
     if (recoveryAction === "fail-active-lock") {
       throw createActivePgliteLockError(pgliteDataDir, registerError);
     }
-
-    if (recoveryAction === "retry-without-reset") {
-      logger.warn(
-        `[eliza] SQL plugin registration failed (${formatError(registerError)}). Cleared a stale PGLite lock in ${pgliteDataDir} and retrying without resetting data.`,
-      );
-    } else {
-      logger.warn(
-        `[eliza] SQL plugin registration failed (${formatError(registerError)}). Resetting local PGLite DB at ${pgliteDataDir} and retrying once.`,
-      );
-      await resetPgliteDataDir(pgliteDataDir);
-      process.env.PGLITE_DATA_DIR = pgliteDataDir;
+    if (recoveryAction === "fail-manual-reset") {
+      throw createManualResetRequiredPgliteError(pgliteDataDir, registerError);
     }
+
+    logger.warn(
+      `[eliza] SQL plugin registration failed (${formatError(registerError)}). Cleared a stale PGLite lock in ${pgliteDataDir} and retrying without resetting data.`,
+    );
 
     try {
       await runtime.registerPlugin(sqlPlugin.plugin);
@@ -2533,7 +2677,11 @@ export function buildCharacterFromConfig(config: ElizaConfig): Character {
     presetId?: string;
   };
   const language = normalizeCharacterLanguage(uiConfig.language);
-  const configuredName = agentEntry?.name ?? uiConfig.assistant?.name;
+  const configuredUiName = uiConfig.assistant?.name?.trim();
+  const configuredAgentName = agentEntry?.name?.trim();
+  // Prefer the UI-level assistant name when it diverges from the bundled
+  // preset entry so renames take effect immediately across prompts/logging.
+  const configuredName = configuredUiName || configuredAgentName;
   const bundledPreset =
     resolveStylePresetById(uiConfig.presetId, language) ??
     resolveStylePresetByAvatarIndex(uiConfig.avatarIndex, language) ??
@@ -3466,13 +3614,20 @@ export async function startEliza(
       ...(typeof config.agents?.defaults?.adminEntityId === "string" &&
       config.agents.defaults.adminEntityId.trim().length > 0
         ? {
-            MILADY_ADMIN_ENTITY_ID: config.agents.defaults.adminEntityId.trim(),
+            ELIZA_ADMIN_ENTITY_ID: config.agents.defaults.adminEntityId.trim(),
           }
         : {}),
       ...(config.agents?.defaults?.ownerContacts
         ? {
-            MILADY_OWNER_CONTACTS_JSON: JSON.stringify(
+            ELIZA_OWNER_CONTACTS_JSON: JSON.stringify(
               config.agents.defaults.ownerContacts,
+            ),
+          }
+        : {}),
+      ...(config.roles?.connectorAdmins
+        ? {
+            ELIZA_ROLES_CONNECTOR_ADMINS_JSON: JSON.stringify(
+              config.roles.connectorAdmins,
             ),
           }
         : {}),
@@ -3549,6 +3704,16 @@ export async function startEliza(
   //     Each registerPlugin() call runs the plugin's init() before proceeding
   //     to the next, guaranteeing that cross-plugin getService() calls resolve.
   {
+    try {
+      logger.info("[eliza] Pre-registering internal roles capability...");
+      await runtime.registerPlugin(rolesPlugin);
+      logger.info("[eliza] ✓ internal roles capability pre-registered");
+    } catch (err) {
+      logger.warn(
+        `[eliza] Internal roles capability pre-registration failed: ${formatError(err)}`,
+      );
+    }
+
     const alreadyPreRegistered = new Set([
       "@elizaos/plugin-sql",
       "@elizaos/plugin-local-embedding",
@@ -3660,7 +3825,19 @@ export async function startEliza(
   };
 
   const initializeRuntimeServices = async (): Promise<void> => {
+    try {
+      const { stewardEvmPreBoot } = await import(
+        "../services/steward-evm-bridge.js"
+      );
+      await stewardEvmPreBoot(runtime);
+    } catch (err) {
+      logger.debug(
+        `[eliza] Steward EVM pre-boot skipped: ${formatError(err)}`,
+      );
+    }
+
     // 8. Initialize the runtime (registers remaining plugins, starts services)
+    assertPersistentDatabaseRequired(runtime);
     await runtime.initialize();
     await prepareRuntimeForTrajectoryCapture(runtime, "runtime.initialize()");
 
@@ -3675,6 +3852,28 @@ export async function startEliza(
     } catch (err) {
       logger.warn(
         `[eliza] Failed to seed bundled knowledge: ${formatError(err)}`,
+      );
+    }
+
+    try {
+      const { stewardEvmPostBoot } = await import(
+        "../services/steward-evm-bridge.js"
+      );
+      await stewardEvmPostBoot(runtime);
+    } catch (err) {
+      logger.debug(
+        `[eliza] Steward EVM post-boot skipped: ${formatError(err)}`,
+      );
+    }
+
+    try {
+      const { installAnthropicWebSearch } = await import(
+        "./web-search-tools.js"
+      );
+      installAnthropicWebSearch(runtime);
+    } catch (err) {
+      logger.debug(
+        `[eliza] Anthropic web search setup skipped: ${formatError(err)}`,
       );
     }
 
@@ -3742,21 +3941,17 @@ export async function startEliza(
     if (recoveryAction === "fail-active-lock") {
       throw createActivePgliteLockError(pgliteDataDir, err);
     }
+    if (recoveryAction === "fail-manual-reset") {
+      throw createManualResetRequiredPgliteError(pgliteDataDir, err);
+    }
 
     logger.warn(
-      recoveryAction === "retry-without-reset"
-        ? `[eliza] Runtime migrations failed (${formatError(err)}). Cleared a stale PGLite lock in ${pgliteDataDir} and retrying startup once without resetting data.`
-        : `[eliza] Runtime migrations failed (${formatError(err)}). Resetting local PGLite DB at ${pgliteDataDir} and retrying startup once.`,
+      `[eliza] Runtime migrations failed (${formatError(err)}). Cleared a stale PGLite lock in ${pgliteDataDir} and retrying startup once without resetting data.`,
     );
     try {
       await shutdownRuntime(runtime, "PGLite recovery");
     } catch {
       // Ignore cleanup errors — retry creates a fresh runtime anyway.
-    }
-
-    if (recoveryAction === "reset-data-dir") {
-      await resetPgliteDataDir(pgliteDataDir);
-      process.env.PGLITE_DATA_DIR = pgliteDataDir;
     }
 
     return await startEliza({
@@ -3953,6 +4148,14 @@ export async function startEliza(
 
           // Pre-register remaining core plugins sequentially (same as startup)
           {
+            try {
+              await newRuntime.registerPlugin(rolesPlugin);
+            } catch (err) {
+              logger.warn(
+                `[eliza] Hot-reload: internal roles capability pre-registration failed: ${formatError(err)}`,
+              );
+            }
+
             const alreadyPreRegistered = new Set([
               "@elizaos/plugin-sql",
               "@elizaos/plugin-local-embedding",
@@ -3971,11 +4174,30 @@ export async function startEliza(
             }
           }
 
+          assertPersistentDatabaseRequired(newRuntime);
+          try {
+            const { stewardEvmPreBoot: preBootHR } = await import(
+              "../services/steward-evm-bridge.js"
+            );
+            await preBootHR(newRuntime);
+          } catch {
+            // non-fatal
+          }
+          assertPersistentDatabaseRequired(newRuntime);
           await newRuntime.initialize();
           await prepareRuntimeForTrajectoryCapture(
             newRuntime,
             "hot-reload runtime.initialize()",
           );
+
+          try {
+            const { stewardEvmPostBoot: postBootHR } = await import(
+              "../services/steward-evm-bridge.js"
+            );
+            await postBootHR(newRuntime);
+          } catch {
+            // non-fatal
+          }
 
           // Ensure AutonomyService survives hot-reload (respects ENABLE_AUTONOMY)
           const hotReloadAutonomyEnabled =
@@ -4348,11 +4570,7 @@ const isDirectRun = (() => {
   const scriptArg = process.argv[1];
   if (!scriptArg) return false;
   const normalised = path.resolve(scriptArg);
-  // Exact match against this module's file URL
-  if (import.meta.url === pathToFileURL(normalised).href) return true;
-  // Fallback: match the specific filename (handles tsx rewriting)
-  const base = path.basename(normalised);
-  return base === "eliza.ts" || base === "eliza";
+  return import.meta.url === pathToFileURL(normalised).href;
 })();
 
 if (isDirectRun) {

@@ -6,9 +6,9 @@
 import type { DatabaseProviderType } from "@miladyai/agent/contracts/config";
 import type {
   CaptureLifeOpsActivitySignalRequest,
+  LifeOpsActivitySignal,
   LifeOpsConnectorMode,
   LifeOpsConnectorSide,
-  LifeOpsActivitySignal,
 } from "@miladyai/shared/contracts/lifeops";
 import { MiladyClient } from "./client-base";
 import type {
@@ -92,7 +92,11 @@ declare module "./client-base" {
       text: string,
       channelType?: ConversationChannelType,
       conversationMode?: ConversationMode,
-    ): Promise<{ text: string; agentName: string; noResponseReason?: "ignored" }>;
+    ): Promise<{
+      text: string;
+      agentName: string;
+      noResponseReason?: "ignored";
+    }>;
     sendChatStream(
       text: string,
       onToken: (token: string, accumulatedText?: string) => void,
@@ -133,6 +137,7 @@ declare module "./client-base" {
       limit?: number;
       sources?: string[];
       roomId?: string;
+      roomSource?: string;
     }): Promise<{
       messages: Array<ConversationMessage & { roomId: string; source: string }>;
       count: number;
@@ -155,7 +160,12 @@ declare module "./client-base" {
       chats: Array<{
         id: string;
         source: string;
+        /** Owning server/world id when the connector exposes one. */
+        worldId?: string;
+        /** User-facing server/world label for selectors and section headers. */
+        worldLabel: string;
         title: string;
+        avatarUrl?: string;
         lastMessageText: string;
         lastMessageAt: number;
         messageCount: number;
@@ -655,6 +665,12 @@ MiladyClient.prototype.getInboxMessages = async function (
   if (typeof options?.roomId === "string" && options.roomId.length > 0) {
     params.set("roomId", options.roomId);
   }
+  if (
+    typeof options?.roomSource === "string" &&
+    options.roomSource.length > 0
+  ) {
+    params.set("roomSource", options.roomSource);
+  }
   const query = params.toString();
   const path = query ? `/api/inbox/messages?${query}` : "/api/inbox/messages";
   return this.fetch<{
@@ -681,7 +697,12 @@ MiladyClient.prototype.getInboxChats = async function (
     chats: Array<{
       id: string;
       source: string;
+      /** Owning server/world id when the connector exposes one. */
+      worldId?: string;
+      /** User-facing server/world label for selectors and section headers. */
+      worldLabel: string;
       title: string;
+      avatarUrl?: string;
       lastMessageText: string;
       lastMessageAt: number;
       messageCount: number;

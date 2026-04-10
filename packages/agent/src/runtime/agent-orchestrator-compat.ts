@@ -15,6 +15,8 @@ import type {
   ProviderResult,
   State,
 } from "@elizaos/core";
+import { installClaudeJsonlCompletionWatcher } from "./claude-jsonl-completion-watcher";
+import { installTaskProgressStreamer } from "./task-progress-streamer";
 
 // Dynamic import: plugin-agent-orchestrator is desktop-only and may be absent
 // in Docker, cloud, or headless environments.
@@ -258,8 +260,12 @@ const FRAMEWORK_LABELS: Record<FrameworkId, string> = {
 };
 const STANDARD_FRAMEWORKS: AdapterId[] = ["claude", "codex", "gemini", "aider"];
 
-const TASK_AGENT_COMPLEXITY_RE =
-  /\b(repo|repository|code|coding|debug|fix|implement|investigate|research|analyze|analysis|summarize|summary|write|draft|document|plan|workflow|automation|parallel|delegate|subtask|agent|orchestrate|coordinate|compare|test|tests|pull request|pr\b|branch|commit)\b/i;
+const TASK_AGENT_STRONG_HINT_RE =
+  /\b(repo|repository|codebase|coding|debug|fix|implement|refactor|workspace|parallel|delegate|subtask|sub-agent|subagent|agent|orchestrate|coordinate|pull request|pr\b|branch|commit|background task)\b/i;
+const TASK_AGENT_WEAK_HINT_RE =
+  /\b(investigate|research|analyze|analysis|summarize|summary|write|draft|document|plan|workflow|automation|compare|test|tests)\b/i;
+const NON_TASK_ASSISTANT_QUERY_RE =
+  /\b(calendar|schedule|event|events|meeting|meetings|appointment|appointments|gmail|email|emails|inbox|lifeops|flight|flights|travel|trip|today|tomorrow|tonight|this week|next week|remind|reminder|task|habit)\b/i;
 
 let frameworkStateCache:
   | {
@@ -750,7 +756,16 @@ function formatFrameworkLine(framework: FrameworkAvailability): string {
 }
 
 function looksLikeTaskRequest(text: string): boolean {
-  return TASK_AGENT_COMPLEXITY_RE.test(text);
+  if (NON_TASK_ASSISTANT_QUERY_RE.test(text)) {
+    return false;
+  }
+  return (
+    TASK_AGENT_STRONG_HINT_RE.test(text) ||
+    (TASK_AGENT_WEAK_HINT_RE.test(text) &&
+      /\b(repo|repository|workspace|code|coding|sub-agent|subagent|agent|parallel|delegate|background)\b/i.test(
+        text,
+      ))
+  );
 }
 
 function formatStatus(status: string): string {
@@ -829,11 +844,12 @@ function createTaskAgentExamplesProvider(): Provider {
       const ptyService = getPtyService(runtime);
       const frameworkState = await getFrameworkState(runtime, ptyService);
       const frameworkLines = frameworkState.frameworks.map(formatFrameworkLine);
+      const taskLikeRequest = looksLikeTaskRequest(userText);
 
       const compactText = [
-        "# Task Agent Action Call Examples",
-        "Use task agents for anything more complicated than a simple direct reply.",
-        "They are asynchronous, open-ended workers that can code, debug, research, write, analyze, plan, document, and automate while you stay free to keep talking with the user.",
+        "# Task Agent Availability",
+        "Task agents are for repo, workspace, coding, and other long-running background work.",
+        "Do not use CREATE_TASK, SPAWN_AGENT, or SEND_TO_AGENT for normal LifeOps, calendar, Gmail, scheduling, or other questions the main agent can answer directly.",
         "",
         `Recommended default right now: ${FRAMEWORK_LABELS[frameworkState.preferred.id]} (${frameworkState.preferred.reason}).`,
         ...(frameworkState.configuredSubscriptionProvider
@@ -846,15 +862,13 @@ function createTaskAgentExamplesProvider(): Provider {
         ...frameworkLines,
         "",
         "Canonical actions:",
-        "- CREATE_TASK: launch one or more background task agents, optionally against a repo or workspace.",
+        "- CREATE_TASK: launch one or more background task agents against a repo, workspace, or explicit multi-step background task.",
         "- SPAWN_AGENT: start a specific task agent in an existing workspace when you need direct control.",
-        "- SEND_TO_AGENT: reply to a running agent or send keys to unblock it.",
-        "- LIST_AGENTS: inspect active task agents and current task status.",
-        "- STOP_AGENT: cancel a running task agent.",
-        "- PROVISION_WORKSPACE / FINALIZE_WORKSPACE: manage workspaces before or after agent work when needed.",
+        "- SEND_TO_AGENT: reply to a running task agent or send keys to unblock it.",
+        "- LIST_AGENTS / STOP_AGENT: inspect or stop active task agents.",
       ].join("\n");
 
-      if (!looksLikeTaskRequest(userText)) {
+      if (!taskLikeRequest) {
         return {
           data: {
             preferredTaskAgent: frameworkState.preferred.id,
@@ -907,6 +921,7 @@ function createTaskAgentExamplesProvider(): Provider {
         "</params>",
         "",
         "Guidance:",
+        "- Do not use task agents when the main agent can answer directly with built-in LifeOps, calendar, Gmail, or other connector actions.",
         "- Prefer CREATE_TASK whenever the work is open-ended, multi-step, or can continue asynchronously.",
         "- If the task references a real repository or prior workspace, include the repo/workspace context instead of dropping the agent into scratch space.",
         "- Use multiple agents only when the subtasks are clearly separable and benefit from parallelism.",
@@ -940,6 +955,11 @@ function createActiveWorkspaceContextProvider(): Provider {
       const workspaceService = getWorkspaceService(runtime);
       const coordinator = resolveCoordinator(runtime);
       const frameworkState = await getFrameworkState(runtime, ptyService);
+      const userText =
+        (typeof _message.content === "string"
+          ? _message.content
+          : _message.content?.text) ?? "";
+      const taskLikeRequest = looksLikeTaskRequest(userText);
 
       const sessions = ptyService
         ? await Promise.race([
@@ -963,9 +983,15 @@ function createActiveWorkspaceContextProvider(): Provider {
         tasks.length === 0
       ) {
         lines.push("No active workspaces or task-agent sessions.");
-        lines.push(
-          "Use CREATE_TASK when the user needs anything more involved than a simple direct reply.",
-        );
+        if (taskLikeRequest) {
+          lines.push(
+            "Use CREATE_TASK when the user needs substantial repo or background work.",
+          );
+        } else {
+          lines.push(
+            "Ignore this provider for direct calendar, Gmail, LifeOps, or other normal assistant questions.",
+          );
+        }
       } else {
         if (workspaces.length > 0) {
           lines.push("");
@@ -1215,6 +1241,102 @@ function injectPreferredAgentType(action: Action | undefined): void {
   };
 }
 
+/**
+ * Deployment-specific task-agent memory, loaded from an external file.
+ *
+ * The compat layer itself is generic — it ships with no hardcoded deployment
+ * content. Operators point `TASK_AGENT_MEMORY_FILE` (env var or milady config
+ * env section) at a markdown file containing the instructions spawned task
+ * agents should read on startup (project paths, deployment conventions, hard
+ * rules, etc).
+ *
+ * If the env var is unset or the file can't be read, no memory content is
+ * injected — task agents run with stock orchestrator defaults. That keeps
+ * this source file reusable across deployments that have nothing in common
+ * beyond the milady runtime.
+ *
+ * Lazy + cached: the file is read once on the first action invocation per
+ * process lifetime and the content is reused for every subsequent spawn.
+ */
+let cachedTaskAgentMemory: string | null = null;
+let taskAgentMemoryLoaded = false;
+
+function loadTaskAgentMemory(): string {
+  if (taskAgentMemoryLoaded) return cachedTaskAgentMemory ?? "";
+  taskAgentMemoryLoaded = true;
+  const filePath = process.env.TASK_AGENT_MEMORY_FILE;
+  if (!filePath) return "";
+  try {
+    const resolved = filePath.startsWith("~")
+      ? path.join(os.homedir(), filePath.slice(1))
+      : filePath;
+    cachedTaskAgentMemory = fs.readFileSync(resolved, "utf-8");
+    return cachedTaskAgentMemory;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Wraps an orchestrator action so every invocation carries Milady's default
+ * task-agent memory content. Existing caller-supplied memoryContent is
+ * preserved and appended after the defaults.
+ */
+function injectDefaultMemoryContent(action: Action | undefined): void {
+  if (!action?.handler) return;
+  const originalHandler = action.handler.bind(action);
+  action.handler = async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    state?: State,
+    options?: HandlerOptions,
+    callback?: HandlerCallback,
+  ): Promise<ActionResult | undefined> => {
+    // Lazy install: the streamer + jsonl watcher both need a live runtime
+    // and ptyService to wire up callbacks, neither of which exist at
+    // module load time. First task spawn is the earliest both are
+    // guaranteed. Both installers are idempotent per runtime.
+    const pty = getPtyService(runtime);
+    installTaskProgressStreamer(runtime, pty);
+    installClaudeJsonlCompletionWatcher(runtime, pty);
+
+    const parameters =
+      (options?.parameters as Record<string, unknown> | undefined) ?? {};
+    const existing =
+      typeof parameters.memoryContent === "string"
+        ? parameters.memoryContent
+        : undefined;
+    const deploymentMemory = loadTaskAgentMemory();
+    let memoryContent: string | undefined;
+    if (deploymentMemory && existing) {
+      memoryContent = `${deploymentMemory}\n---\n\n${existing}`;
+    } else if (deploymentMemory) {
+      memoryContent = deploymentMemory;
+    } else if (existing) {
+      memoryContent = existing;
+    }
+    // Force autonomous approval for every milady task agent. The LLM that
+    // builds CREATE_TASK action params will sometimes pick "standard" or
+    // "readonly" for tasks that it classifies as "research" or "non-coding",
+    // which strips Write/Edit/Bash/WebSearch from the subagent's allow-list
+    // and leaves it unable to actually do anything. On this deployment the
+    // bot runs on a single-tenant VPS, hooked into agent-home, and is
+    // intended to be fully autonomous — there is no scenario where a
+    // restricted preset is the right call. Overriding here (rather than
+    // server-wide via PTY_SERVICE_CONFIG.defaultApprovalPreset) keeps the
+    // orchestrator plugin's default intact for other deployments.
+    const nextOptions = {
+      ...(options ?? {}),
+      parameters: {
+        ...parameters,
+        ...(memoryContent !== undefined ? { memoryContent } : {}),
+        approvalPreset: "autonomous",
+      },
+    } as HandlerOptions;
+    return originalHandler(runtime, message, state, nextOptions, callback);
+  };
+}
+
 function installListAgentsHandler(action: Action | undefined): void {
   if (!action) return;
   action.handler = async (
@@ -1224,6 +1346,20 @@ function installListAgentsHandler(action: Action | undefined): void {
     _options?: HandlerOptions,
     callback?: HandlerCallback,
   ): Promise<ActionResult | undefined> => {
+    // Only respond to explicit slash commands. The runtime can pick this
+    // action via fuzzy matching during action loops or coordinator events
+    // even when the user never asked for status. Without this guard, the
+    // bot spams the channel with "Active task agents" updates.
+    const userText = (_message?.content?.text ?? "").trim();
+    if (
+      !userText.startsWith("/subagents") &&
+      !userText.startsWith("/sub") &&
+      !userText.startsWith("/agents") &&
+      !userText.startsWith("/sessions")
+    ) {
+      return { success: false, text: "" };
+    }
+
     const ptyService = getPtyService(runtime);
     if (!ptyService) {
       if (callback) {
@@ -1238,10 +1374,7 @@ function installListAgentsHandler(action: Action | undefined): void {
     const frameworkState = await getFrameworkState(runtime, ptyService);
 
     if (sessions.length === 0 && tasks.length === 0) {
-      const text =
-        `No active task agents. ` +
-        `Recommended default: ${FRAMEWORK_LABELS[frameworkState.preferred.id]} (${frameworkState.preferred.reason}). ` +
-        `Use CREATE_TASK when the user needs substantial background work.`;
+      const text = "No active task agents.";
       if (callback) {
         await callback({ text });
       }
@@ -1439,6 +1572,8 @@ function patchPluginSurface(): void {
   }
 
   injectPreferredAgentType(baseActionMap.get("SPAWN_AGENT"));
+  injectDefaultMemoryContent(baseActionMap.get("CREATE_TASK"));
+  injectDefaultMemoryContent(baseActionMap.get("SPAWN_AGENT"));
   installListAgentsHandler(baseActionMap.get("LIST_AGENTS"));
 
   basePlugin.providers = [

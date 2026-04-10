@@ -3,7 +3,7 @@
  *
  * These tests exercise the late-join whitelist evaluator and role-backfill
  * provider together using stateful mock runtimes — verifying the full flow
- * from message receipt to role persistence rather than mocking plugin-roles
+ * from message receipt to role persistence rather than mocking runtime roles
  * internals individually.
  */
 
@@ -11,13 +11,15 @@ import type { Memory, State, UUID } from "@elizaos/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Hoist mocks — plugin-roles functions we intercept to drive real logic
+// Hoist mocks — roles helpers we intercept to drive real logic
 // against our stateful world store.
 // ---------------------------------------------------------------------------
 
 const {
+  mockGetConnectorAdminWhitelist,
   mockGetEntityRole,
   mockHasConfiguredCanonicalOwner,
+  mockMatchEntityToConnectorAdminWhitelist,
   mockResolveWorldForMessage,
   mockResolveCanonicalOwnerId,
   mockSetEntityRole,
@@ -25,8 +27,10 @@ const {
   mockCanModifyRole,
   mockCheckSenderRole,
 } = vi.hoisted(() => ({
+  mockGetConnectorAdminWhitelist: vi.fn(),
   mockGetEntityRole: vi.fn(),
   mockHasConfiguredCanonicalOwner: vi.fn(),
+  mockMatchEntityToConnectorAdminWhitelist: vi.fn(),
   mockResolveWorldForMessage: vi.fn(),
   mockResolveCanonicalOwnerId: vi.fn(),
   mockSetEntityRole: vi.fn(),
@@ -35,9 +39,12 @@ const {
   mockCheckSenderRole: vi.fn(),
 }));
 
-vi.mock("@miladyai/plugin-roles", () => ({
+vi.mock("@elizaos/core/roles", () => ({
+  getConnectorAdminWhitelist: mockGetConnectorAdminWhitelist,
   getEntityRole: mockGetEntityRole,
   hasConfiguredCanonicalOwner: mockHasConfiguredCanonicalOwner,
+  matchEntityToConnectorAdminWhitelist:
+    mockMatchEntityToConnectorAdminWhitelist,
   resolveWorldForMessage: mockResolveWorldForMessage,
   resolveCanonicalOwnerId: mockResolveCanonicalOwnerId,
   setEntityRole: mockSetEntityRole,
@@ -64,6 +71,7 @@ import { roleBackfillProvider } from "../providers/role-backfill";
 type RolesMetadata = {
   ownership?: { ownerId?: string };
   roles?: Record<string, string>;
+  roleSources?: Record<string, string>;
 };
 
 type MockWorld = {
@@ -74,6 +82,7 @@ type MockWorld = {
 
 type MockEntity = {
   id: UUID;
+  names?: string[];
   metadata: Record<string, unknown>;
 };
 
@@ -109,6 +118,10 @@ function createMockRuntime(opts: {
       return opts.entities.get(id) ?? null;
     }),
 
+    getEntitiesForRoom: vi.fn(async (_roomId: UUID) => {
+      return [...opts.entities.values()];
+    }),
+
     getRoom: vi.fn(async (id: UUID) => {
       return opts.rooms.get(id) ?? null;
     }),
@@ -116,6 +129,8 @@ function createMockRuntime(opts: {
     getRoomsForParticipant: vi.fn(async (_entityId: UUID) => {
       return [...opts.rooms.values()].map((r) => r.id);
     }),
+
+    getSetting: vi.fn(() => null),
 
     /** Expose tracked calls for assertion */
     _updateWorldCalls: updateWorldCalls,
@@ -176,7 +191,7 @@ function wireGetEntityRole(
 
 /**
  * Wire up mockSetEntityRole to persist into stateful world metadata.
- * This mirrors what plugin-roles does: resolve world from message, set role, persist.
+ * This mirrors what the runtime roles capability does: resolve world from message, set role, persist.
  */
 function wireSetEntityRole(
   worlds: Map<UUID, MockWorld>,
@@ -189,14 +204,22 @@ function wireSetEntityRole(
       message: Memory,
       targetEntityId: string,
       newRole: string,
+      source = "manual",
     ) => {
       const room = rooms.get(message.roomId);
       if (!room?.worldId) return {};
       const world = worlds.get(room.worldId);
       if (!world) return {};
       const roles = world.metadata.roles ?? {};
+      const roleSources = world.metadata.roleSources ?? {};
       roles[targetEntityId] = newRole;
+      if (newRole === "GUEST") {
+        delete roleSources[targetEntityId];
+      } else {
+        roleSources[targetEntityId] = source;
+      }
       world.metadata.roles = roles;
+      world.metadata.roleSources = roleSources;
       await updateWorldFn(world);
       return { ...roles };
     },
@@ -261,6 +284,42 @@ function wireCanonicalOwnerResolver(worlds: Map<UUID, MockWorld>) {
   );
 }
 
+function wireConnectorAdminWhitelistMatcher() {
+  mockGetConnectorAdminWhitelist.mockReturnValue({});
+  mockMatchEntityToConnectorAdminWhitelist.mockImplementation(
+    (
+      entityMetadata: Record<string, unknown> | undefined | null,
+      whitelist: Record<string, string[]>,
+    ) => {
+      if (!entityMetadata) {
+        return null;
+      }
+
+      for (const [connector, platformIds] of Object.entries(whitelist)) {
+        if (!platformIds?.length) {
+          continue;
+        }
+
+        const connectorMetadata = entityMetadata[connector] as
+          | Record<string, unknown>
+          | undefined;
+        if (!connectorMetadata || typeof connectorMetadata !== "object") {
+          continue;
+        }
+
+        for (const field of ["userId", "id", "username", "userName"] as const) {
+          const value = connectorMetadata[field];
+          if (typeof value === "string" && platformIds.includes(value)) {
+            return { connector, matchedValue: value };
+          }
+        }
+      }
+
+      return null;
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Default scaffolding factory
 // ---------------------------------------------------------------------------
@@ -288,16 +347,19 @@ function createScaffolding(overrides?: {
 
   entities.set(OWNER_ENTITY, {
     id: OWNER_ENTITY,
+    names: ["owner"],
     metadata: { discord: { userId: "discord-owner-111" } },
   });
 
   entities.set(ADMIN_ENTITY, {
     id: ADMIN_ENTITY,
+    names: ["admin"],
     metadata: { discord: { userId: "discord-admin-222" } },
   });
 
   entities.set(NOBODY_ENTITY, {
     id: NOBODY_ENTITY,
+    names: ["nobody"],
     metadata: { discord: { userId: "discord-nobody-333" } },
   });
 
@@ -313,16 +375,13 @@ function createScaffolding(overrides?: {
   wireCanModifyRole();
   wireCheckSenderRole(worlds, rooms);
   wireCanonicalOwnerResolver(worlds);
+  wireConnectorAdminWhitelistMatcher();
 
   // Config
   const adminWhitelist = overrides?.connectorAdmins ?? {};
   mockLoadElizaConfig.mockReturnValue({
-    plugins: {
-      entries: {
-        "@miladyai/plugin-roles": {
-          config: { connectorAdmins: adminWhitelist },
-        },
-      },
+    roles: {
+      connectorAdmins: adminWhitelist,
     },
   });
 
@@ -382,12 +441,15 @@ describe("roles e2e", () => {
 
     // 8. Role backfill is idempotent
     it("does not call updateWorld when owner already has OWNER role", async () => {
-      const { runtime } = createScaffolding({ ownerRolePreset: "OWNER" });
+      const { runtime, worlds } = createScaffolding({ ownerRolePreset: "OWNER" });
       const message = makeMessage(OWNER_ENTITY);
 
       await roleBackfillProvider.get(runtime as never, message, {} as State);
 
-      expect(runtime.updateWorld).not.toHaveBeenCalled();
+      expect(runtime.updateWorld).toHaveBeenCalledTimes(1);
+      expect(
+        worlds.get(WORLD_ID)?.metadata.roleSources?.[OWNER_ENTITY],
+      ).toBe("owner");
     });
 
     it("preserves existing non-owner roles during backfill", async () => {
@@ -437,6 +499,7 @@ describe("roles e2e", () => {
         expect.objectContaining({ entityId: ADMIN_ENTITY }),
         ADMIN_ENTITY,
         "ADMIN",
+        "connector_admin",
       );
 
       // Verify role was persisted in stateful world
@@ -678,6 +741,7 @@ describe("roles e2e", () => {
         expect.anything(),
         ADMIN_ENTITY,
         "ADMIN",
+        "connector_admin",
       );
     });
 
@@ -704,6 +768,7 @@ describe("roles e2e", () => {
         expect.anything(),
         ADMIN_ENTITY,
         "ADMIN",
+        "connector_admin",
       );
     });
 
@@ -729,6 +794,7 @@ describe("roles e2e", () => {
         expect.anything(),
         ADMIN_ENTITY,
         "ADMIN",
+        "connector_admin",
       );
     });
 
@@ -754,6 +820,7 @@ describe("roles e2e", () => {
         expect.anything(),
         ADMIN_ENTITY,
         "ADMIN",
+        "connector_admin",
       );
     });
 
@@ -822,6 +889,7 @@ describe("roles e2e", () => {
         expect.anything(),
         ADMIN_ENTITY,
         "ADMIN",
+        "connector_admin",
       );
     });
   });

@@ -29,8 +29,13 @@ export interface BuildOnboardingConnectionArgs {
   onboardingRemoteConnected: boolean;
   onboardingRemoteApiBase: string;
   onboardingRemoteToken: string;
-  onboardingSmallModel: string;
-  onboardingLargeModel: string;
+  onboardingNanoModel?: string;
+  onboardingSmallModel?: string;
+  onboardingMediumModel?: string;
+  onboardingLargeModel?: string;
+  onboardingMegaModel?: string;
+  onboardingResponseHandlerModel?: string;
+  onboardingActionPlannerModel?: string;
 }
 
 export interface BuildOnboardingRuntimeConfigResult {
@@ -41,7 +46,10 @@ export interface BuildOnboardingRuntimeConfigResult {
   needsProviderSetup: boolean;
 }
 
-function trimToUndefined(value: string): string | undefined {
+function trimToUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
@@ -74,8 +82,13 @@ export function buildOnboardingRuntimeConfig(
   args: BuildOnboardingConnectionArgs,
 ): BuildOnboardingRuntimeConfigResult {
   const serverTarget = resolveArgsServerTarget(args);
+  const nanoModel = trimToUndefined(args.onboardingNanoModel);
   const smallModel = trimToUndefined(args.onboardingSmallModel);
+  const mediumModel = trimToUndefined(args.onboardingMediumModel);
   const largeModel = trimToUndefined(args.onboardingLargeModel);
+  const megaModel = trimToUndefined(args.onboardingMegaModel);
+  const responseHandlerModel = trimToUndefined(args.onboardingResponseHandlerModel ?? "");
+  const actionPlannerModel = trimToUndefined(args.onboardingActionPlannerModel ?? "");
   const linkedAccounts: LinkedAccountsConfig = {};
   const cloudApiKey = trimToUndefined(args.onboardingCloudApiKey);
   if (cloudApiKey) {
@@ -101,7 +114,7 @@ export function buildOnboardingRuntimeConfig(
       ? {
           runtime: "remote",
           provider: "remote",
-          remoteApiBase: args.onboardingRemoteApiBase.trim(),
+          remoteApiBase: trimToUndefined(args.onboardingRemoteApiBase) ?? "",
           ...(trimToUndefined(args.onboardingRemoteToken)
             ? { remoteAccessToken: trimToUndefined(args.onboardingRemoteToken) }
             : {}),
@@ -119,30 +132,38 @@ export function buildOnboardingRuntimeConfig(
     !args.omitRuntimeProvider &&
     !requiresAdditionalRuntimeProvider(args.onboardingProvider);
 
-  if (args.onboardingProvider === "elizacloud" && shouldConfigureRuntimeProvider) {
+  if (
+    args.onboardingProvider === "elizacloud" &&
+    shouldConfigureRuntimeProvider
+  ) {
     llmTextRoute = buildElizaCloudServiceRoute({
+      nanoModel,
       smallModel,
+      mediumModel,
       largeModel,
+      megaModel,
+      responseHandlerModel,
+      actionPlannerModel,
     });
   } else if (shouldConfigureRuntimeProvider && localProviderId) {
-      const primaryModel = resolveOnboardingPrimaryModel({
-        providerId: localProviderId,
-        onboardingPrimaryModel: args.onboardingPrimaryModel,
-        onboardingOpenRouterModel: args.onboardingOpenRouterModel,
-      });
-      llmTextRoute =
-        serverTarget === "remote"
-          ? {
-              backend: localProviderId,
-              transport: "remote",
-              remoteApiBase: args.onboardingRemoteApiBase.trim(),
-              ...(primaryModel ? { primaryModel } : {}),
-            }
-          : {
-              backend: localProviderId,
-              transport: "direct",
-              ...(primaryModel ? { primaryModel } : {}),
-            };
+    const primaryModel = resolveOnboardingPrimaryModel({
+      providerId: localProviderId,
+      onboardingPrimaryModel: args.onboardingPrimaryModel,
+      onboardingOpenRouterModel: args.onboardingOpenRouterModel,
+    });
+    llmTextRoute =
+      serverTarget === "remote"
+        ? {
+            backend: localProviderId,
+            transport: "remote",
+            remoteApiBase: trimToUndefined(args.onboardingRemoteApiBase) ?? "",
+            ...(primaryModel ? { primaryModel } : {}),
+          }
+        : {
+            backend: localProviderId,
+            transport: "direct",
+            ...(primaryModel ? { primaryModel } : {}),
+          };
   }
 
   if (llmTextRoute) {
@@ -161,8 +182,13 @@ export function buildOnboardingRuntimeConfig(
         includeInference:
           shouldConfigureRuntimeProvider &&
           args.onboardingProvider === "elizacloud",
+        nanoModel,
         smallModel,
+        mediumModel,
         largeModel,
+        megaModel,
+        responseHandlerModel,
+        actionPlannerModel,
       }),
     );
   }

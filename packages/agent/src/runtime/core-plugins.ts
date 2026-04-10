@@ -5,6 +5,14 @@
  * `api/server.ts` and `runtime/eliza.ts`.
  */
 
+/**
+ * Plugins that depend on PTY/native workspace tooling.
+ * Keep them out of cloud images where those binaries are intentionally absent.
+ */
+export const DESKTOP_ONLY_PLUGINS: readonly string[] = [
+  "@elizaos/plugin-agent-orchestrator",
+];
+
 /** Core plugins that should always be loaded. collectPluginNames() seeds from this list only. */
 export const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-sql", // database adapter — required
@@ -16,11 +24,10 @@ export const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-agent-skills", // skill execution and marketplace runtime
   "@elizaos/plugin-commands", // slash command handling (skills auto-register as /commands)
   "@elizaos/plugin-plugin-manager", // dynamic plugin management for registry/plugin installs
-  // Native runtime features live inside @elizaos/core now:
+  // Native runtime features live inside the runtime now:
   // knowledge, relationships/relationships, trajectories.
   // "@elizaos/plugin-secrets-manager", // secrets management — load early, other plugins depend on it
   // "@elizaos/plugin-trust", // trust scoring and policy signals
-  "@miladyai/plugin-roles", // role-based access control (OWNER/ADMIN/NONE)
   // "@elizaos/plugin-personality", // personality coherence
   // "@elizaos/plugin-experience", // learning from interactions
 ];

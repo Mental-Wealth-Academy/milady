@@ -9,15 +9,15 @@ import {
   StatusBadge,
 } from "@miladyai/ui";
 import { ChevronRight } from "lucide-react";
-import { useState, type ReactNode, type RefCallback } from "react";
-import { client, type CloudCompatAgent, type PluginInfo } from "../../api";
+import { type ReactNode, type RefCallback, useState } from "react";
+import { type CloudCompatAgent, client, type PluginInfo } from "../../api";
 import { useApp } from "../../state";
 import { WhatsAppQrOverlay } from "../connectors/WhatsAppQrOverlay";
-import { PluginConfigForm, TelegramPluginConfig } from "./PluginConfigForm";
 import {
   buildManagedDiscordSettingsReturnUrl,
   resolveManagedDiscordAgentChoice,
 } from "./cloud-dashboard-utils";
+import { PluginConfigForm, TelegramPluginConfig } from "./PluginConfigForm";
 import {
   getPluginResourceLinks,
   pluginResourceLinkLabel,
@@ -155,17 +155,13 @@ function ConnectorPluginCard({
   testResults,
   togglingPlugins,
 }: ConnectorPluginCardProps) {
-  const {
-    elizaCloudConnected,
-    setActionNotice,
-    setState,
-    setTab,
-  } = useApp();
+  const { elizaCloudConnected, setActionNotice, setState, setTab } = useApp();
   const [managedDiscordBusy, setManagedDiscordBusy] = useState(false);
   const [managedDiscordAgents, setManagedDiscordAgents] = useState<
     CloudCompatAgent[]
   >([]);
-  const [managedDiscordPickerOpen, setManagedDiscordPickerOpen] = useState(false);
+  const [managedDiscordPickerOpen, setManagedDiscordPickerOpen] =
+    useState(false);
   const [managedDiscordSelectedAgentId, setManagedDiscordSelectedAgentId] =
     useState<string | null>(null);
   const hasParams =
@@ -211,25 +207,49 @@ function ConnectorPluginCard({
     setState("cloudDashboardView", "agents");
     setTab("settings");
   };
-  const startManagedDiscordOauth = async (agent: CloudCompatAgent) => {
-    const oauthResponse = await client.createCloudCompatAgentManagedDiscordOauth(
+  const ensureManagedDiscordGatewayProvisioned = async (
+    agent: CloudCompatAgent,
+  ): Promise<boolean> => {
+    if (agent.status === "running") {
+      return false;
+    }
+
+    const provisionResponse = await client.provisionCloudCompatAgent(
       agent.agent_id,
-      {
+    );
+    if (!provisionResponse.success) {
+      throw new Error(
+        provisionResponse.error ||
+          t("pluginsview.ManagedDiscordGatewayProvisionFailed", {
+            defaultValue:
+              "Failed to start the shared Milady Discord gateway in Eliza Cloud.",
+          }),
+      );
+    }
+
+    return provisionResponse.data?.status !== "running";
+  };
+  const startManagedDiscordOauth = async (
+    agent: CloudCompatAgent,
+    options?: { gatewayDeploying?: boolean },
+  ) => {
+    const oauthResponse =
+      await client.createCloudCompatAgentManagedDiscordOauth(agent.agent_id, {
         returnUrl:
           typeof window !== "undefined"
-            ? buildManagedDiscordSettingsReturnUrl(window.location.href) ??
-              undefined
+            ? (buildManagedDiscordSettingsReturnUrl(window.location.href) ??
+              undefined)
             : undefined,
         botNickname: agent.agent_name?.trim() || undefined,
-      },
-    );
+      });
 
     await handleOpenPluginExternalUrl(oauthResponse.data.authorizeUrl);
     setManagedDiscordPickerOpen(false);
     setActionNotice(
       t("elizaclouddashboard.DiscordSetupContinuesInBrowser", {
-        defaultValue:
-          "Finish Discord setup in your browser, then return here.",
+        defaultValue: options?.gatewayDeploying
+          ? "Finish Discord setup in your browser, then wait for the shared Milady Discord gateway to finish deploying."
+          : "Finish Discord setup in your browser, then return here.",
       }),
       "info",
       5000,
@@ -260,19 +280,28 @@ function ConnectorPluginCard({
       const agents = Array.isArray(response.data) ? response.data : [];
       const choice = resolveManagedDiscordAgentChoice(agents);
 
-      if (choice.mode === "none") {
-        setManagedDiscordAgents([]);
-        setManagedDiscordSelectedAgentId(null);
+      if (choice.mode === "none" || choice.mode === "bootstrap") {
+        const gatewayResponse =
+          await client.ensureCloudCompatManagedDiscordAgent();
+        const gatewayAgent = gatewayResponse.data.agent;
+        const gatewayDeploying =
+          await ensureManagedDiscordGatewayProvisioned(gatewayAgent);
+
+        setManagedDiscordAgents([gatewayAgent]);
+        setManagedDiscordSelectedAgentId(gatewayAgent.agent_id);
         setManagedDiscordPickerOpen(false);
-        openCloudAgentsView();
         setActionNotice(
-          t("pluginsview.ManagedDiscordNeedsAgent", {
-            defaultValue:
-              "Deploy a cloud agent first, then connect managed Discord from the Cloud agents screen.",
+          t("pluginsview.ManagedDiscordGatewayCreated", {
+            defaultValue: gatewayResponse.data.created
+              ? "Created a shared Milady Discord gateway agent. Continue in your browser and choose a server you own."
+              : "Using your shared Milady Discord gateway agent. Continue in your browser and choose a server you own.",
           }),
           "info",
           5200,
         );
+        await startManagedDiscordOauth(gatewayAgent, {
+          gatewayDeploying,
+        });
         return;
       }
 
@@ -281,9 +310,9 @@ function ConnectorPluginCard({
         setManagedDiscordSelectedAgentId(choice.selectedAgentId);
         setManagedDiscordPickerOpen(true);
         setActionNotice(
-          t("pluginsview.ManagedDiscordChooseInline", {
+          t("pluginsview.ManagedDiscordChooseTarget", {
             defaultValue:
-              "Choose which cloud agent should own managed Discord, then continue.",
+              "Choose which cloud agent should receive managed Discord for this owned server, then continue.",
           }),
           "info",
           4200,
@@ -291,7 +320,12 @@ function ConnectorPluginCard({
         return;
       }
 
-      await startManagedDiscordOauth(choice.agent);
+      const gatewayDeploying = await ensureManagedDiscordGatewayProvisioned(
+        choice.agent,
+      );
+      await startManagedDiscordOauth(choice.agent, {
+        gatewayDeploying,
+      });
     } catch (error) {
       openCloudAgentsView();
       setActionNotice(
@@ -317,9 +351,9 @@ function ConnectorPluginCard({
     );
     if (!agent) {
       setActionNotice(
-        t("pluginsview.ManagedDiscordChooseInline", {
+        t("pluginsview.ManagedDiscordChooseTarget", {
           defaultValue:
-            "Choose which cloud agent should own managed Discord, then continue.",
+            "Choose which cloud agent should receive managed Discord for this owned server, then continue.",
         }),
         "error",
         4200,
@@ -329,7 +363,11 @@ function ConnectorPluginCard({
 
     setManagedDiscordBusy(true);
     try {
-      await startManagedDiscordOauth(agent);
+      const gatewayDeploying =
+        await ensureManagedDiscordGatewayProvisioned(agent);
+      await startManagedDiscordOauth(agent, {
+        gatewayDeploying,
+      });
     } catch (error) {
       openCloudAgentsView();
       setActionNotice(
@@ -487,23 +525,23 @@ function ConnectorPluginCard({
                 {managedDiscordBusy
                   ? "..."
                   : elizaCloudConnected
-                  ? t("pluginsview.UseManagedDiscord", {
-                      defaultValue: "Use managed Discord",
-                    })
-                  : t("pluginsview.OpenElizaCloud", {
-                      defaultValue: "Open Eliza Cloud",
-                    })}
+                    ? t("pluginsview.UseManagedDiscord", {
+                        defaultValue: "Use managed Discord",
+                      })
+                    : t("pluginsview.OpenElizaCloud", {
+                        defaultValue: "Open Eliza Cloud",
+                      })}
               </Button>
             }
           >
             {elizaCloudConnected
-              ? t("pluginsview.ManagedDiscordHintConnected", {
+              ? t("pluginsview.ManagedDiscordGatewayHintConnected", {
                   defaultValue:
-                    "Prefer OAuth? Use Eliza Cloud managed Discord for the shared app and server-owner setup flow.",
+                    "Prefer OAuth? Managed Discord uses a shared Milady gateway and only works for servers owned by the linking Discord account.",
                 })
-              : t("pluginsview.ManagedDiscordHint", {
+              : t("pluginsview.ManagedDiscordGatewayHint", {
                   defaultValue:
-                    "Prefer OAuth? Connect Eliza Cloud to use the managed Discord app instead of a local bot token.",
+                    "Prefer OAuth? Connect Eliza Cloud to use the shared Milady Discord gateway instead of a local bot token.",
                 })}
             {managedDiscordPickerOpen && managedDiscordAgents.length > 1 ? (
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -572,30 +610,30 @@ function ConnectorPluginCard({
         )}
 
         {isStoreInstallMissing && !plugin.loadError && (
-            <PagePanel.Notice
-              tone="warning"
-              className="mb-4"
-              actions={
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-8 rounded-xl px-4 text-[11px] font-bold"
-                  disabled={installingPlugins.has(plugin.id)}
-                  onClick={() =>
-                    void handleInstallPlugin(plugin.id, plugin.npmName ?? "")
-                  }
-                >
-                  {installingPlugins.has(plugin.id)
-                    ? installProgressLabel(
-                        installProgress.get(plugin.npmName ?? "")?.message,
-                      )
-                    : installPluginLabel}
-                </Button>
-              }
-            >
-              {connectorInstallPrompt}
-            </PagePanel.Notice>
-          )}
+          <PagePanel.Notice
+            tone="warning"
+            className="mb-4"
+            actions={
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 rounded-xl px-4 text-[11px] font-bold"
+                disabled={installingPlugins.has(plugin.id)}
+                onClick={() =>
+                  void handleInstallPlugin(plugin.id, plugin.npmName ?? "")
+                }
+              >
+                {installingPlugins.has(plugin.id)
+                  ? installProgressLabel(
+                      installProgress.get(plugin.npmName ?? "")?.message,
+                    )
+                  : installPluginLabel}
+              </Button>
+            }
+          >
+            {connectorInstallPrompt}
+          </PagePanel.Notice>
+        )}
 
         {hasParams ? (
           <div className="space-y-4">

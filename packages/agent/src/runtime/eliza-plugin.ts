@@ -8,17 +8,20 @@
 
 import type { IAgentRuntime, Plugin, ServiceClass } from "@elizaos/core";
 import { AgentEventService } from "@elizaos/core";
+import { calendarAction } from "../actions/calendar.js";
 import { emoteAction } from "../actions/emote.js";
+import { gmailAction } from "../actions/gmail.js";
 import { lifeAction } from "../actions/life.js";
 import { restartAction } from "../actions/restart.js";
 import { sendAdminMessageAction } from "../actions/send-admin-message.js";
 import { setUserNameAction } from "../actions/set-user-name.js";
+import { webSearchAction } from "../actions/web-search.js";
 import {
   addRegisteredSkillSlug,
   clearRegisteredSkillSlugs,
   skillCommandAction,
 } from "../actions/skill-command.js";
-import { terminalAction } from "../actions/terminal.js";
+import { terminalAction } from "../actions/terminal.ts";
 import {
   ensureProactiveAgentTask,
   registerProactiveTaskWorker,
@@ -47,7 +50,6 @@ import { DEFAULT_AGENT_WORKSPACE_DIR } from "../providers/workspace.js";
 import { createWorkspaceProvider } from "../providers/workspace-provider.js";
 import { createTriggerTaskAction } from "../triggers/action.js";
 import { registerTriggerTaskWorker } from "../triggers/runtime.js";
-import { AdvancedMemoryStorageService } from "./advanced-memory-storage.js";
 import { setCustomActionsRuntime } from "./custom-actions.js";
 
 export type ElizaPluginConfig = {
@@ -92,10 +94,7 @@ export function createElizaPlugin(config?: ElizaPluginConfig): Plugin {
     name: "eliza",
     description: "Eliza workspace context, session keys, and lifecycle actions",
 
-    services: [
-      AdvancedMemoryStorageService as ServiceClass,
-      AgentEventService as ServiceClass,
-    ],
+    services: [AgentEventService as ServiceClass],
 
     init: async (_pluginConfig, runtime: IAgentRuntime) => {
       registerTriggerTaskWorker(runtime);
@@ -218,9 +217,12 @@ export function createElizaPlugin(config?: ElizaPluginConfig): Plugin {
       terminalAction,
       createTriggerTaskAction,
       emoteAction,
+      calendarAction,
+      gmailAction,
       lifeAction,
       setUserNameAction,
       skillCommandAction,
+      webSearchAction,
     ],
   };
 

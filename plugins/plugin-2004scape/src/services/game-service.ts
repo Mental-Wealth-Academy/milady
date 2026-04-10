@@ -16,12 +16,12 @@ const MAX_EVENT_LOG = 30;
 /** Map user-facing size names to ModelType constants. */
 const MODEL_SIZE_MAP: Record<string, string> = {
   TEXT_NANO: ModelType.TEXT_NANO,
-  TEXT_MINI: ModelType.TEXT_MINI,
   TEXT_SMALL: ModelType.TEXT_SMALL,
+  TEXT_MEDIUM: ModelType.TEXT_MEDIUM,
   TEXT_LARGE: ModelType.TEXT_LARGE,
   NANO: ModelType.TEXT_NANO,
-  MINI: ModelType.TEXT_MINI,
   SMALL: ModelType.TEXT_SMALL,
+  MEDIUM: ModelType.TEXT_MEDIUM,
   LARGE: ModelType.TEXT_LARGE,
 };
 
@@ -129,7 +129,7 @@ export class RsSdkGameService extends Service {
     const password = this.resolveSetting("RS_SDK_BOT_PASSWORD") ?? this.resolveSetting("BOT_PASSWORD") ?? "";
     const gatewayUrl = this.resolveSetting("RS_SDK_GATEWAY_URL") ?? `ws://localhost:${gatewayPort}`;
 
-    // Configurable model size: TEXT_MINI, TEXT_SMALL (default), TEXT_LARGE, etc.
+    // Configurable model size: TEXT_NANO, TEXT_SMALL (default), TEXT_MEDIUM, TEXT_LARGE, etc.
     const sizeRaw = (this.resolveSetting("RS_2004SCAPE_MODEL_SIZE") ?? "").toUpperCase();
     this.modelSize = MODEL_SIZE_MAP[sizeRaw] ?? DEFAULT_MODEL_SIZE;
     this.log(`Model size: ${this.modelSize}`);

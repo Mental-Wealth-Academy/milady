@@ -180,6 +180,31 @@ export interface CloudCompatAgentStatus {
   databaseStatus: string;
 }
 
+export interface CloudCompatAgentProvisionResponse {
+  success: boolean;
+  created?: boolean;
+  alreadyInProgress?: boolean;
+  message?: string;
+  error?: string;
+  requiredBalance?: number;
+  currentBalance?: number;
+  data?: {
+    id?: string;
+    agentId?: string;
+    agentName?: string;
+    status?: string;
+    jobId?: string;
+    bridgeUrl?: string | null;
+    healthUrl?: string | null;
+    estimatedCompletionAt?: string | null;
+  };
+  polling?: {
+    endpoint?: string;
+    intervalMs?: number;
+    expectedDurationMs?: number;
+  };
+}
+
 export interface CloudCompatManagedDiscordStatus {
   applicationId: string | null;
   configured: boolean;
@@ -190,6 +215,7 @@ export interface CloudCompatManagedDiscordStatus {
   adminDiscordUserId: string | null;
   adminDiscordUsername: string | null;
   adminDiscordDisplayName: string | null;
+  adminDiscordAvatarUrl: string | null;
   adminElizaUserId: string | null;
   botNickname: string | null;
   connectedAt: string | null;
@@ -932,13 +958,13 @@ export function mapTaskThreadsToCodingAgentSessions(
         ? ("error" as const)
         : thread.status === "done"
           ? ("completed" as const)
-          : thread.status === "validating"
-            ? ("tool_running" as const)
-            : thread.status === "blocked" ||
-                thread.status === "waiting_on_user" ||
-                thread.status === "interrupted"
-              ? ("blocked" as const)
-              : ("active" as const),
+          : thread.status === "interrupted"
+            ? ("stopped" as const)
+            : thread.status === "validating"
+              ? ("tool_running" as const)
+              : thread.status === "blocked" || thread.status === "waiting_on_user"
+                ? ("blocked" as const)
+                : ("active" as const),
     decisionCount: thread.decisionCount,
     autoResolvedCount: 0,
     lastActivity:

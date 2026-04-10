@@ -68,18 +68,18 @@ describe("applyCloudConfigToEnv — cloud credential persistence", () => {
       cloud: { enabled: true, apiKey: "ck-test" },
     } as ElizaConfig;
     applyCloudConfigToEnv(config);
-    expect(process.env.SMALL_MODEL).toBe("openai/gpt-5-mini");
-    expect(process.env.LARGE_MODEL).toBe("anthropic/claude-sonnet-4.5");
+    expect(process.env.SMALL_MODEL).toBe("minimax/minimax-m2.7");
+    expect(process.env.LARGE_MODEL).toBe("anthropic/claude-sonnet-4.6");
   });
 
   it("uses custom model names from config when set", () => {
     const config = {
       cloud: { enabled: true, apiKey: "ck-test" },
-      models: { small: "google/gemini-2.5-flash", large: "openai/gpt-5" },
+      models: { small: "google/gemini-2.5-flash", large: "openai/gpt-5.4" },
     } as ElizaConfig;
     applyCloudConfigToEnv(config);
     expect(process.env.SMALL_MODEL).toBe("google/gemini-2.5-flash");
-    expect(process.env.LARGE_MODEL).toBe("openai/gpt-5");
+    expect(process.env.LARGE_MODEL).toBe("openai/gpt-5.4");
   });
 
   it("does nothing when cloud config is absent", () => {
@@ -269,8 +269,8 @@ describe("Cloud login persistence — simulated end-to-end", () => {
 
     applyCloudConfigToEnv(config);
 
-    expect(process.env.SMALL_MODEL).toBe("openai/gpt-5-mini");
-    expect(process.env.LARGE_MODEL).toBe("anthropic/claude-sonnet-4.5");
+    expect(process.env.SMALL_MODEL).toBe("minimax/minimax-m2.7");
+    expect(process.env.LARGE_MODEL).toBe("anthropic/claude-sonnet-4.6");
   });
 
   it("model defaults respect user selections from config", () => {
@@ -278,13 +278,13 @@ describe("Cloud login persistence — simulated end-to-end", () => {
       cloud: { enabled: true, apiKey: "ck-test" },
       models: {
         small: "anthropic/claude-sonnet-4",
-        large: "anthropic/claude-opus-4.5",
+        large: "anthropic/claude-opus-4.6",
       },
     } as ElizaConfig;
 
     applyCloudConfigToEnv(config);
 
     expect(process.env.SMALL_MODEL).toBe("anthropic/claude-sonnet-4");
-    expect(process.env.LARGE_MODEL).toBe("anthropic/claude-opus-4.5");
+    expect(process.env.LARGE_MODEL).toBe("anthropic/claude-opus-4.6");
   });
 });

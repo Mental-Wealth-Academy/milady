@@ -505,6 +505,7 @@ describe("life-ops managed Google connector", () => {
         expect(body.capabilities).toEqual([
           "google.basic_identity",
           "google.calendar.read",
+          "google.calendar.write",
           "google.gmail.triage",
           "google.gmail.send",
         ]);
@@ -519,6 +520,7 @@ describe("life-ops managed Google connector", () => {
           requestedCapabilities: [
             "google.basic_identity",
             "google.calendar.read",
+            "google.calendar.write",
             "google.gmail.triage",
             "google.gmail.send",
           ],
@@ -754,6 +756,7 @@ describe("life-ops managed Google connector", () => {
           "http://127.0.0.1:3000/api/lifeops/connectors/google/success?side=owner&mode=cloud_managed",
         capabilities: [
           "google.calendar.read",
+          "google.calendar.write",
           "google.gmail.triage",
           "google.gmail.send",
         ],
@@ -908,5 +911,309 @@ describe("life-ops managed Google connector", () => {
         "google",
       ),
     ).toHaveLength(0);
+  });
+
+  it("falls back to cached Gmail messages for cloud-managed sender search when triage has no live hit", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-api-key")).toBe("ck-managed-google-test");
+
+      if (
+        url === "https://cloud.example/api/v1/milady/google/status?side=owner"
+      ) {
+        return jsonResponse({
+          provider: "google",
+          side: "owner",
+          mode: "cloud_managed",
+          configured: true,
+          connected: true,
+          reason: "connected",
+          identity: {
+            id: "google-user-managed-search",
+            email: "founder@example.com",
+            name: "Founder Example",
+          },
+          grantedCapabilities: [
+            "google.basic_identity",
+            "google.gmail.triage",
+          ],
+          grantedScopes: [
+            "openid",
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/gmail.metadata",
+          ],
+          expiresAt: "2026-04-05T00:00:00.000Z",
+          hasRefreshToken: true,
+          connectionId: "managed-google-search-connection",
+          linkedAt: "2026-04-04T15:00:00.000Z",
+          lastUsedAt: "2026-04-04T16:00:00.000Z",
+        });
+      }
+
+      if (
+        url ===
+          "https://cloud.example/api/v1/milady/google/gmail/triage?side=owner&maxResults=50" &&
+        (init?.method ?? "GET") === "GET"
+      ) {
+        return jsonResponse({
+          messages: [],
+          syncedAt: "2026-04-04T17:32:00.000Z",
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+
+    const repository = new LifeOpsRepository(runtime);
+    await repository.upsertGmailMessage(
+      {
+        id: "cached-suran-message",
+        externalId: "managed-cached-suran-message",
+        threadId: "managed-cached-suran-thread",
+        agentId: "lifeops-google-managed-agent",
+        provider: "google",
+        side: "owner",
+        subject: "Dinner agenda",
+        from: "Suran Lee <suran@example.com>",
+        fromEmail: "suran@example.com",
+        replyTo: "suran@example.com",
+        to: ["founder@example.com"],
+        cc: [],
+        snippet: "Here is the agenda for tonight.",
+        receivedAt: "2026-04-04T17:30:00.000Z",
+        isUnread: true,
+        isImportant: false,
+        likelyReplyNeeded: true,
+        triageScore: 71,
+        triageReason: "cached sender match",
+        labels: ["CATEGORY_PERSONAL"],
+        htmlLink:
+          "https://mail.google.com/mail/u/0/#all/managed-cached-suran-thread",
+        metadata: {
+          messageIdHeader: "<managed-cached-suran@example.com>",
+        },
+        syncedAt: "2026-04-04T17:32:00.000Z",
+        updatedAt: "2026-04-04T17:32:00.000Z",
+      },
+      "owner",
+    );
+
+    const searchRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/gmail/search?mode=cloud_managed&forceSync=true&query=from%3Asuran&maxResults=5",
+    );
+
+    expect(searchRes.status).toBe(200);
+    expect(searchRes.data.query).toBe("from:suran");
+    expect(searchRes.data.messages).toEqual([
+      expect.objectContaining({
+        subject: "Dinner agenda",
+        fromEmail: "suran@example.com",
+      }),
+    ]);
+  });
+
+  it("marks cloud-managed calendar scope failures as needing reauth", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-api-key")).toBe("ck-managed-google-test");
+
+      if (
+        url === "https://cloud.example/api/v1/milady/google/status?side=owner"
+      ) {
+        return jsonResponse({
+          provider: "google",
+          side: "owner",
+          mode: "cloud_managed",
+          configured: true,
+          connected: true,
+          reason: "connected",
+          identity: {
+            id: "google-user-managed",
+            email: "founder@example.com",
+            name: "Founder Example",
+          },
+          grantedCapabilities: [
+            "google.basic_identity",
+            "google.calendar.read",
+          ],
+          grantedScopes: [
+            "openid",
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/calendar.readonly",
+          ],
+          expiresAt: "2026-04-05T00:00:00.000Z",
+          hasRefreshToken: true,
+          connectionId: "managed-google-connection",
+          linkedAt: "2026-04-04T15:00:00.000Z",
+          lastUsedAt: "2026-04-04T16:00:00.000Z",
+        });
+      }
+
+      if (
+        url.startsWith(
+          "https://cloud.example/api/v1/milady/google/calendar/feed?",
+        ) &&
+        (init?.method ?? "GET") === "GET"
+      ) {
+        return jsonResponse(
+          {
+            error: "Request had insufficient authentication scopes.",
+          },
+          502,
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${init?.method ?? "GET"} ${url}`);
+    });
+
+    const statusRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/connectors/google/status?mode=cloud_managed",
+    );
+    expect(statusRes.status).toBe(200);
+    expect(statusRes.data.connected).toBe(true);
+    expect(statusRes.data.reason).toBe("connected");
+
+    const feedRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/calendar/feed?mode=cloud_managed&timeZone=UTC&forceSync=true&timeMin=2099-04-04T00%3A00%3A00.000Z&timeMax=2099-04-05T00%3A00%3A00.000Z",
+    );
+    expect(feedRes.status).toBe(401);
+    expect(String(feedRes.data.error)).toContain(
+      "Google connector needs re-authentication",
+    );
+    expect(String(feedRes.data.error)).toContain(
+      "insufficient authentication scopes",
+    );
+
+    const statusAfterRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/connectors/google/status?mode=cloud_managed",
+    );
+    expect(statusAfterRes.status).toBe(200);
+    expect(statusAfterRes.data.connected).toBe(false);
+    expect(statusAfterRes.data.reason).toBe("needs_reauth");
+    expect(statusAfterRes.data.grant.metadata).toEqual(
+      expect.objectContaining({
+        authState: "needs_reauth",
+        lastAuthError: expect.stringContaining(
+          "insufficient authentication scopes",
+        ),
+      }),
+    );
+  });
+
+  it("clears stale managed reauth state after the cloud connection is relinked", async () => {
+    let linkedAt = "2026-04-04T15:00:00.000Z";
+    let calendarFeedShouldFail = true;
+
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-api-key")).toBe("ck-managed-google-test");
+
+      if (
+        url === "https://cloud.example/api/v1/milady/google/status?side=owner"
+      ) {
+        return jsonResponse({
+          provider: "google",
+          side: "owner",
+          mode: "cloud_managed",
+          configured: true,
+          connected: true,
+          reason: "connected",
+          identity: {
+            id: "google-user-managed",
+            email: "founder@example.com",
+            name: "Founder Example",
+          },
+          grantedCapabilities: [
+            "google.basic_identity",
+            "google.calendar.read",
+          ],
+          grantedScopes: [
+            "openid",
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/calendar.readonly",
+          ],
+          expiresAt: "2026-04-10T03:00:43.112Z",
+          hasRefreshToken: true,
+          connectionId: "managed-google-connection",
+          linkedAt,
+          lastUsedAt: "2026-04-04T16:00:00.000Z",
+        });
+      }
+
+      if (
+        url.startsWith(
+          "https://cloud.example/api/v1/milady/google/calendar/feed?",
+        ) &&
+        (init?.method ?? "GET") === "GET"
+      ) {
+        if (calendarFeedShouldFail) {
+          return jsonResponse(
+            {
+              error: "Request had insufficient authentication scopes.",
+            },
+            502,
+          );
+        }
+        return jsonResponse({
+          calendarId: "primary",
+          events: [],
+          syncedAt: "2026-04-10T02:05:00.000Z",
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${init?.method ?? "GET"} ${url}`);
+    });
+
+    const firstFeedRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/calendar/feed?mode=cloud_managed&timeZone=UTC&forceSync=true&timeMin=2099-04-04T00%3A00%3A00.000Z&timeMax=2099-04-05T00%3A00%3A00.000Z",
+    );
+    expect(firstFeedRes.status).toBe(401);
+
+    const staleStatusRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/connectors/google/status?mode=cloud_managed",
+    );
+    expect(staleStatusRes.status).toBe(200);
+    expect(staleStatusRes.data.connected).toBe(false);
+    expect(staleStatusRes.data.reason).toBe("needs_reauth");
+
+    linkedAt = "2026-04-10T02:00:44.119Z";
+    calendarFeedShouldFail = false;
+
+    const relinkedStatusRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/connectors/google/status?mode=cloud_managed",
+    );
+    expect(relinkedStatusRes.status).toBe(200);
+    expect(relinkedStatusRes.data.connected).toBe(true);
+    expect(relinkedStatusRes.data.reason).toBe("connected");
+    expect(relinkedStatusRes.data.grant.metadata.authState ?? null).toBeNull();
+    expect(relinkedStatusRes.data.grant.metadata.lastAuthError ?? null).toBeNull();
+
+    const feedAfterRelinkRes = await req(
+      port,
+      "GET",
+      "/api/lifeops/calendar/feed?mode=cloud_managed&timeZone=UTC&forceSync=true&timeMin=2099-04-04T00%3A00%3A00.000Z&timeMax=2099-04-05T00%3A00%3A00.000Z",
+    );
+    expect(feedAfterRelinkRes.status).toBe(200);
+    expect(feedAfterRelinkRes.data.source).toBe("synced");
   });
 });

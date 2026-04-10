@@ -11,9 +11,9 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { logger, type Plugin } from "@elizaos/core";
+import { generateWalletKeys } from "@miladyai/agent/api/wallet";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { describeIf } from "../../../../test/helpers/conditional-tests.ts";
-import { generateWalletKeys } from "@miladyai/agent/api/wallet";
 
 // Mock all static plugin star-imports in eliza.ts to avoid ESM resolution
 // failures from heavy transitive dependencies at static-analysis time.
@@ -231,7 +231,7 @@ describe("collectPluginNames", () => {
 
   it("includes all core plugins for an empty config", () => {
     // Guard against accidental drift in the default runtime contract.
-    expect(CORE_PLUGINS).toHaveLength(10);
+    expect(CORE_PLUGINS).toHaveLength(9);
 
     const expectedCorePlugins = [
       "@elizaos/plugin-sql",
@@ -243,7 +243,6 @@ describe("collectPluginNames", () => {
       "@elizaos/plugin-agent-skills",
       "@elizaos/plugin-commands",
       "@elizaos/plugin-plugin-manager",
-      "@miladyai/plugin-roles",
     ];
     const names = collectPluginNames({} as ElizaConfig);
     for (const plugin of expectedCorePlugins) {
@@ -1244,16 +1243,16 @@ describe("applyCloudConfigToEnv", () => {
           backend: "elizacloud",
           transport: "cloud-proxy",
           accountId: "elizacloud",
-          smallModel: "openai/gpt-5-mini",
-          largeModel: "anthropic/claude-sonnet-4.5",
+          smallModel: "openai/gpt-5.4-mini",
+          largeModel: "anthropic/claude-sonnet-4.6",
         },
       },
       cloud: {
         apiKey: "ck-123",
       },
       models: {
-        small: "openai/gpt-5-mini",
-        large: "anthropic/claude-sonnet-4.5",
+        small: "openai/gpt-5.4-mini",
+        large: "anthropic/claude-sonnet-4.6",
       },
     } as ElizaConfig;
 
@@ -1618,6 +1617,26 @@ describe("isRecoverablePgliteInitError", () => {
       false,
     );
   });
+
+  it("returns true for read failures from corrupted file-backed data", () => {
+    expect(
+      isRecoverablePgliteInitError(
+        new Error(
+          'could not read blocks 0..0 in file "global/1213": read only 1 of 8192 bytes',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true for wasm traps from corrupted pglite data", () => {
+    expect(
+      isRecoverablePgliteInitError(
+        new Error(
+          "Unreachable code should not be executed (evaluating 'this.mod._pgl_backend()')",
+        ),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("shutdownRuntime", () => {
@@ -1706,6 +1725,15 @@ describe("buildCharacterFromConfig", () => {
     } as Partial<ElizaConfig> as ElizaConfig;
     const char = buildCharacterFromConfig(config);
     expect(char.name).toBe("Reimu");
+  });
+
+  it("prefers config.ui.assistant.name when it diverges from agents.list", () => {
+    const config = {
+      agents: { list: [{ id: "main", name: "Chen" }] },
+      ui: { assistant: { name: "Eliza" } },
+    } as Partial<ElizaConfig> as ElizaConfig;
+    const char = buildCharacterFromConfig(config);
+    expect(char.name).toBe("Eliza");
   });
 
   it("defaults to 'Chen' when no name is configured", () => {
@@ -1994,14 +2022,14 @@ describe("resolvePrimaryModel", () => {
 
   it("returns the primary model when configured", () => {
     const config = {
-      agents: { defaults: { model: { primary: "gpt-5" } } },
+      agents: { defaults: { model: { primary: "gpt-5.4" } } },
     } as ElizaConfig;
-    expect(resolvePrimaryModel(config)).toBe("gpt-5");
+    expect(resolvePrimaryModel(config)).toBe("gpt-5.4");
   });
 
   it("returns undefined when model has no primary", () => {
     const config = {
-      agents: { defaults: { model: { fallbacks: ["gpt-5-mini"] } } },
+      agents: { defaults: { model: { fallbacks: ["gpt-5.4-mini"] } } },
     } as Partial<ElizaConfig> as ElizaConfig;
     expect(resolvePrimaryModel(config)).toBeUndefined();
   });
@@ -2014,11 +2042,11 @@ describe("resolvePreferredProviderId", () => {
         llmText: {
           backend: "openrouter",
           transport: "direct",
-          primaryModel: "openai/gpt-5.2",
+          primaryModel: "openai/gpt-5.4",
         },
       },
       agents: {
-        defaults: { model: { primary: "anthropic/claude-sonnet-4.5" } },
+        defaults: { model: { primary: "anthropic/claude-sonnet-4.6" } },
       },
     } as Partial<ElizaConfig> as ElizaConfig;
 
@@ -2030,7 +2058,7 @@ describe("resolvePreferredProviderId", () => {
 
   it("derives the provider from explicit model selections when no canonical route is stored", () => {
     const config = {
-      agents: { defaults: { model: { primary: "openai/gpt-5.2" } } },
+      agents: { defaults: { model: { primary: "openai/gpt-5.4" } } },
     } as Partial<ElizaConfig> as ElizaConfig;
 
     expect(resolvePreferredProviderId(config)).toBe("openai");
@@ -2071,7 +2099,7 @@ describe("resolvePreferredProviderId", () => {
           backend: "openrouter",
           transport: "remote",
           remoteApiBase: "https://remote.example/api",
-          primaryModel: "openai/gpt-5.2",
+          primaryModel: "openai/gpt-5.4",
         },
       },
     } as Partial<ElizaConfig> as ElizaConfig;
@@ -2518,50 +2546,47 @@ describe("mergeDropInPlugins", () => {
 // resolveElizaPluginImportSpecifier depending on the resolved source)
 // ---------------------------------------------------------------------------
 
-describeIf(resolvePluginImportSpecifier)(
-  "resolvePluginImportSpecifier",
-  () => {
-    it("prefers a bundled local plugin wrapper when one exists", async () => {
-      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-plugin-"));
-      const runtimeDir = path.join(tmpDir, "runtime");
-      const pluginIndex = path.join(tmpDir, "plugins", "twitch", "index.js");
+describeIf(resolvePluginImportSpecifier)("resolvePluginImportSpecifier", () => {
+  it("prefers a bundled local plugin wrapper when one exists", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-plugin-"));
+    const runtimeDir = path.join(tmpDir, "runtime");
+    const pluginIndex = path.join(tmpDir, "plugins", "twitch", "index.js");
 
-      await fs.mkdir(runtimeDir, { recursive: true });
-      await fs.mkdir(path.dirname(pluginIndex), { recursive: true });
-      await fs.writeFile(pluginIndex, "export default {};\n");
+    await fs.mkdir(runtimeDir, { recursive: true });
+    await fs.mkdir(path.dirname(pluginIndex), { recursive: true });
+    await fs.writeFile(pluginIndex, "export default {};\n");
 
-      const specifier = resolvePluginImportSpecifier?.(
-        "@elizaos/plugin-twitch",
-        pathToFileURL(path.join(runtimeDir, "eliza.ts")).href,
-      );
+    const specifier = resolvePluginImportSpecifier?.(
+      "@elizaos/plugin-twitch",
+      pathToFileURL(path.join(runtimeDir, "eliza.ts")).href,
+    );
 
-      expect(specifier).toBe(pathToFileURL(pluginIndex).href);
+    expect(specifier).toBe(pathToFileURL(pluginIndex).href);
 
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    });
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
 
-    it("falls back to the bundled package when no local wrapper exists", async () => {
-      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-plugin-"));
-      const runtimeDir = path.join(tmpDir, "runtime");
-      await fs.mkdir(runtimeDir, { recursive: true });
+  it("falls back to the bundled package when no local wrapper exists", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-plugin-"));
+    const runtimeDir = path.join(tmpDir, "runtime");
+    await fs.mkdir(runtimeDir, { recursive: true });
 
-      const specifier = resolvePluginImportSpecifier?.(
-        "@elizaos/plugin-x-streaming",
-        pathToFileURL(path.join(runtimeDir, "eliza.ts")).href,
-      );
+    const specifier = resolvePluginImportSpecifier?.(
+      "@elizaos/plugin-x-streaming",
+      pathToFileURL(path.join(runtimeDir, "eliza.ts")).href,
+    );
 
-      expect(specifier).toBe("@elizaos/plugin-x-streaming");
+    expect(specifier).toBe("@elizaos/plugin-x-streaming");
 
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    });
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
 
-    it("leaves non-project plugins unchanged", () => {
-      expect(resolvePluginImportSpecifier?.("@elizaos/plugin-discord")).toBe(
-        "@elizaos/plugin-discord",
-      );
-    });
-  },
-);
+  it("leaves non-project plugins unchanged", () => {
+    expect(resolvePluginImportSpecifier?.("@elizaos/plugin-discord")).toBe(
+      "@elizaos/plugin-discord",
+    );
+  });
+});
 
 describe("shouldIgnoreMissingPluginExport", () => {
   it("ignores helper-only streaming-base package exports", () => {
@@ -3388,7 +3413,7 @@ describe("getPgliteRecoveryAction", () => {
     }
   });
 
-  it("still resets for corruption errors even when a pid file exists", async () => {
+  it("preserves the data dir for corruption errors by default", async () => {
     const pidPath = path.join(tmpDir, "postmaster.pid");
     await fs.writeFile(pidPath, `${process.pid}\n/tmp/pglite\n5432\n`);
 
@@ -3397,7 +3422,38 @@ describe("getPgliteRecoveryAction", () => {
       tmpDir,
     );
 
-    expect(action).toBe("reset-data-dir");
+    expect(action).toBe("fail-manual-reset");
+  });
+
+  it("fails fast for corrupt read errors with no pid cleanup path", () => {
+    const action = getPgliteRecoveryAction(
+      new Error(
+        'could not read blocks 0..0 in file "global/1213": read only 1 of 8192 bytes',
+      ),
+      tmpDir,
+    );
+
+    expect(action).toBe("fail-manual-reset");
+  });
+
+  it("retries without reset when abort errors coincide with a malformed pid file", async () => {
+    const pidPath = path.join(tmpDir, "postmaster.pid");
+    await fs.writeFile(pidPath, "-42\n/tmp/pglite\n5432\n");
+
+    const action = getPgliteRecoveryAction(
+      new Error("PGlite adapter crashed", {
+        cause: new Error("Aborted(). Build with -sASSERTIONS for more info."),
+      }),
+      tmpDir,
+    );
+
+    const exists = await fs
+      .access(pidPath)
+      .then(() => true)
+      .catch(() => false);
+
+    expect(action).toBe("retry-without-reset");
+    expect(exists).toBe(false);
   });
 
   it("returns none for unrelated startup errors", () => {

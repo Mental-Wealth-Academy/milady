@@ -35,13 +35,15 @@ import { stringToUuid } from "@elizaos/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — intercept plugin-roles to drive real logic against our
+// Hoisted mocks — intercept roles helpers to drive real logic against our
 // stateful stores (same pattern as roles-e2e.test.ts)
 // ---------------------------------------------------------------------------
 
 const {
+  mockGetConnectorAdminWhitelist,
   mockGetEntityRole,
   mockHasConfiguredCanonicalOwner,
+  mockMatchEntityToConnectorAdminWhitelist,
   mockResolveWorldForMessage,
   mockResolveCanonicalOwnerId,
   mockResolveCanonicalOwnerIdForMessage,
@@ -49,8 +51,10 @@ const {
   mockNormalizeRole,
   mockCheckSenderRole,
 } = vi.hoisted(() => ({
+  mockGetConnectorAdminWhitelist: vi.fn(),
   mockGetEntityRole: vi.fn(),
   mockHasConfiguredCanonicalOwner: vi.fn(),
+  mockMatchEntityToConnectorAdminWhitelist: vi.fn(),
   mockResolveWorldForMessage: vi.fn(),
   mockResolveCanonicalOwnerId: vi.fn(),
   mockResolveCanonicalOwnerIdForMessage: vi.fn(),
@@ -59,9 +63,12 @@ const {
   mockCheckSenderRole: vi.fn(),
 }));
 
-vi.mock("@miladyai/plugin-roles", () => ({
+vi.mock("@elizaos/core/roles", () => ({
+  getConnectorAdminWhitelist: mockGetConnectorAdminWhitelist,
   getEntityRole: mockGetEntityRole,
   hasConfiguredCanonicalOwner: mockHasConfiguredCanonicalOwner,
+  matchEntityToConnectorAdminWhitelist:
+    mockMatchEntityToConnectorAdminWhitelist,
   resolveWorldForMessage: mockResolveWorldForMessage,
   resolveCanonicalOwnerId: mockResolveCanonicalOwnerId,
   resolveCanonicalOwnerIdForMessage: mockResolveCanonicalOwnerIdForMessage,
@@ -111,6 +118,7 @@ import { EscalationService } from "../src/services/escalation";
 type RolesMetadata = {
   ownership?: { ownerId?: string };
   roles?: Record<string, string>;
+  roleSources?: Record<string, string>;
 };
 
 /**
@@ -381,7 +389,7 @@ class ScenarioRunner {
       type: "GROUP" as never,
     } as Room);
 
-    // Wire up plugin-roles mocks
+    // Wire up roles mocks
     this.wirePluginRolesMocks();
 
     // Default config
@@ -552,14 +560,8 @@ class ScenarioRunner {
           escalation: config.escalation ?? {},
         },
       },
-      plugins: {
-        entries: {
-          "@miladyai/plugin-roles": {
-            config: {
-              connectorAdmins: config.connectorAdmins ?? {},
-            },
-          },
-        },
+      roles: {
+        connectorAdmins: config.connectorAdmins ?? {},
       },
     });
   }
@@ -984,7 +986,7 @@ class ScenarioRunner {
   }
 
   // -----------------------------------------------------------------------
-  // Private: wire up plugin-roles mocks
+  // Private: wire up roles mocks
   // -----------------------------------------------------------------------
 
   private wirePluginRolesMocks(): void {
@@ -1042,19 +1044,56 @@ class ScenarioRunner {
         message: Memory,
         targetEntityId: string,
         newRole: string,
+        source = "manual",
       ) => {
         const room = this.rooms.get(message.roomId);
         if (!room?.worldId) return {};
         const world = this.worlds.get(room.worldId as string);
         if (!world) return {};
         const roles = world.metadata.roles ?? {};
+        const roleSources = world.metadata.roleSources ?? {};
         if (newRole === "NONE") {
           delete roles[targetEntityId];
+          delete roleSources[targetEntityId];
         } else {
           roles[targetEntityId] = newRole;
+          roleSources[targetEntityId] = source;
         }
         world.metadata.roles = roles;
+        world.metadata.roleSources = roleSources;
         return { ...roles };
+      },
+    );
+
+    mockGetConnectorAdminWhitelist.mockReturnValue({});
+    mockMatchEntityToConnectorAdminWhitelist.mockImplementation(
+      (
+        entityMetadata: Record<string, unknown> | undefined | null,
+        whitelist: Record<string, string[]>,
+      ) => {
+        if (!entityMetadata) {
+          return null;
+        }
+
+        for (const [connector, platformIds] of Object.entries(whitelist)) {
+          if (!platformIds?.length) continue;
+
+          const connectorMetadata = entityMetadata[connector] as
+            | Record<string, unknown>
+            | undefined;
+          if (!connectorMetadata || typeof connectorMetadata !== "object") {
+            continue;
+          }
+
+          for (const field of ["userId", "id", "username", "userName"] as const) {
+            const value = connectorMetadata[field];
+            if (typeof value === "string" && platformIds.includes(value)) {
+              return { connector, matchedValue: value, matchedField: field };
+            }
+          }
+        }
+
+        return null;
       },
     );
 

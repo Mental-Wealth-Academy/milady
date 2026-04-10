@@ -18,7 +18,6 @@ import type {
   McpServerConfig,
   McpServerStatus,
 } from "../api";
-import type { GamePostMessageAuthPayload } from "./internal";
 
 /**
  * Currently-selected connector chat in the unified messages sidebar.
@@ -28,9 +27,12 @@ import type { GamePostMessageAuthPayload } from "./internal";
  * conversation — the sidebar clears one when selecting the other.
  */
 export interface ActiveInboxChat {
+  avatarUrl?: string;
   id: string;
   source: string;
   title: string;
+  worldId?: string;
+  worldLabel?: string;
 }
 
 export function useMiscUiState() {

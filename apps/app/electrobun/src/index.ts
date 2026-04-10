@@ -32,6 +32,7 @@ import { showBackgroundNoticeOnce } from "./background-notice";
 import { startBrowserWorkspaceBridgeServer } from "./browser-workspace-bridge-server";
 import { readNavigationEventUrl } from "./cloud-auth-window";
 import { scheduleDevtoolsLayoutRefresh } from "./devtools-layout";
+import { getFloatingChatManager } from "./floating-chat-window";
 import {
   resolveBootstrapShellRenderer,
   resolveBootstrapViewRenderer,
@@ -720,6 +721,41 @@ async function startRendererServer(): Promise<string> {
     return script + html;
   }
 
+  const resolveRendererCacheControl = (
+    pathname: string,
+    mimeExt: string,
+  ): string => {
+    if (pathname.startsWith("/assets/")) {
+      return "public, max-age=31536000, immutable";
+    }
+    if (
+      mimeExt === ".vrm" ||
+      pathname.endsWith(".vrm.gz") ||
+      pathname.startsWith("/vrms/previews/") ||
+      pathname.startsWith("/vrms/backgrounds/") ||
+      [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".avif",
+        ".svg",
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".m4a",
+        ".aac",
+        ".flac",
+        ".glb",
+        ".spz",
+      ].includes(mimeExt)
+    ) {
+      return "public, max-age=86400";
+    }
+    return "public, max-age=0, must-revalidate";
+  };
+
   Bun.serve({
     port,
     hostname: "127.0.0.1",
@@ -740,6 +776,7 @@ async function startRendererServer(): Promise<string> {
             headers: {
               "Content-Type": "text/html; charset=utf-8",
               "Access-Control-Allow-Origin": "*",
+              "Cache-Control": "public, max-age=0, must-revalidate",
             },
           });
         }
@@ -747,6 +784,10 @@ async function startRendererServer(): Promise<string> {
         const headers: Record<string, string> = {
           "Content-Type": mimeTypes[mimeExt] ?? "application/octet-stream",
           "Access-Control-Allow-Origin": "*",
+          "Cache-Control": resolveRendererCacheControl(
+            new URL(req.url).pathname,
+            mimeExt,
+          ),
         };
 
         if (isGzipped) {
@@ -1770,6 +1811,18 @@ async function main(): Promise<void> {
     pid: process.pid,
   });
 
+  // Configure the floating chat manager now that the renderer URL is resolved.
+  // This must run after createMainWindow() so rendererUrlPromise is already set.
+  void resolveRendererUrl().then((url) => {
+    let preload = "";
+    try {
+      preload = readResolvedPreloadScript(import.meta.dir);
+    } catch {
+      /* non-fatal */
+    }
+    getFloatingChatManager().configure(url, preload);
+  });
+
   surfaceWindowManager = new SurfaceWindowManager({
     createWindow: (options) =>
       new BrowserWindow(options) as unknown as ManagedWindowLike,
@@ -1870,6 +1923,11 @@ async function main(): Promise<void> {
         { id: "sep2", type: "separator" },
         { id: "tray-show-window", label: "Show Window", type: "normal" },
         { id: "tray-hide-window", label: "Hide Window", type: "normal" },
+        {
+          id: "tray-floating-chat",
+          label: "Floating Chat",
+          type: "normal",
+        },
         { id: "sep3", type: "separator" },
         { id: "quit", label: "Quit", type: "normal" },
       ],

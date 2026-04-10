@@ -64,8 +64,11 @@ export interface OnboardingState {
   apiKey: string;
   voiceProvider: string;
   voiceApiKey: string;
+  nanoModel: string;
   smallModel: string;
+  mediumModel: string;
   largeModel: string;
+  megaModel: string;
   openRouterModel: string;
   primaryModel: string;
   existingInstallDetected: boolean;
@@ -90,6 +93,7 @@ export interface OnboardingState {
 
   // Misc
   restarting: boolean;
+  cloudProvisionedContainer: boolean;
 }
 
 function isRemoteApiBase(baseUrl: string): boolean {
@@ -194,8 +198,11 @@ function createInitialState(cloudOnly?: boolean): OnboardingState {
     apiKey: "",
     voiceProvider: "",
     voiceApiKey: "",
-    smallModel: "moonshotai/kimi-k2-turbo",
-    largeModel: "moonshotai/kimi-k2-0905",
+    nanoModel: "openai/gpt-5.4-nano",
+    smallModel: "minimax/minimax-m2.7",
+    mediumModel: "anthropic/claude-sonnet-4.6",
+    largeModel: "anthropic/claude-sonnet-4.6",
+    megaModel: "anthropic/claude-sonnet-4.6",
     openRouterModel: "",
     primaryModel: "",
     existingInstallDetected: false,
@@ -210,6 +217,7 @@ function createInitialState(cloudOnly?: boolean): OnboardingState {
     rpcSelections: {},
     rpcKeys: {},
     restarting: false,
+    cloudProvisionedContainer: false,
   };
 }
 

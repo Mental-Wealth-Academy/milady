@@ -1,5 +1,8 @@
 import type { AgentRuntime, UUID } from "@elizaos/core";
-import { getDefaultStylePreset, normalizeCharacterLanguage } from "../onboarding-presets.js";
+import {
+  getDefaultStylePreset,
+  normalizeCharacterLanguage,
+} from "../onboarding-presets.js";
 import { detectRuntimeModel } from "./agent-model.js";
 import type { RouteHelpers, RouteRequestMeta } from "./route-helpers.js";
 
@@ -15,7 +18,18 @@ type AgentStateStatus =
 import type { AutonomousConfigLike } from "../types/config-like.js";
 
 function resolveDefaultAgentName(config: AutonomousConfigLike): string {
-  const ui = config.ui as { language?: unknown } | undefined;
+  const ui = config.ui as
+    | { assistant?: { name?: string }; language?: string }
+    | undefined;
+  const agents = config.agents as
+    | { list?: Array<{ name?: string }> }
+    | undefined;
+  const configuredName =
+    ui?.assistant?.name?.trim() ?? agents?.list?.[0]?.name?.trim();
+  if (configuredName) {
+    return configuredName;
+  }
+
   return getDefaultStylePreset(normalizeCharacterLanguage(ui?.language)).name;
 }
 

@@ -533,7 +533,11 @@ describe("ProviderSwitcher subscription selection behavior", () => {
       await Promise.resolve();
     });
 
-    expect(mockSwitchProvider).toHaveBeenCalledWith("pi-ai", undefined, undefined);
+    expect(mockSwitchProvider).toHaveBeenCalledWith(
+      "pi-ai",
+      undefined,
+      undefined,
+    );
     expect(getSelectValue(tree)).toBe("openai-subscription");
     expect(mockSetActionNotice).toHaveBeenCalledWith(
       "Failed to enable pi.ai: pi failed",
@@ -606,12 +610,22 @@ describe("ProviderSwitcher subscription selection behavior", () => {
       await Promise.resolve();
     });
 
-    expect(mockUpdateConfig).toHaveBeenCalledWith({
-      models: {
-        small: "cloud-small-2",
-        large: "cloud-large-1",
-      },
-    });
+    expect(mockUpdateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.objectContaining({
+          small: "cloud-small-2",
+          large: "cloud-large-1",
+        }),
+        serviceRouting: expect.objectContaining({
+          llmText: expect.objectContaining({
+            backend: "elizacloud",
+            transport: "cloud-proxy",
+            smallModel: "cloud-small-2",
+            largeModel: "cloud-large-1",
+          }),
+        }),
+      }),
+    );
     expect(mockRestartAgent).toHaveBeenCalledTimes(1);
   });
 
@@ -696,7 +710,10 @@ describe("ProviderSwitcher subscription selection behavior", () => {
     });
 
     await act(async () => {
-      getButtonByText(tree, "providerswitcher.reportIssueWithTemplate").props.onClick();
+      getButtonByText(
+        tree,
+        "providerswitcher.reportIssueWithTemplate",
+      ).props.onClick();
       await Promise.resolve();
     });
 
@@ -705,7 +722,10 @@ describe("ProviderSwitcher subscription selection behavior", () => {
     );
 
     await act(async () => {
-      getButtonByText(tree, "providerswitcher.logInToElizaCloud").props.onClick();
+      getButtonByText(
+        tree,
+        "providerswitcher.logInToElizaCloud",
+      ).props.onClick();
       await Promise.resolve();
     });
 

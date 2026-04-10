@@ -13,7 +13,7 @@ import type {
 import { client } from "@miladyai/app-core/api";
 import { isRoutineCodingAgentMessage } from "@miladyai/app-core/chat";
 import { useChatAvatarVoiceBridge } from "@miladyai/app-core/hooks";
-import { getVrmPreviewUrl, useApp } from "@miladyai/app-core/state";
+import { getVrmPreviewUrl, useApp, useChatComposer, usePtySessions } from "@miladyai/app-core/state";
 import {
   ChatAttachmentStrip,
   ChatComposer,
@@ -36,6 +36,7 @@ import {
 } from "react";
 import { AgentActivityBox } from "../chat/AgentActivityBox";
 import { MessageContent } from "../chat/MessageContent";
+import { CodingAgentControlChip } from "../coding/CodingAgentControlChip";
 import { PtyConsoleDrawer } from "../coding/PtyConsoleDrawer";
 import {
   useChatVoiceController,
@@ -65,8 +66,6 @@ export function ChatView({
     activeConversationId,
     activeInboxChat,
     characterData,
-    chatInput: rawChatInput,
-    chatSending,
     chatFirstTokenReceived,
     companionMessageCutoffTs,
     conversationMessages,
@@ -82,13 +81,17 @@ export function ChatView({
     shareIngestNotice: rawShareIngestNotice,
     chatAgentVoiceMuted: agentVoiceMuted,
     selectedVrmIndex,
-    chatPendingImages: rawChatPendingImages,
-    setChatPendingImages,
     uiLanguage,
-    ptySessions,
     sendChatText,
     t: appTranslate,
   } = useApp();
+  const { ptySessions } = usePtySessions();
+  const {
+    chatInput: rawChatInput,
+    chatSending,
+    chatPendingImages: rawChatPendingImages,
+    setChatPendingImages,
+  } = useChatComposer();
   const droppedFiles = Array.isArray(rawDroppedFiles) ? rawDroppedFiles : [];
   const chatInput = typeof rawChatInput === "string" ? rawChatInput : "";
   const shareIngestNotice =
@@ -115,7 +118,7 @@ export function ChatView({
   );
 
   const messagesRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
@@ -127,7 +130,8 @@ export function ChatView({
   // ── Coding agent preflight ──────────────────────────────────────
   const [codingAgentsAvailable, setCodingAgentsAvailable] = useState(false);
   useEffect(() => {
-    fetch("/api/coding-agents/preflight")
+    const controller = new AbortController();
+    fetch("/api/coding-agents/preflight", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: { installed?: unknown[]; available?: boolean }) => {
         setCodingAgentsAvailable(
@@ -136,8 +140,9 @@ export function ChatView({
         );
       })
       .catch(() => {
-        /* preflight unavailable — hide code button */
+        /* preflight unavailable or aborted — hide code button */
       });
+    return () => controller.abort();
   }, []);
 
   const handleCreateTask = useCallback(
@@ -217,11 +222,12 @@ export function ChatView({
               !msg.text.trim()
             ) && !isRoutineCodingAgentMessage(msg),
         )
-        .map((msg) =>
-          msg.source?.trim().toLowerCase() === "milady"
-            ? { ...msg, source: undefined }
-            : msg,
-        ),
+        // Default-tag any message that arrived without a source as
+        // "milady" so dashboard turns render the gold chip symmetric
+        // with connector messages. Live-streamed turns flow through
+        // the SSE path and don't carry the server-side default from
+        // conversation-routes.ts, so we catch them here too.
+        .map((msg) => (msg.source ? msg : { ...msg, source: "milady" })),
     [chatFirstTokenReceived, chatSending, msgs],
   );
   const {
@@ -324,7 +330,7 @@ export function ChatView({
 
       const readers = imageFiles.map(
         (file) =>
-          new Promise<ImageAttachment>((resolve) => {
+          new Promise<ImageAttachment>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
               const result = reader.result as string;
@@ -333,18 +339,25 @@ export function ChatView({
               const data = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
               resolve({ data, mimeType: file.type, name: file.name });
             };
+            reader.onerror = () =>
+              reject(reader.error ?? new Error("Failed to read file"));
+            reader.onabort = () => reject(new Error("File read aborted"));
             reader.readAsDataURL(file);
           }),
       );
 
-      void Promise.all(readers).then((attachments) => {
-        setChatPendingImages((prev) => {
-          const combined = [...prev, ...attachments];
-          // Mirror the server-side MAX_CHAT_IMAGES=4 limit so the user gets
-          // immediate feedback rather than a 400 after upload.
-          return combined.slice(0, 4);
+      void Promise.all(readers)
+        .then((attachments) => {
+          setChatPendingImages((prev) => {
+            const combined = [...prev, ...attachments];
+            // Mirror the server-side MAX_CHAT_IMAGES=4 limit so the user gets
+            // immediate feedback rather than a 400 after upload.
+            return combined.slice(0, 4);
+          });
+        })
+        .catch((err) => {
+          console.warn("Failed to load image attachments:", err);
         });
-      });
     },
     [setChatPendingImages],
   );
@@ -514,13 +527,17 @@ export function ChatView({
       variant="game-modal"
       shellRef={composerRef}
       before={
-        <AgentActivityBox
-          sessions={ptySessions}
-          onSessionClick={
-            onPtySessionClick ??
-            ((id) => setPtyDrawerSessionId((prev) => (prev === id ? null : id)))
-          }
-        />
+        <>
+          <CodingAgentControlChip />
+          <AgentActivityBox
+            sessions={ptySessions}
+            onSessionClick={
+              onPtySessionClick ??
+              ((id) =>
+                setPtyDrawerSessionId((prev) => (prev === id ? null : id)))
+            }
+          />
+        </>
       }
     >
       <ChatComposer
@@ -559,7 +576,7 @@ export function ChatView({
       />
     </ChatComposerShell>
   ) : (
-    <ChatComposerShell variant="default">
+    <ChatComposerShell variant="default" before={<CodingAgentControlChip />}>
       <ChatComposer
         variant="default"
         textareaRef={textareaRef}
@@ -655,13 +672,21 @@ function InboxChatPanel({
   activeInboxChat,
   variant,
 }: {
-  activeInboxChat: { id: string; source: string; title: string };
+  activeInboxChat: {
+    avatarUrl?: string;
+    id: string;
+    source: string;
+    title: string;
+    worldId?: string;
+    worldLabel?: string;
+  };
   variant: ChatViewVariant;
 }) {
-  const { agentStatus, characterData, t } = useApp();
+  const { t } = useApp();
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const agentName = characterData?.name || agentStatus?.agentName || "Agent";
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastRenderedMessageKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -670,6 +695,7 @@ function InboxChatPanel({
         const response = await client.getInboxMessages({
           limit: 200,
           roomId: activeInboxChat.id,
+          roomSource: activeInboxChat.source,
         });
         if (cancelled) return;
         // Server returns newest first; ChatTranscript expects
@@ -690,28 +716,69 @@ function InboxChatPanel({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeInboxChat.id]);
+  }, [activeInboxChat.id, activeInboxChat.source]);
+
+  useLayoutEffect(() => {
+    if (messages.length === 0) return;
+
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const lastMessage = messages[messages.length - 1];
+    const nextKey = `${messages.length}:${lastMessage?.id ?? ""}:${
+      lastMessage?.timestamp ?? 0
+    }`;
+
+    if (lastRenderedMessageKeyRef.current === nextKey) {
+      return;
+    }
+
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior:
+        lastRenderedMessageKeyRef.current === null ? "instant" : "smooth",
+    });
+    lastRenderedMessageKeyRef.current = nextKey;
+  }, [messages]);
+
+  const sourceLabel = activeInboxChat.source
+    ? activeInboxChat.source.charAt(0).toUpperCase() +
+      activeInboxChat.source.slice(1)
+    : "Channel";
 
   return (
-    <section
+    <div
       className="flex flex-1 min-h-0 min-w-0 flex-col"
       aria-label={t("inboxview.Title", { defaultValue: "Inbox" })}
     >
-      <div className="flex items-start justify-between gap-4 border-b border-border/40 px-5 py-3">
+      <div className="flex items-center justify-between border-b border-border/40 px-5 py-3">
         <div className="min-w-0">
           <div className="text-sm font-bold text-txt truncate">
             {activeInboxChat.title}
           </div>
           <div className="mt-0.5 text-[11px] text-muted">
-            {messages.length}{" "}
+            {activeInboxChat.worldLabel
+              ? `${activeInboxChat.worldLabel} • `
+              : ""}
+            {sourceLabel} · {messages.length}{" "}
             {t("inboxview.TotalCountShort", { defaultValue: "messages" })}
           </div>
         </div>
         {activeInboxChat.source ? (
           <ChatSourceIcon source={activeInboxChat.source} className="h-4 w-4" />
+        ) : activeInboxChat.avatarUrl ? (
+          <img
+            src={activeInboxChat.avatarUrl}
+            alt={`${activeInboxChat.title} avatar`}
+            className="h-8 w-8 shrink-0 rounded-full border border-border/35 object-cover shadow-[0_10px_18px_-16px_rgba(15,23,42,0.45)]"
+          />
         ) : null}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+      <div
+        ref={scrollRef}
+        data-testid="inbox-chat-scroll"
+        className="flex-1 min-h-0 overflow-y-auto px-5 py-4"
+      >
         {loading && messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted">
             {t("inboxview.Loading", { defaultValue: "Loading messages…" })}
@@ -725,8 +792,8 @@ function InboxChatPanel({
         ) : (
           <ChatTranscript
             variant={variant}
-            agentName={agentName}
             messages={messages}
+            userMessagesOnRight={false}
             renderMessageContent={(message) => (
               <MessageContent message={message as ConversationMessage} />
             )}
@@ -736,9 +803,10 @@ function InboxChatPanel({
       <div className="border-t border-border/40 bg-bg-hover/40 px-5 py-3 text-[11px] leading-5 text-muted">
         {t("inboxview.ReadOnlyReplyHint", {
           defaultValue:
-            "Read-only view. Reply from the original app — the connector plugin handles outbound messages.",
+            "Read-only view. Reply from the {{source}} app — the connector plugin handles outbound messages.",
+          source: sourceLabel,
         })}
       </div>
-    </section>
+    </div>
   );
 }

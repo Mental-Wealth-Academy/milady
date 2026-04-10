@@ -33,11 +33,11 @@ export const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-agent-skills",      // skill execution and marketplace runtime
   "@elizaos/plugin-commands",          // slash command handling (skills auto-register as /commands)
   "@elizaos/plugin-plugin-manager",    // dynamic plugin management for registry/plugin installs
-  "@miladyai/plugin-roles",           // role-based access control (OWNER/ADMIN/NONE)
+  "roles",                            // internal role-based access control (OWNER/ADMIN/NONE)
 ];
 ```
 
-> **Note:** `@elizaos/plugin-secrets-manager`, `relationships`, `@elizaos/plugin-trust`, `@elizaos/plugin-personality`, and `@elizaos/plugin-experience` are statically imported for fast resolution but commented out of the core list. They may be re-enabled in a future release. `@elizaos/plugin-todo` and `@elizaos/plugin-goals` have been removed; their functionality is now handled by the LifeOps system via runtime tasks.
+> **Note:** `@elizaos/plugin-secrets-manager`, `relationships`, `@elizaos/plugin-trust`, `@elizaos/plugin-personality`, and `@elizaos/plugin-experience` are statically imported for fast resolution but commented out of the core list. They may be re-enabled in a future release. Milady does not ship `@elizaos/plugin-todo`; todo functionality is handled by the workbench API and LifeOps-related runtime tasks.
 
 ### Optional Core Plugins
 

@@ -789,11 +789,14 @@ function createRuntimeForProviderErrorTests(): AgentRuntime {
 
 let _e2eTempDir: string;
 let _origStateDirEnv: string | undefined;
+let _origMiladyStateDirEnv: string | undefined;
 
 beforeAll(async () => {
   _origStateDirEnv = process.env.ELIZA_STATE_DIR;
+  _origMiladyStateDirEnv = process.env.MILADY_STATE_DIR;
   _e2eTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-e2e-"));
   process.env.ELIZA_STATE_DIR = _e2eTempDir;
+  process.env.MILADY_STATE_DIR = _e2eTempDir;
 
   // Seed a minimal config so the server can start
   await fs.writeFile(
@@ -819,6 +822,11 @@ afterAll(async () => {
     process.env.ELIZA_STATE_DIR = _origStateDirEnv;
   } else {
     delete process.env.ELIZA_STATE_DIR;
+  }
+  if (_origMiladyStateDirEnv !== undefined) {
+    process.env.MILADY_STATE_DIR = _origMiladyStateDirEnv;
+  } else {
+    delete process.env.MILADY_STATE_DIR;
   }
   if (_e2eTempDir) {
     await fs.rm(_e2eTempDir, { recursive: true, force: true });
@@ -5046,7 +5054,7 @@ describe("API Server E2E (no runtime)", () => {
           llmText: {
             backend: "openai",
             transport: "direct",
-            primaryModel: "openai/gpt-5.2",
+            primaryModel: "openai/gpt-5.4",
           },
         },
         credentialInputs: {
@@ -5079,7 +5087,7 @@ describe("API Server E2E (no runtime)", () => {
         llmText: {
           backend: "openai",
           transport: "direct",
-          primaryModel: "openai/gpt-5.2",
+          primaryModel: "openai/gpt-5.4",
         },
       });
       expect(data.connection).toBeUndefined();

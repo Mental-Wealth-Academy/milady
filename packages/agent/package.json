@@ -120,7 +120,7 @@
   "dependencies": {
     "@clack/prompts": "^1.0.0",
     "@elizaos/core": "workspace:*",
-    "@elizaos/plugin-agent-orchestrator": "0.6.1",
+    "@elizaos/plugin-agent-orchestrator": "workspace:*",
     "@elizaos/plugin-agent-skills": "workspace:*",
     "@elizaos/plugin-anthropic": "workspace:*",
     "@elizaos/plugin-cron": "workspace:*",
@@ -137,12 +137,12 @@
     "@elizaos/plugin-plugin-manager": "workspace:*",
     "@elizaos/plugin-secrets-manager": "workspace:*",
     "@elizaos/plugin-shell": "workspace:*",
+    "@elizaos/plugin-scratchpad": "workspace:*",
     "@elizaos/plugin-solana": "1.2.6",
     "@elizaos/plugin-sql": "workspace:*",
     "@elizaos/plugin-trust": "workspace:*",
     "@hapi/boom": "^10.0.1",
     "@mariozechner/pi-ai": "0.52.12",
-    "@miladyai/plugin-roles": "github:milady-ai/plugin-roles#5b00c49",
     "@miladyai/plugin-2004scape": "workspace:*",
     "@miladyai/plugin-selfcontrol": "workspace:*",
     "@miladyai/plugin-wechat": "github:milady-ai/plugin-wechat",
@@ -162,7 +162,8 @@
     "puppeteer-core": "^24.37.5",
     "qrcode": "^1.5.4",
     "ws": "^8.19.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "viem": "^2.21.0"
   },
   "peerDependencies": {
     "@elizaos/signal-native": "*"

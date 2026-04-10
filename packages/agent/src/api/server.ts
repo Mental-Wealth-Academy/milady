@@ -26,7 +26,6 @@ import {
   createMessageMemory,
   logger,
   type Media,
-  ModelType,
   stringToUuid,
   type UUID
 } from "@elizaos/core";
@@ -233,9 +232,17 @@ import { handleTrajectoryRoute } from "./trajectory-routes.js";
 import { handleTriggerRoutes } from "./trigger-routes.js";
 import { handleTtsRoutes } from "./tts-routes.js";
 import { TxService } from "./tx-service.js";
+import { routeTaskAgentTextToConnector } from "./task-agent-message-routing.js";
 import { handleUpdateRoutes } from "./update-routes.js";
+import { handleWebsiteBlockerRoutes } from "./website-blocker-routes.js";
 import { handleWalletBscRoutes } from "./wallet-bsc-routes.js";
 import { handleWalletRoutes } from "./wallet-routes.js";
+import {
+  EVM_PLUGIN_PACKAGE,
+  resolvePluginEvmLoaded,
+  resolveWalletAutomationMode as resolveAgentAutomationModeFromConfig,
+  resolveWalletCapabilityStatus,
+} from "./wallet-capability.js";
 import { resolveWalletRpcReadiness } from "./wallet-rpc.js";
 import { handleWalletTradeExecuteRoute } from "./wallet-trade-routes.js";
 import {
@@ -250,11 +257,11 @@ import {
   generateWalletForChain,
   generateWalletKeys,
   getWalletAddresses,
+  initStewardWalletCache,
   importWallet,
   setSolanaWalletEnv,
   validatePrivateKey,
 } from "./wallet.js";
-import { handleWebsiteBlockerRoutes } from "./website-blocker-routes.js";
 import {
   applyWhatsAppQrOverride,
   handleWhatsAppRoute,
@@ -580,15 +587,15 @@ export function resolveConversationGreetingText(
 
   // Prefer explicit UI selections over the loaded character card: users pick a
   // style in onboarding/roster (avatar + preset) while `runtime.character.name`
-  // can still be the default template (e.g. "Chen") until save/restart.
+  // can still reflect the bundled preset name until save/restart.
   const preset =
     resolveStylePresetByAvatarIndex(
       uiConfig?.avatarIndex,
       normalizedLanguage,
     ) ??
     resolveStylePresetById(uiConfig?.presetId, normalizedLanguage) ??
-    resolveStylePresetByName(characterName, normalizedLanguage) ??
-    resolveStylePresetByName(assistantName, normalizedLanguage);
+    resolveStylePresetByName(assistantName, normalizedLanguage) ??
+    resolveStylePresetByName(characterName, normalizedLanguage);
 
   const presetGreeting = pickRandom(preset?.postExamples);
   if (presetGreeting) {
@@ -1155,7 +1162,7 @@ function buildWalletContextPrompt(
       ? "testnet"
       : "mainnet";
   const localSignerAvailable = Boolean(process.env.EVM_PRIVATE_KEY?.trim());
-  const pluginEvmLoaded = isPluginLoadedByName(runtime, EVM_PLUGIN_PACKAGE);
+  const pluginEvmLoaded = resolvePluginEvmLoaded(runtime);
   const rpcReady = Boolean(
     process.env.BSC_RPC_URL?.trim() ||
       process.env.BSC_TESTNET_RPC_URL?.trim() ||
@@ -1423,51 +1430,39 @@ export function buildUserMessages(params: {
   const source = messageSource?.trim() || "client_chat";
   const { attachments, compactAttachments } = buildChatAttachments(images);
   const id = crypto.randomUUID() as UUID;
-  const mergeMessageMetadata = (message: MessageMemory): MessageMemory =>
-    metadata
-      ? ({
-          ...message,
-          metadata: {
-            ...message.metadata,
-            ...metadata,
-          },
-        } as MessageMemory)
-      : message;
+  // Keep caller metadata inside content.metadata only. Top-level Memory.metadata
+  // is treated as trusted transport/runtime context in a few paths.
   // In-memory message carries _data/_mimeType so action handlers can upload.
-  const userMessage = mergeMessageMetadata(
-    createMessageMemory({
-      id,
-      entityId: userId,
-      agentId,
-      roomId,
-      content: {
-        text: prompt,
-        source,
-        channelType,
-        ...(conversationMode ? { conversationMode } : {}),
-        ...(attachments?.length ? { attachments } : {}),
-        ...(metadata ? { metadata } : {}),
-      } as Content & { text: string },
-    }),
-  );
+  const userMessage = createMessageMemory({
+    id,
+    entityId: userId,
+    agentId,
+    roomId,
+    content: {
+      text: prompt,
+      source,
+      channelType,
+      ...(conversationMode ? { conversationMode } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+      ...(metadata ? { metadata } : {}),
+    } as Content & { text: string },
+  });
   // Persisted message: compact placeholder URL, no raw bytes in DB.
   const messageToStore = compactAttachments?.length
-    ? mergeMessageMetadata(
-        createMessageMemory({
-          id,
-          entityId: userId,
-          agentId,
-          roomId,
-          content: {
-            text: prompt,
-            source,
-            channelType,
-            ...(conversationMode ? { conversationMode } : {}),
-            attachments: compactAttachments,
-            ...(metadata ? { metadata } : {}),
-          } as Content & { text: string },
-        }),
-      )
+    ? createMessageMemory({
+        id,
+        entityId: userId,
+        agentId,
+        roomId,
+        content: {
+          text: prompt,
+          source,
+          channelType,
+          ...(conversationMode ? { conversationMode } : {}),
+          attachments: compactAttachments,
+          ...(metadata ? { metadata } : {}),
+        } as Content & { text: string },
+      })
     : userMessage;
   return { userMessage, messageToStore };
 }
@@ -2139,6 +2134,13 @@ function resolveDefaultAgentName(
   config?: ElizaConfig,
   req?: http.IncomingMessage,
 ): string {
+  const configuredName =
+    config?.ui?.assistant?.name?.trim() ??
+    config?.agents?.list?.[0]?.name?.trim();
+  if (configuredName) {
+    return configuredName;
+  }
+
   return getDefaultStylePreset(resolveConfiguredCharacterLanguage(config, req))
     .name;
 }
@@ -2275,8 +2277,6 @@ const AGENT_AUTOMATION_MODES = new Set<AgentAutomationMode>([
   "connectors-only",
   "full",
 ]);
-const EVM_PLUGIN_PACKAGE = "@elizaos/plugin-evm";
-
 function parseAgentAutomationMode(value: unknown): AgentAutomationMode | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
@@ -2284,22 +2284,6 @@ function parseAgentAutomationMode(value: unknown): AgentAutomationMode | null {
     return null;
   }
   return normalized as AgentAutomationMode;
-}
-
-function resolveAgentAutomationModeFromConfig(
-  config: ElizaConfig,
-): AgentAutomationMode {
-  const features =
-    config.features && typeof config.features === "object"
-      ? (config.features as Record<string, unknown>)
-      : null;
-  const agentAutomation =
-    features?.agentAutomation &&
-    typeof features.agentAutomation === "object" &&
-    !Array.isArray(features.agentAutomation)
-      ? (features.agentAutomation as Record<string, unknown>)
-      : null;
-  return parseAgentAutomationMode(agentAutomation?.mode) ?? "full";
 }
 
 function isAgentAutomationRequest(req: http.IncomingMessage): boolean {
@@ -2331,77 +2315,6 @@ function persistAgentAutomationMode(
     ...currentObject,
     enabled: true,
     mode,
-  };
-}
-
-function isPluginLoadedByName(
-  runtime: AgentRuntime | null,
-  pluginName: string,
-): boolean {
-  if (!runtime || !Array.isArray(runtime.plugins)) return false;
-  const shortId = pluginName.replace("@elizaos/plugin-", "");
-  const packageSuffix = `plugin-${shortId}`;
-  return runtime.plugins.some((plugin) => {
-    const name = typeof plugin?.name === "string" ? plugin.name : "";
-    return (
-      name === pluginName ||
-      name === shortId ||
-      name === packageSuffix ||
-      name.endsWith(`/${packageSuffix}`) ||
-      name.includes(shortId)
-    );
-  });
-}
-
-function resolveWalletCapabilityStatus(
-  state: Pick<ServerState, "config" | "runtime">,
-) {
-  const addrs = getWalletAddresses();
-  const rpcReadiness = resolveWalletRpcReadiness(state.config);
-  const automationMode = resolveAgentAutomationModeFromConfig(state.config);
-  const localSignerAvailable = Boolean(process.env.EVM_PRIVATE_KEY?.trim());
-  const hasWallet = Boolean(addrs.evmAddress || addrs.solanaAddress);
-  const hasEvm = Boolean(addrs.evmAddress);
-  const pluginEvmLoaded = isPluginLoadedByName(
-    state.runtime,
-    EVM_PLUGIN_PACKAGE,
-  );
-  const pluginEvmRequired = hasEvm || localSignerAvailable;
-  const rpcReady = Boolean(rpcReadiness.managedBscRpcReady);
-  const walletSource = localSignerAvailable
-    ? "local"
-    : hasWallet
-      ? "managed"
-      : "none";
-
-  let executionBlockedReason: string | null = null;
-  if (!hasEvm) {
-    executionBlockedReason = "No EVM wallet is active yet.";
-  } else if (!rpcReady) {
-    executionBlockedReason = "BSC RPC is not configured.";
-  } else if (!pluginEvmLoaded) {
-    executionBlockedReason =
-      "plugin-evm is not loaded, so EVM wallet execution is unavailable.";
-  } else if (automationMode !== "full") {
-    executionBlockedReason =
-      "Agent automation is in connectors-only mode, so wallet execution is blocked in chat.";
-  }
-
-  return {
-    walletSource,
-    walletNetwork: rpcReadiness.walletNetwork,
-    evmAddress: addrs.evmAddress ?? null,
-    solanaAddress: addrs.solanaAddress ?? null,
-    hasWallet,
-    hasEvm,
-    localSignerAvailable,
-    rpcReady,
-    automationMode,
-    pluginEvmLoaded,
-    pluginEvmRequired,
-    executionReady:
-      hasEvm && rpcReady && pluginEvmLoaded && automationMode === "full",
-    executionBlockedReason,
   };
 }
 
@@ -2683,7 +2596,7 @@ export function buildWalletActionNotExecutedReply(
     process.env.MILADY_WALLET_NETWORK?.trim().toLowerCase() === "testnet"
       ? "testnet"
       : "mainnet";
-  const pluginEvmLoaded = isPluginLoadedByName(runtime, EVM_PLUGIN_PACKAGE);
+  const pluginEvmLoaded = resolvePluginEvmLoaded(runtime);
   const rpcReady = Boolean(
     process.env.BSC_RPC_URL?.trim() ||
       process.env.BSC_TESTNET_RPC_URL?.trim() ||
@@ -3319,13 +3232,20 @@ function isLoopbackBindHost(host: string): boolean {
 }
 
 export function ensureApiTokenForBindHost(host: string): void {
-  if (resolveApiSecurityConfig(process.env).disableAutoApiToken) {
-    return;
-  }
+  const { disableAutoApiToken } = resolveApiSecurityConfig(process.env);
 
   const token = getConfiguredApiToken();
   if (token) return;
+
   const cloudProvisioned = isCloudProvisionedContainer();
+
+  // Cloud-provisioned containers must never run without an inbound API token
+  // (isAuthorized rejects all requests when no token + cloud flag is set).
+  // Override the disable flag for cloud containers so they always get a
+  // fallback token rather than dead-locking into 401 on every request.
+  if (disableAutoApiToken && !cloudProvisioned) {
+    return;
+  }
   if (!cloudProvisioned && isLoopbackBindHost(host)) return;
 
   const generated = crypto.randomBytes(32).toString("hex");
@@ -3712,6 +3632,14 @@ const _WORKBENCH_TODO_TAG = WORKBENCH_TODO_TAG;
  * Stores the message as a Memory in the conversation room and broadcasts
  * a `proactive-message` WS event to the frontend.
  */
+const CHAT_SUPPRESSED_AUTONOMY_SOURCES = new Set([
+  "lifeops-reminder",
+  "lifeops-workflow",
+  "proactive-gm",
+  "proactive-gn",
+  "proactive-nudge",
+]);
+
 export async function routeAutonomyTextToUser(
   state: ServerState,
   responseText: string,
@@ -3737,6 +3665,10 @@ export async function routeAutonomyTextToUser(
     conv = sorted[0];
   }
   if (!conv) return; // No conversations exist yet
+
+  if (CHAT_SUPPRESSED_AUTONOMY_SOURCES.has(source)) {
+    return;
+  }
 
   // Ephemeral sources: broadcast to UI but don't persist to DB.
   // Coding-agent status updates and coordinator decisions are transient —
@@ -3782,7 +3714,15 @@ export async function routeAutonomyTextToUser(
  */
 function getCoordinatorFromRuntime(runtime: AgentRuntime): {
   setChatCallback?: (
-    cb: (text: string, source?: string) => Promise<void>,
+    cb: (
+      text: string,
+      source?: string,
+      routing?: {
+        sessionId?: string;
+        threadId?: string;
+        roomId?: string | null;
+      },
+    ) => Promise<void>,
   ) => void;
   setWsBroadcast?: (cb: (event: SwarmEvent) => void) => void;
   setAgentDecisionCallback?: (
@@ -3801,6 +3741,10 @@ function getCoordinatorFromRuntime(runtime: AgentRuntime): {
       errored: number;
     }) => Promise<void>,
   ) => void;
+  getTaskThread?: (
+    threadId: string,
+  ) => Promise<{ roomId?: string | null } | null>;
+  sourceRoomId?: string | null;
 } | null {
   const coordinator = runtime.getService("SWARM_COORDINATOR");
   if (coordinator) {
@@ -3833,6 +3777,30 @@ function wireCodingAgentChatBridge(st: ServerState): boolean {
   if (!st.runtime) return false;
   const coordinator = getCoordinatorFromRuntime(st.runtime);
   if (!coordinator?.setChatCallback) return false;
+  const hasPtyService = Boolean(st.runtime.getService("PTY_SERVICE"));
+  if (hasPtyService) {
+    // In the real task-agent stack the PTY progress streamer + jsonl watcher
+    // already deliver the success path. Keep generic coordinator chatter
+    // suppressed, but still route task-specific issue messages when the
+    // coordinator includes per-task routing metadata.
+    coordinator.setChatCallback(async (text, source, routing) => {
+      if (!routing) return;
+      const delivered = await routeTaskAgentTextToConnector(
+        st.runtime,
+        text,
+        source ?? "coding-agent",
+        routing,
+      );
+      if (!delivered) {
+        await routeAutonomyTextToUser(st, text, source ?? "coding-agent");
+      }
+    });
+    return true;
+  }
+
+  // Minimal runtimes used by tests and lightweight embeddings do not install
+  // the PTY progress bridge, so the coordinator callback is the only path
+  // that can surface coding-agent updates back into chat.
   coordinator.setChatCallback(async (text: string, source?: string) => {
     await routeAutonomyTextToUser(st, text, source ?? "coding-agent");
   });
@@ -3863,13 +3831,17 @@ function wireCodingAgentWsBridge(st: ServerState): boolean {
  * persisted message in the conversation.
  */
 function wireCodingAgentSwarmSynthesis(st: ServerState): boolean {
+  // Same rationale as wireCodingAgentChatBridge: synthesis is generated
+  // from task metadata (originalTask = user's text), not from the
+  // subagent's actual output. The task-progress-streamer + jsonl watcher
+  // deliver the real answer. Install a no-op callback so the upstream
+  // wiring check considers this bridge wired.
   if (!st.runtime) return false;
   const coordinator = getCoordinatorFromRuntime(st.runtime);
   if (!coordinator?.setSwarmCompleteCallback) return false;
-
-  coordinator.setSwarmCompleteCallback((payload) =>
-    handleSwarmSynthesis(st, payload),
-  );
+  coordinator.setSwarmCompleteCallback(async () => {
+    // Deliberately no-op — synthesis happens via the streamer instead.
+  });
   return true;
 }
 
@@ -3912,46 +3884,86 @@ export async function handleSwarmSynthesis(
     `[swarm-synthesis] Generating synthesis for ${payload.total} tasks (${payload.completed} completed, ${payload.stopped} stopped, ${payload.errored} errored)`,
   );
 
-  const taskLines = payload.tasks
-    .map(
-      (t) =>
-        `- [${t.status.toUpperCase()}] "${t.label}" (${t.agentType})\n  Task: ${t.originalTask}\n  Result: ${t.completionSummary || "No summary available"}`,
-    )
-    .join("\n\n");
+  const resultText = await buildSynthesisResultText(payload);
+  logger.info("[swarm-synthesis] Synthesis generated, routing to user");
+  await routeMessage(resultText, "swarm_synthesis");
+  await routeSynthesisToConnector(runtime, resultText);
+}
 
-  const prompt =
-    `You are summarizing the results of a task-agent swarm for the user. ` +
-    `${payload.total} agents were dispatched. ${payload.completed} completed, ` +
-    `${payload.stopped} stopped, ${payload.errored} errored.\n\n` +
-    `Here are the individual task results:\n\n${taskLines}\n\n` +
-    `Write a concise, conversational summary of what was accomplished. ` +
-    `Highlight key outcomes (PRs created, issues found, research results). ` +
-    `If any tasks failed or stopped, mention what went wrong. ` +
-    `Keep your personality — be warm and helpful but brief.`;
+/**
+ * Build the user-facing result message from swarm task data.
+ * For port-bound tasks, verifies the server is actually listening.
+ * No LLM call required — task data already has what we need.
+ */
+async function buildSynthesisResultText(payload: {
+  tasks: Array<{
+    originalTask: string;
+    completionSummary: string;
+    status: string;
+  }>;
+  total: number;
+}): Promise<string> {
+  const parts = await Promise.all(payload.tasks.map(buildTaskResultLine));
+  return parts.length === 1
+    ? `done — ${parts[0]}`
+    : `done — ${payload.total} tasks:\n${parts.map((p) => `• ${p}`).join("\n")}`;
+}
 
+async function buildTaskResultLine(task: {
+  originalTask: string;
+  completionSummary: string;
+}): Promise<string> {
+  if (task.completionSummary) return task.completionSummary;
+  const portMatch = task.originalTask.match(/port\s+(\d+)/i);
+  const port = portMatch?.[1];
+  if (!port) return task.originalTask;
+  if (await isPortServing(port)) {
+    const host = process.env.MILADY_PUBLIC_HOST ?? "localhost";
+    return `built and serving at http://${host}:${port}`;
+  }
+  return `built the files but server isn't running on port ${port} yet`;
+}
+
+async function isPortServing(port: string): Promise<boolean> {
   try {
-    const synthesis = await runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-      maxTokens: 2048,
-      temperature: 0.7,
+    const res = await fetch(`http://localhost:${port}/`, {
+      signal: AbortSignal.timeout(2000),
     });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
-    if (synthesis?.trim()) {
-      logger.info("[swarm-synthesis] Synthesis generated, routing to user");
-      await routeMessage(synthesis.trim(), "swarm_synthesis");
-    } else {
-      logger.warn("[swarm-synthesis] LLM returned empty synthesis");
-    }
-  } catch (err) {
-    logger.error(`[swarm-synthesis] LLM call failed: ${err}`);
-    const parts: string[] = [];
-    if (payload.completed > 0) parts.push(`${payload.completed} completed`);
-    if (payload.stopped > 0) parts.push(`${payload.stopped} stopped`);
-    if (payload.errored > 0) parts.push(`${payload.errored} errored`);
-    await routeMessage(
-      `All ${payload.total} task agents finished (${parts.join(", ")}). Review their work when you're ready.`,
-      "coding-agent",
+/**
+ * Route the synthesis text to the user's platform (Discord, Telegram, etc.)
+ * via the runtime's registered send handler. Uses the source room ID stored
+ * on the coordinator when the task was created.
+ */
+async function routeSynthesisToConnector(
+  runtime: AgentRuntime,
+  resultText: string,
+): Promise<void> {
+  const coordinator = getCoordinatorFromRuntime(runtime);
+  const sourceRoomId = coordinator?.sourceRoomId;
+  if (!sourceRoomId) return;
+  try {
+    const room = await runtime.getRoom(sourceRoomId as UUID);
+    if (!room?.source) return;
+    await runtime.sendMessageToTarget(
+      ({
+        source: room.source,
+        roomId: room.id,
+        channelId: room.channelId ?? room.id,
+        serverId: room.serverId,
+      } as Parameters<typeof runtime.sendMessageToTarget>[0]),
+      { text: resultText, source: "swarm_synthesis" },
     );
+    logger.info(
+      `[swarm-synthesis] Routed result to ${room.source} room ${room.id}`,
+    );
+  } catch (err) {
+    logger.debug(`[swarm-synthesis] Connector routing failed: ${err}`);
   }
 }
 
@@ -4873,10 +4885,11 @@ async function handleRequest(
   const pathname = url.pathname;
   const isAuthEndpoint = pathname.startsWith("/api/auth/");
   const isHealthEndpoint = method === "GET" && pathname === "/api/health";
+  const isCloudProvisioned = isCloudProvisionedContainer();
   const isCloudOnboardingStatusEndpoint =
     method === "GET" &&
     pathname === "/api/onboarding/status" &&
-    isCloudProvisionedContainer();
+    isCloudProvisioned;
   const isWhatsAppWebhookEndpoint = pathname === "/api/whatsapp/webhook";
   const isAuthProtectedPath = isAuthProtectedRoute(pathname);
   const registryService = state.registryService;
@@ -4978,7 +4991,7 @@ async function handleRequest(
   }
 
   if (
-    isCloudProvisionedContainer() &&
+    isCloudProvisioned &&
     method !== "OPTIONS" &&
     isAuthProtectedPath &&
     !isAuthEndpoint &&
@@ -5471,6 +5484,7 @@ async function handleRequest(
       method,
       pathname,
       config: state.config,
+      runtime: state.runtime,
       saveConfig: saveElizaConfig,
       ensureWalletKeysInEnvAndConfig,
       resolveWalletExportRejection,
@@ -5813,7 +5827,9 @@ async function handleRequest(
       readJsonBody,
       json,
       error,
-      saveConfig: saveElizaConfig,
+      saveConfig: (config) => {
+        saveElizaConfig(config as ElizaConfig);
+      },
       scheduleRuntimeRestart,
     })
   ) {
@@ -6525,6 +6541,10 @@ export async function startApiServer(opts?: {
     }
   }
 
+  // Pre-load steward wallet addresses so getWalletAddresses() has them
+  // available synchronously from the start (cloud-provisioned containers).
+  await initStewardWalletCache();
+
   // Warn when wallet private keys live in plaintext config and the OS secure
   // store is not enabled.  This nudges operators toward MILADY_WALLET_OS_STORE=1.
   {
@@ -6566,9 +6586,7 @@ export async function startApiServer(opts?: {
         : { phase: "idle", attempt: 0 };
   const agentName = hasRuntime
     ? (opts.runtime?.character.name ?? resolveDefaultAgentName(config))
-    : (config.agents?.list?.[0]?.name ??
-      config.ui?.assistant?.name ??
-      resolveDefaultAgentName(config));
+    : resolveDefaultAgentName(config);
 
   const deletedConversationIds = readDeletedConversationIdsFromState();
 

@@ -40,11 +40,11 @@ available_contexts:
 
 rules[6]:
 - direct mention of {{agentName}} -> RESPOND
-- different assistant name -> IGNORE
-- continuing an active thread with {{agentName}} -> RESPOND
-- request to stop or be quiet -> STOP
-- talking to someone else -> IGNORE
-- if unsure, prefer IGNORE over hallucinating relevance
+- different assistant name or talking to someone else -> IGNORE unless {{agentName}} is also directly addressed
+- prior participation by {{agentName}} in the thread is not enough by itself; the newest message must still clearly expect {{agentName}} -> otherwise IGNORE
+- request to stop or be quiet directed at {{agentName}} -> STOP
+- if multiple people are mentioned and {{agentName}} is one of the addressees -> RESPOND
+- if unsure whether the speaker is talking to {{agentName}}, prefer IGNORE over hallucinating relevance
 
 context_routing:
 - primaryContext: choose one context from available_contexts, or "general" if none apply
@@ -52,8 +52,12 @@ context_routing:
 - evidenceTurnIds: optional comma-separated list of memory IDs supporting the decision
 
 decision_note:
-- talking TO {{agentName}} means name mention, reply chain, or direct continuation
-- talking ABOUT {{agentName}} is not enough
+- respond only when the latest message is talking TO {{agentName}}
+- talking TO {{agentName}} means name mention, reply chain, or a clear follow-up that still expects {{agentName}} to answer
+- casual conversation between other users is not enough
+- if another assistant already answered and nobody re-addressed {{agentName}}, IGNORE
+- if {{agentName}} already replied recently and nobody re-addressed {{agentName}}, IGNORE
+- talking ABOUT {{agentName}} or continuing a room conversation around them is not enough
 
 output:
 TOON only. Return exactly one TOON document. No prose before or after it. No <think>.
@@ -302,7 +306,7 @@ export function createOpenAITeacher(
   runtime?: IAgentRuntime,
 ): TeacherModel {
   return {
-    name: "openai/gpt-5",
+    name: "openai/gpt-5.4",
     async generate(systemPrompt: string, userPrompt: string): Promise<string> {
       return await withStandaloneTrajectory(
         runtime,
@@ -310,7 +314,7 @@ export function createOpenAITeacher(
           source: "training",
           metadata: {
             provider: "openai",
-            model: "gpt-5",
+            model: "gpt-5.4",
             purpose: "teacher",
           },
         },
@@ -325,7 +329,7 @@ export function createOpenAITeacher(
                 authorization: `Bearer ${apiKey}`,
               },
               body: JSON.stringify({
-                model: "gpt-5",
+                model: "gpt-5.4",
                 messages: [
                   { role: "system", content: systemPrompt },
                   { role: "user", content: userPrompt },
@@ -351,7 +355,7 @@ export function createOpenAITeacher(
           const text = data.choices[0]?.message?.content ?? "";
           logTeacherCall({
             runtime,
-            model: "openai/gpt-5",
+            model: "openai/gpt-5.4",
             modelVersion: data.model,
             systemPrompt,
             userPrompt,

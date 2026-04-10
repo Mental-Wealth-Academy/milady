@@ -113,6 +113,7 @@ export const OPTIONAL_PLUGIN_MAP: Readonly<Record<string, string>> = {
   "milady-browser": "@miladyai/plugin-milady-browser",
   miladyBrowser: "@miladyai/plugin-milady-browser",
   vision: "@elizaos/plugin-vision",
+  elizacloud: "@elizaos/plugin-elizacloud",
   selfcontrol: "@miladyai/plugin-selfcontrol",
   cron: "@elizaos/plugin-cron",
   cua: "@elizaos/plugin-cua",
@@ -131,6 +132,8 @@ export const OPTIONAL_PLUGIN_MAP: Readonly<Record<string, string>> = {
   "custom-rtmp": "@elizaos/plugin-custom-rtmp",
   "pumpfun-streaming": "@elizaos/plugin-pumpfun-streaming",
   "x-streaming": "@elizaos/plugin-x-streaming",
+  // Steward wallet plugin — short ID used by auto-enable
+  "stwd-eliza-plugin": "@stwd/eliza-plugin",
 };
 
 // ---------------------------------------------------------------------------
@@ -175,17 +178,26 @@ export function collectPluginNames(
   const hasCanonicalRuntimeConfig = hasExplicitCanonicalRuntimeConfig(
     config as Record<string, unknown>,
   );
+  const isCloudContainer =
+    process.env.MILADY_CLOUD_PROVISIONED === "1" ||
+    process.env.ELIZA_CLOUD_PROVISIONED === "1";
   const cloudExplicitlyDisabled = config.cloud?.enabled === false;
   const cloudPluginRequestedByEnv =
     !hasCanonicalRuntimeConfig &&
     !cloudExplicitlyDisabled &&
     (Boolean(process.env.ELIZAOS_CLOUD_API_KEY?.trim()) ||
       isTruthyCloudEnvValue(process.env.ELIZAOS_CLOUD_ENABLED));
-  const cloudEffectivelyEnabled = resolveCloudPluginRequirement(
-    cloudTopology,
-    cloudPluginRequestedByEnv,
-  );
-  const cloudHandlesInference = cloudTopology.services.inference;
+  const cloudEffectivelyEnabled =
+    resolveCloudPluginRequirement(cloudTopology, cloudPluginRequestedByEnv) ||
+    isCloudContainer;
+  // cloudHandlesInference gates whether the cloud plugin *replaces* direct
+  // provider plugins for model calls.  Cloud containers that go through the
+  // steward proxy (OPENAI_BASE_URL → host.docker.internal) need plugin-openai
+  // to stay loaded, so only claim inference when the topology explicitly says
+  // so OR the container has a direct cloud API key for elizacloud inference.
+  const cloudHandlesInference =
+    cloudTopology.services.inference ||
+    (isCloudContainer && Boolean(process.env.ELIZAOS_CLOUD_API_KEY?.trim()));
   const configEnv = config.env as
     | (Record<string, unknown> & { vars?: Record<string, unknown> })
     | undefined;
@@ -249,8 +261,14 @@ export function collectPluginNames(
   // not an exclusive whitelist that blocks everything else.
   if (allowList && allowList.length > 0) {
     for (const item of allowList) {
+      // Normalize short IDs (e.g. "openai" → "@elizaos/plugin-openai") the
+      // same way plugins.entries does — addToAllowlist() pushes both the
+      // short ID and the full package name, so bare short IDs must be
+      // expanded to avoid importing the raw SDK package (e.g. "openai").
       const pluginName =
-        CHANNEL_PLUGIN_MAP[item] ?? OPTIONAL_PLUGIN_MAP[item] ?? item;
+        CHANNEL_PLUGIN_MAP[item] ??
+        OPTIONAL_PLUGIN_MAP[item] ??
+        (item.includes("/") ? item : `@elizaos/plugin-${item}`);
       pluginsToLoad.add(pluginName);
       track(pluginName, `plugins.allow[${JSON.stringify(item)}]`);
     }
@@ -423,7 +441,6 @@ export function collectPluginNames(
     track("@elizaos/plugin-opinion", "env: OPINION_API_KEY");
   }
 
-  // User-installed plugins from config.plugins.installs
   // These are plugins that were installed via the plugin-manager at runtime
   // and tracked in eliza.json so they persist across restarts.
   const installs = config.plugins?.installs;

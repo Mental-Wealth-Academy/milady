@@ -1,8 +1,8 @@
 import type { Dispatch, SetStateAction } from "react";
 import type {
   AgentStatus,
-  AppSessionState,
   AppRunSummary,
+  AppSessionState,
   AppViewerAuthMessage,
   BscTradeExecuteRequest,
   BscTradeExecuteResponse,
@@ -592,9 +592,12 @@ export interface AppState {
    * with an active dashboard conversation.
    */
   activeInboxChat: {
+    avatarUrl?: string;
     id: string;
     source: string;
     title: string;
+    worldId?: string;
+    worldLabel?: string;
   } | null;
 
   // Sub-tabs

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
-const { mockInvokeDesktopBridgeRequest, mockCapacitorAgentStart } = vi.hoisted(() => ({
-  mockInvokeDesktopBridgeRequest: vi.fn(async () => undefined),
-  mockCapacitorAgentStart: vi.fn(async () => undefined),
-}));
+const { mockInvokeDesktopBridgeRequest, mockCapacitorAgentStart } = vi.hoisted(
+  () => ({
+    mockInvokeDesktopBridgeRequest: vi.fn(async () => undefined),
+    mockCapacitorAgentStart: vi.fn(async () => undefined),
+  }),
+);
 
 vi.mock("../bridge", () => ({
   invokeDesktopBridgeRequest: (...args: unknown[]) =>
@@ -988,7 +990,10 @@ describe("useOnboardingCallbacks", () => {
     });
 
     act(() => {
-      result.current.onboarding.setField("remoteApiBase", "ftp://ren.example.com");
+      result.current.onboarding.setField(
+        "remoteApiBase",
+        "ftp://ren.example.com",
+      );
     });
 
     await act(async () => {
@@ -1207,7 +1212,7 @@ describe("useOnboardingCallbacks", () => {
       result.current.onboarding.setField("provider", "openai");
       result.current.onboarding.setField("cloudApiKey", "ck-linked");
       result.current.onboarding.setField("apiKey", "sk-openai-test");
-      result.current.onboarding.setField("primaryModel", "openai/gpt-5.2");
+      result.current.onboarding.setField("primaryModel", "openai/gpt-5.4");
       result.current.onboarding.setField(
         "remoteApiBase",
         "https://ren.example.com",
@@ -1239,7 +1244,7 @@ describe("useOnboardingCallbacks", () => {
             backend: "openai",
             transport: "remote",
             remoteApiBase: "https://ren.example.com",
-            primaryModel: "openai/gpt-5.2",
+            primaryModel: "openai/gpt-5.4",
           },
         },
         credentialInputs: {
@@ -1319,14 +1324,8 @@ describe("useOnboardingCallbacks", () => {
       });
       result.current.onboarding.setField("name", "Chen");
       result.current.onboarding.setField("serverTarget", "local");
-      result.current.onboarding.setField(
-        "provider",
-        "anthropic-subscription",
-      );
-      result.current.onboarding.setField(
-        "apiKey",
-        "sk-ant-oat01-test-token",
-      );
+      result.current.onboarding.setField("provider", "anthropic-subscription");
+      result.current.onboarding.setField("apiKey", "sk-ant-oat01-test-token");
     });
 
     await act(async () => {
@@ -1528,7 +1527,9 @@ describe("useOnboardingCallbacks", () => {
 
   it("warns and still completes onboarding when voice preset persistence fails", async () => {
     const submitOnboarding = vi.fn().mockResolvedValue(undefined);
-    const updateConfig = vi.fn().mockRejectedValue(new Error("tts save failed"));
+    const updateConfig = vi
+      .fn()
+      .mockRejectedValue(new Error("tts save failed"));
     const setOnboardingComplete = vi.fn();
     const setTab = vi.fn();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1626,7 +1627,7 @@ describe("useOnboardingCallbacks", () => {
     expect(setTab).toHaveBeenCalledWith("chat");
   });
 
-  it("completes Eliza Cloud onboarding without queuing Google setup work", async () => {
+  it("completes connected Eliza Cloud onboarding without provisioning a sandbox", async () => {
     const submitOnboarding = vi.fn().mockResolvedValue(undefined);
     const provisionCloudSandbox = vi.fn().mockResolvedValue(undefined);
     const addDeferredOnboardingTask = vi.fn();
@@ -1701,7 +1702,8 @@ describe("useOnboardingCallbacks", () => {
       await result.current.callbacks.handleOnboardingFinish();
     });
 
-    expect(provisionCloudSandbox).toHaveBeenCalledTimes(1);
+    expect(provisionCloudSandbox).not.toHaveBeenCalled();
+    expect(submitOnboarding).toHaveBeenCalledTimes(1);
     expect(addDeferredOnboardingTask).not.toHaveBeenCalled();
     expect(setOnboardingComplete).toHaveBeenCalledWith(true);
     expect(setTab).toHaveBeenCalledWith("chat");
@@ -1825,7 +1827,7 @@ describe("useOnboardingCallbacks", () => {
           uiLanguage: "en",
           selectedVrmIndex: 1,
           walletConfig: {},
-          elizaCloudConnected: true,
+          elizaCloudConnected: false,
           setActionNotice: vi.fn(),
           retryStartup: vi.fn(),
           forceLocalBootstrapRef: { current: false },
@@ -1859,6 +1861,7 @@ describe("useOnboardingCallbacks", () => {
       await result.current.callbacks.handleOnboardingFinish();
     });
 
+    expect(provisionCloudSandbox).toHaveBeenCalledTimes(1);
     expect(submitOnboarding).toHaveBeenCalledTimes(1);
     expect(logSpy).toHaveBeenCalledWith(
       "[Sandbox] provisioning: warming sandbox",

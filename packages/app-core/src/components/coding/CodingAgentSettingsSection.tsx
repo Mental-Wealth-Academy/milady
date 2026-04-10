@@ -25,7 +25,7 @@ import { LlmProviderSection } from "./LlmProviderSection";
 import { ModelConfigSection } from "./ModelConfigSection";
 
 export function CodingAgentSettingsSection() {
-  const { t } = useApp();
+  const { t, elizaCloudConnected } = useApp();
 
   const [activeTab, setActiveTab] = useState<AgentTab | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +41,7 @@ export function CodingAgentSettingsSection() {
   const [authResult, setAuthResult] = useState<AuthResult | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     void (async () => {
       setLoading(true);
       try {
@@ -50,10 +51,14 @@ export function CodingAgentSettingsSection() {
             client.fetchModels("anthropic", false).catch(() => null),
             client.fetchModels("google-genai", false).catch(() => null),
             client.fetchModels("openai", false).catch(() => null),
-            fetch("/api/coding-agents/preflight")
+            fetch("/api/coding-agents/preflight", {
+              signal: controller.signal,
+            })
               .then((response) => (response.ok ? response.json() : null))
               .catch(() => null),
           ]);
+
+        if (controller.signal.aborted) return;
 
         const env = (cfg.env ?? {}) as Record<string, string>;
         const cloud = (cfg.cloud ?? {}) as Record<string, string>;
@@ -140,12 +145,20 @@ export function CodingAgentSettingsSection() {
       } catch {
         // Fall back to built-in defaults when config or model fetches fail.
       }
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     })();
+    return () => controller.abort();
   }, []);
 
-  const llmProvider = (prefs.PARALLAX_LLM_PROVIDER ||
+  // If the user previously chose "cloud" but Eliza Cloud has since been
+  // disconnected, fall back to "subscription" rather than leaving the
+  // selector pointed at an unusable provider.
+  const rawLlmProvider = (prefs.PARALLAX_LLM_PROVIDER ||
     "subscription") as LlmProvider;
+  const llmProvider: LlmProvider =
+    rawLlmProvider === "cloud" && !elizaCloudConnected
+      ? "subscription"
+      : rawLlmProvider;
   const isCloud = llmProvider === "cloud";
 
   const installedAgents = AGENT_TABS.filter(

@@ -142,6 +142,7 @@ import {
   readDevConsoleLogTail,
 } from "./dev-console-log";
 import { handleAuthPairingCompatRoutes } from "./auth-pairing-compat-routes";
+import { isCloudProvisioned as _isCloudProvisioned } from "./server-onboarding-compat";
 import { handleDatabaseRowsCompatRoute } from "./database-rows-compat-routes";
 import { handleDevCompatRoutes } from "./dev-compat-routes";
 import { handleOnboardingCompatRoute } from "./onboarding-compat-routes";
@@ -777,7 +778,14 @@ async function handleMiladyCompatRoute(
     !url.pathname.startsWith("/api/cloud/billing/");
 
   if (isCloudRoute) {
-    if (!ensureCompatApiAuthorized(req, res)) {
+    // Cloud-provisioned containers exempt /api/cloud/status from auth so the
+    // SPA can discover cloud connection state without a token.
+    const isCloudStatusExempt =
+      _isCloudProvisioned() &&
+      method === "GET" &&
+      url.pathname === "/api/cloud/status";
+
+    if (!isCloudStatusExempt && !ensureCompatApiAuthorized(req, res)) {
       return true;
     }
 
@@ -820,9 +828,17 @@ async function handleMiladyCompatRoute(
       // Include serviceRouting: { llmText: null } so the upstream's in-memory
       // serviceRouting (derived from legacy cloud.enabled=true at load time) is
       // cleared — without it, the loopback save re-persists the cloud-proxy route.
+      // Also include linkedAccounts.elizacloud.status="unlinked" so the
+      // upstream's in-memory state.config (which still has the old "linked"
+      // status from load time) does not overwrite the canonical unlinked
+      // state on the next saveElizaConfig — that overwrite was the source
+      // of the auto-reconnect bug after restart.
       const disconnectPatch = {
         cloud: { enabled: false, apiKey: null },
         serviceRouting: { llmText: null },
+        linkedAccounts: {
+          elizacloud: { status: "unlinked", source: "api-key" },
+        },
       };
       if (isMiladySettingsDebugEnabled()) {
         logger.debug(

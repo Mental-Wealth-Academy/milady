@@ -7,7 +7,7 @@
  * with various parameter combinations:
  *
  *   1. LLM provides `action` param (primary path, reliable)
- *   2. LLM omits `action` but provides `intent` (fallback path, regex)
+ *   2. LLM omits `action` but provides `intent` (fallback classifier path)
  *   3. LLM provides both (action wins)
  *   4. LLM provides malformed/missing params (error paths)
  *
@@ -28,7 +28,8 @@ const mocks = vi.hoisted(() => {
   }
   return {
     LifeOpsServiceError: _LifeOpsServiceError,
-    checkSenderRole: vi.fn(),
+    checkSenderPrivateAccess: vi.fn(),
+    resolveCanonicalOwnerIdForMessage: vi.fn(),
     createDefinition: vi.fn(),
     createGoal: vi.fn(),
     updateDefinition: vi.fn(),
@@ -49,7 +50,10 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@miladyai/plugin-roles", () => ({ checkSenderRole: mocks.checkSenderRole }));
+vi.mock("@elizaos/core/roles", () => ({
+  checkSenderPrivateAccess: mocks.checkSenderPrivateAccess,
+  resolveCanonicalOwnerIdForMessage: mocks.resolveCanonicalOwnerIdForMessage,
+}));
 
 vi.mock("../lifeops/service.js", () => ({
   LifeOpsServiceError: mocks.LifeOpsServiceError,
@@ -77,7 +81,7 @@ vi.mock("../lifeops/service.js", () => ({
 import { lifeAction } from "./life";
 
 const runtime = { agentId: "agent-1" } as never;
-const adminRole = { entityId: "owner-1", role: "OWNER", isOwner: true, isAdmin: true, canManageRoles: true };
+const privateAccess = { hasPrivateAccess: true };
 
 function send(params: Record<string, unknown>, messageText?: string) {
   return lifeAction.handler?.(
@@ -91,7 +95,7 @@ function send(params: Record<string, unknown>, messageText?: string) {
 describe("LIFE action smoke tests — BRD acceptance criteria", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.checkSenderRole.mockResolvedValue(adminRole);
+    mocks.checkSenderPrivateAccess.mockResolvedValue(privateAccess);
   });
 
   // ── AC-1: "I need help brushing my teeth twice a day" ──
@@ -120,6 +124,7 @@ describe("LIFE action smoke tests — BRD acceptance criteria", () => {
           { key: "morning", label: "Morning", minuteOfDay: 420, durationMinutes: 5 },
           { key: "night", label: "Night", minuteOfDay: 1320, durationMinutes: 5 },
         ]},
+        confirmed: true,
       },
     });
 
@@ -172,6 +177,7 @@ describe("LIFE action smoke tests — BRD acceptance criteria", () => {
         kind: "routine",
         cadence: { kind: "daily", windows: ["morning"] },
         progressionRule: { kind: "linear_increment", metric: "push-ups", start: 10, step: 1, unit: "reps" },
+        confirmed: true,
       },
     });
 
@@ -184,7 +190,7 @@ describe("LIFE action smoke tests — BRD acceptance criteria", () => {
 
   // ── AC-4: "I want to call my mom every week" ──
 
-  it("AC-4: creates a weekly goal", async () => {
+  it("AC-4: creates an explicitly named weekly goal", async () => {
     mocks.createGoal.mockResolvedValue({
       goal: { id: "g1", title: "Call Mom every week" },
       links: [],
@@ -192,19 +198,20 @@ describe("LIFE action smoke tests — BRD acceptance criteria", () => {
 
     const result = await send({
       action: "create_goal",
-      intent: "I want to call my mom every week, help me actually do it",
+      intent: "Actually create a goal called Call Mom every week",
       title: "Call Mom every week",
       details: {
         cadence: { kind: "weekly" },
         supportStrategy: { approach: "weekly_nudge", message: "Have you called Mom this week?" },
+        confirmed: true,
       },
     });
 
     expect(result).toMatchObject({ success: true, text: expect.stringContaining("Call Mom every week") });
   });
 
-  it("AC-4 fallback: classifier routes goal request correctly", () => {
-    expect(classifyIntent("I want to call my mom every week")).toBe("create_goal");
+  it("AC-4 fallback: explicit goal phrasing routes to goal creation", () => {
+    expect(classifyIntent("my goal is to stay healthy")).toBe("create_goal");
   });
 
   // ── AC-5: Calendar query ──
@@ -295,7 +302,7 @@ describe("LIFE action smoke tests — BRD acceptance criteria", () => {
 describe("LIFE action — robustness scenarios", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.checkSenderRole.mockResolvedValue(adminRole);
+    mocks.checkSenderPrivateAccess.mockResolvedValue(privateAccess);
   });
 
   it("handles complete → target not found gracefully", async () => {
@@ -305,7 +312,7 @@ describe("LIFE action — robustness scenarios", () => {
   });
 
   it("handles create without title gracefully", async () => {
-    const result = await send({ action: "create", intent: "add something", details: { cadence: { kind: "daily", windows: ["morning"] } } });
+    const result = await send({ action: "create", intent: "add something", details: { cadence: { kind: "daily", windows: ["morning"] }, confirmed: true } });
     expect(result).toMatchObject({ success: false, text: expect.stringContaining("name") });
   });
 
@@ -332,8 +339,7 @@ describe("LIFE action — robustness scenarios", () => {
 
   it("handles missing action + intent (double fallback)", async () => {
     const result = await send({ intent: "asdfghjkl gibberish" });
-    // Falls through classifier to create_definition, then fails on missing title
-    expect(result).toMatchObject({ success: false, text: expect.stringContaining("name") });
+    expect(result).toMatchObject({ success: false, text: expect.stringContaining("schedule") });
   });
 
   it("catches LifeOpsServiceError and returns user-friendly message instead of provider issue", async () => {
@@ -344,9 +350,9 @@ describe("LIFE action — robustness scenarios", () => {
 
     const result = await send({
       action: "create",
-      intent: "create a habit",
+      intent: "Actually create a habit",
       title: "Test habit",
-      details: { kind: "habit", cadence: { kind: "invalid" } },
+      details: { kind: "habit", cadence: { kind: "invalid" }, confirmed: true },
     });
 
     expect(result).toMatchObject({ success: false, text: expect.stringContaining("cadence.kind must be") });

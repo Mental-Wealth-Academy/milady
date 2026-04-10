@@ -2,28 +2,36 @@ import type { IAgentRuntime, Task, TaskMetadata, UUID } from "@elizaos/core";
 import { logger, stringToUuid } from "@elizaos/core";
 import {
   loadOwnerContactsConfig,
-  resolveOwnerContactSource,
+  resolveOwnerContactWithFallback,
 } from "../config/owner-contacts.js";
 import { resolveDefaultTimeZone } from "../lifeops/defaults.js";
 import { LifeOpsService, LifeOpsServiceError } from "../lifeops/service.js";
 import {
+  hasRuntimeSendHandler,
+  logMissingSendHandlerOnce,
+} from "../services/send-handler-availability.js";
+import { resolveEffectiveDayKey } from "./analyzer.js";
+import {
+  type CalendarEventSlim,
+  type OccurrenceSlim,
+  planDowntimeNudges,
   planGm,
   planGn,
-  planDowntimeNudges,
   planNudges,
-  type OccurrenceSlim,
-  type CalendarEventSlim,
 } from "./proactive-planner.js";
 import {
-  resolveOwnerEntityId,
   buildActivityProfile,
-  refreshCurrentState,
-  readProfileFromMetadata,
-  readFiredLogFromMetadata,
   profileNeedsRebuild,
+  readFiredLogFromMetadata,
+  readProfileFromMetadata,
+  refreshCurrentState,
+  resolveOwnerEntityId,
 } from "./service.js";
-import { resolveEffectiveDayKey } from "./analyzer.js";
-import type { ActivityProfile, FiredActionsLog, ProactiveAction } from "./types.js";
+import type {
+  ActivityProfile,
+  FiredActionsLog,
+  ProactiveAction,
+} from "./types.js";
 
 export const PROACTIVE_TASK_NAME = "PROACTIVE_AGENT" as const;
 export const PROACTIVE_TASK_TAGS = ["queue", "repeat", "proactive"] as const;
@@ -88,7 +96,11 @@ export function resolveProactiveOwnerContact(args: {
     };
   }
 
-  const resolved = resolveOwnerContactSource(args.ownerContacts, deliverySource);
+  const resolved = resolveOwnerContactWithFallback({
+    ownerContacts: args.ownerContacts,
+    source: deliverySource,
+    ownerEntityId: args.ownerEntityId,
+  });
   if (resolved) {
     return {
       source: resolved.source,
@@ -96,15 +108,7 @@ export function resolveProactiveOwnerContact(args: {
     };
   }
 
-  const contact = args.ownerContacts[deliverySource];
-  if (!contact) {
-    return null;
-  }
-
-  return {
-    source: deliverySource,
-    contact,
-  };
+  return null;
 }
 
 export async function executeProactiveTask(
@@ -133,7 +137,12 @@ export async function executeProactiveTask(
     let profile: ActivityProfile | null;
     if (profileNeedsRebuild(currentProfile, now)) {
       logger.info("[proactive] Building full activity profile");
-      profile = await buildActivityProfile(runtime, ownerEntityId, timezone, now);
+      profile = await buildActivityProfile(
+        runtime,
+        ownerEntityId,
+        timezone,
+        now,
+      );
     } else if (currentProfile) {
       profile = await refreshCurrentState(
         runtime,
@@ -224,19 +233,27 @@ export async function executeProactiveTask(
       }
 
       try {
+        if (
+          resolvedTarget.source === "client_chat" &&
+          !hasRuntimeSendHandler(runtime, resolvedTarget.source)
+        ) {
+          logMissingSendHandlerOnce("proactive", resolvedTarget.source);
+          continue;
+        }
+
         await runtime.sendMessageToTarget(
           {
             source: resolvedTarget.source,
             entityId: contact.entityId as UUID | undefined,
             channelId: contact.channelId,
             roomId: contact.roomId as UUID | undefined,
-          } as Parameters<
-            typeof runtime.sendMessageToTarget
-          >[0],
+          } as Parameters<typeof runtime.sendMessageToTarget>[0],
           { text: action.contextSummary, source: resolvedTarget.source },
         );
         firedLog = recordFiredAction(firedLog, todayStr, action);
-        logger.info(`[proactive] Fired ${action.kind} on ${resolvedTarget.source}`);
+        logger.info(
+          `[proactive] Fired ${action.kind} on ${resolvedTarget.source}`,
+        );
       } catch (err) {
         logger.warn(`[proactive] Failed to send ${action.kind}: ${err}`);
       }
@@ -258,9 +275,12 @@ export async function executeProactiveTask(
 
 async function fetchPlannerContext(
   runtime: IAgentRuntime,
-  timezone: string,
+  _timezone: string,
   now: Date,
-): Promise<{ occurrences: OccurrenceSlim[]; calendarEvents: CalendarEventSlim[] }> {
+): Promise<{
+  occurrences: OccurrenceSlim[];
+  calendarEvents: CalendarEventSlim[];
+}> {
   const occurrences: OccurrenceSlim[] = [];
   const calendarEvents: CalendarEventSlim[] = [];
   const lifeOpsService = new LifeOpsService(runtime);

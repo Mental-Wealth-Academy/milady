@@ -1,13 +1,13 @@
 import type http from "node:http";
 import { logger } from "@elizaos/core";
-import type { ElizaConfig } from "../config/config";
+import type { ElizaConfig } from "../config/config.js";
 import {
   normalizeWalletRpcSelections,
   type WalletConfigUpdateRequest,
   type WalletRpcSelections,
-} from "../contracts/wallet";
-import { createIntegrationTelemetrySpan } from "../diagnostics/integration-observability";
-import type { RouteHelpers, RouteRequestMeta } from "./route-helpers";
+} from "../contracts/wallet.js";
+import { createIntegrationTelemetrySpan } from "../diagnostics/integration-observability.js";
+import type { RouteHelpers, RouteRequestMeta } from "./route-helpers.js";
 import {
   fetchEvmBalances,
   fetchSolanaBalances,
@@ -15,17 +15,18 @@ import {
   generateWalletForChain,
   getWalletAddresses,
   importWallet,
+  setSolanaWalletEnv,
   validatePrivateKey,
   type WalletBalancesResponse,
   type WalletChain,
   type WalletConfigStatus,
-} from "./wallet";
+} from "./wallet.js";
 import {
   applyWalletRpcConfigUpdate,
   getStoredWalletRpcSelections,
   resolveWalletNetworkMode,
   resolveWalletRpcReadiness,
-} from "./wallet-rpc";
+} from "./wallet-rpc.js";
 
 interface WalletExportRequestBody {
   confirm?: boolean;
@@ -512,7 +513,7 @@ export async function handleWalletRoutes(
 
     if (targetChain === "both" || targetChain === "solana") {
       const result = deps.generateWalletForChain("solana");
-      process.env.SOLANA_PRIVATE_KEY = result.privateKey;
+      setSolanaWalletEnv(result.privateKey);
       (config.env as Record<string, string>).SOLANA_PRIVATE_KEY =
         result.privateKey;
       generated.push({ chain: "solana", address: result.address });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { _resetMissingSendHandlerLogsForTests } from "./send-handler-availability.js";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -8,6 +9,7 @@ const mockSendMessageToTarget = vi.hoisted(() => vi.fn());
 const mockGetRoomsForParticipant = vi.hoisted(() => vi.fn());
 const mockGetMemoriesByRoomIds = vi.hoisted(() => vi.fn());
 const mockLoadElizaConfig = vi.hoisted(() => vi.fn());
+const mockResolveOwnerEntityId = vi.hoisted(() => vi.fn());
 
 vi.mock("@elizaos/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@elizaos/core")>();
@@ -26,6 +28,10 @@ vi.mock("../config/config.js", () => ({
   loadElizaConfig: mockLoadElizaConfig,
 }));
 
+vi.mock("../runtime/owner-entity.js", () => ({
+  resolveOwnerEntityId: mockResolveOwnerEntityId,
+}));
+
 import type { UUID } from "@elizaos/core";
 import { EscalationService } from "./escalation.js";
 
@@ -36,6 +42,7 @@ import { EscalationService } from "./escalation.js";
 function makeRuntime(overrides?: Record<string, unknown>) {
   return {
     agentId: "agent-1" as UUID,
+    sendHandlers: new Map<string, unknown>([["client_chat", vi.fn()]]),
     sendMessageToTarget: mockSendMessageToTarget,
     getRoomsForParticipant: mockGetRoomsForParticipant,
     getMemoriesByRoomIds: mockGetMemoriesByRoomIds,
@@ -43,7 +50,10 @@ function makeRuntime(overrides?: Record<string, unknown>) {
   } as never;
 }
 
-function setConfig(escalation?: Record<string, unknown>, ownerContacts?: Record<string, unknown>) {
+function setConfig(
+  escalation?: Record<string, unknown>,
+  ownerContacts?: Record<string, unknown>,
+) {
   mockLoadElizaConfig.mockReturnValue({
     agents: {
       defaults: {
@@ -63,10 +73,12 @@ function setConfig(escalation?: Record<string, unknown>, ownerContacts?: Record<
 describe("EscalationService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetMissingSendHandlerLogsForTests();
     EscalationService._reset();
     mockSendMessageToTarget.mockResolvedValue(undefined);
     mockGetRoomsForParticipant.mockResolvedValue([]);
     mockGetMemoriesByRoomIds.mockResolvedValue([]);
+    mockResolveOwnerEntityId.mockResolvedValue(null);
     setConfig();
   });
 
@@ -137,6 +149,43 @@ describe("EscalationService", () => {
         routeSource: "telegram-account",
       }),
     );
+  });
+
+  it("falls back to the resolved owner entity for discord escalation", async () => {
+    mockResolveOwnerEntityId.mockResolvedValue("owner-discord-uuid");
+    setConfig({ channels: ["discord"], waitMinutes: 5, maxRetries: 1 }, {});
+
+    const state = await EscalationService.startEscalation(
+      makeRuntime(),
+      "discord fallback",
+      "Check Discord DM routing",
+    );
+
+    expect(state.channelsSent).toEqual(["discord"]);
+    expect(mockSendMessageToTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "discord",
+        entityId: "owner-discord-uuid",
+      }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          routeSource: "discord",
+          routeResolution: "config",
+          routeEndpoint: "owner-discord-uuid",
+        }),
+      }),
+    );
+  });
+
+  it("skips client_chat escalation delivery until the send handler is registered", async () => {
+    const state = await EscalationService.startEscalation(
+      makeRuntime({ sendHandlers: new Map<string, unknown>() }),
+      "test reason",
+      "Something needs attention",
+    );
+
+    expect(state.channelsSent).toEqual([]);
+    expect(mockSendMessageToTarget).not.toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------
@@ -211,7 +260,7 @@ describe("EscalationService", () => {
     expect(mockSendMessageToTarget).not.toHaveBeenCalled();
   });
 
-  it("uses rolodex hints to resolve the selected escalation endpoint", async () => {
+  it("uses relationships hints to resolve the selected escalation endpoint", async () => {
     setConfig(
       { channels: ["discord"], waitMinutes: 1, maxRetries: 3 },
       { discord: { entityId: "owner-1" } },
@@ -219,12 +268,12 @@ describe("EscalationService", () => {
 
     const runtime = makeRuntime({
       getService: vi.fn((name: string) =>
-        name === "rolodex"
+        name === "relationships"
           ? {
               getContact: vi.fn().mockResolvedValue({
                 preferences: { preferredCommunicationChannel: "discord" },
                 customFields: {
-                  discordChannelId: "dm-rolodex",
+                  discordChannelId: "dm-relationships",
                 },
               }),
             }
@@ -251,13 +300,13 @@ describe("EscalationService", () => {
       expect.objectContaining({
         source: "discord",
         entityId: "owner-1",
-        channelId: "dm-rolodex",
+        channelId: "dm-relationships",
       }),
       expect.objectContaining({
         metadata: expect.objectContaining({
           routeSource: "discord",
-          routeResolution: "config+rolodex",
-          routeEndpoint: "dm-rolodex",
+          routeResolution: "config+relationships",
+          routeEndpoint: "dm-relationships",
           routeLastResponseChannel: "discord",
         }),
       }),
@@ -414,6 +463,8 @@ describe("EscalationService", () => {
 
   it("resolveEscalation is idempotent", () => {
     // Resolving a non-existent escalation should not throw.
-    expect(() => EscalationService.resolveEscalation("nonexistent")).not.toThrow();
+    expect(() =>
+      EscalationService.resolveEscalation("nonexistent"),
+    ).not.toThrow();
   });
 });

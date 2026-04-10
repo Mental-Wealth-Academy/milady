@@ -89,6 +89,9 @@ type RuntimeMemoryService = {
 class StubEntityResolutionService extends Service {
   static serviceType = "entity_resolution" as const;
   static links = new Map<UUID, UUID[]>();
+  capabilityDescription =
+    "Stub entity-resolution service for advanced-memory tests";
+  private initialized = false;
 
   static async start(runtime: IAgentRuntime): Promise<Service> {
     const service = new StubEntityResolutionService(runtime);
@@ -118,11 +121,26 @@ class StubEntityResolutionService extends Service {
   }
 }
 
+/**
+ * Core starts services without awaiting order; MemoryService may capture a null
+ * memoryStorage at init. Re-bind when storage appears so integration tests match
+ * production when the storage plugin wins the race.
+ */
+async function ensureMemoryServiceHasStorage(runtime: IAgentRuntime): Promise<void> {
+  const storage = await runtime.getServiceLoadPromise("memoryStorage");
+  const memory = await runtime.getServiceLoadPromise("memory");
+  const memoryLike = memory as { storage?: unknown };
+  if (storage && memoryLike.storage == null) {
+    memoryLike.storage = storage;
+  }
+}
+
 function createRuntimeWithAdvancedMemory(
-  extraServices: Array<typeof Service> = [],
+  extraServices: NonNullable<Plugin["services"]> = [],
 ): AgentRuntime {
   const integrationPlugin: Plugin = {
     name: "advanced-memory-storage-test",
+    description: "Advanced memory storage test plugin",
     services: [AdvancedMemoryStorageService, ...extraServices],
   };
 
@@ -194,6 +212,7 @@ describe("AdvancedMemoryStorageService", () => {
     runtimes.push(runtime);
 
     await runtime.initialize({ allowNoDatabase: true, skipMigrations: true });
+    await ensureMemoryServiceHasStorage(runtime);
 
     const entityA = "11111111-1111-1111-1111-111111111111" as UUID;
     const entityB = "22222222-2222-2222-2222-222222222222" as UUID;
@@ -253,6 +272,7 @@ describe("AdvancedMemoryStorageService", () => {
     runtimes.push(runtime);
 
     await runtime.initialize({ allowNoDatabase: true, skipMigrations: true });
+    await ensureMemoryServiceHasStorage(runtime);
 
     const roomId = "33333333-3333-3333-3333-333333333333" as UUID;
     const entityId = "44444444-4444-4444-4444-444444444444" as UUID;

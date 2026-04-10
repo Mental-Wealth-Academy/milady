@@ -1,5 +1,5 @@
-import { SUBSCRIPTION_PROVIDER_MAP } from "../auth/types";
-import type { ElizaConfig } from "./types";
+import { SUBSCRIPTION_PROVIDER_MAP } from "../auth/types.js";
+import type { ElizaConfig } from "./types.js";
 
 export interface ApplyPluginAutoEnableResult {
   config: ElizaConfig;
@@ -108,6 +108,7 @@ export const AUTH_PROVIDER_PLUGINS: Record<string, string> = {
   THEAUDIODB_API_KEY: "@elizaos/plugin-music-library",
   SPOTIFY_CLIENT_ID: "@elizaos/plugin-music-library",
   SPOTIFY_CLIENT_SECRET: "@elizaos/plugin-music-library",
+  RS_SDK_BOT_NAME: "@miladyai/plugin-2004scape",
 };
 
 function isTelegramAccountConfigured(env: NodeJS.ProcessEnv): boolean {
@@ -148,6 +149,7 @@ const FEATURE_PLUGINS: Record<string, string> = {
   computeruse: "@elizaos/plugin-computeruse",
   repoprompt: "@elizaos/plugin-repoprompt",
   claudeCodeWorkbench: "@elizaos/plugin-claude-code-workbench",
+  rs2004scape: "@miladyai/plugin-2004scape",
 };
 
 export function isConnectorConfigured(

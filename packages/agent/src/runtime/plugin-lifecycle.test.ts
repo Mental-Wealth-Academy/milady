@@ -7,7 +7,7 @@ import {
 
 type RuntimeServiceClass = NonNullable<Plugin["services"]>[number];
 
-type MockRuntime = AgentRuntime & {
+type MockRuntime = Record<string, any> & {
   models: Map<
     string,
     Array<{
@@ -180,9 +180,9 @@ function createMockRuntime(): MockRuntime {
         this.registerDatabaseAdapter(adapter);
       }
     },
-  } as unknown as MockRuntime;
+  } as MockRuntime;
 
-  installRuntimePluginLifecycle(runtime);
+  installRuntimePluginLifecycle(runtime as unknown as AgentRuntime);
   return runtime;
 }
 
@@ -195,7 +195,7 @@ describe("installRuntimePluginLifecycle", () => {
     const applyConfig = vi.fn(async () => undefined);
 
     const sendHandler = vi.fn(async () => undefined);
-    const serviceClass: RuntimeServiceClass = {
+    const serviceClass = {
       serviceType: "demo_service",
       start: vi.fn(async () => ({ stop: serviceStop } as unknown as Service)),
       stopRuntime,
@@ -205,7 +205,7 @@ describe("installRuntimePluginLifecycle", () => {
           sendHandler,
         );
       },
-    };
+    } as unknown as RuntimeServiceClass;
 
     const plugin: Plugin = {
       name: "@elizaos/plugin-demo",
@@ -225,7 +225,7 @@ describe("installRuntimePluginLifecycle", () => {
       ],
       events: {
         "demo:event": [async () => undefined],
-      },
+      } as never,
       services: [serviceClass],
     };
 
@@ -238,7 +238,9 @@ describe("installRuntimePluginLifecycle", () => {
 
     await runtime.registerPlugin(plugin);
 
-    expect(supportsRuntimePluginLifecycle(runtime)).toBe(true);
+    expect(
+      supportsRuntimePluginLifecycle(runtime as unknown as AgentRuntime),
+    ).toBe(true);
     expect(runtime.actions).toHaveLength(1);
     expect(runtime.providers).toHaveLength(1);
     expect(runtime.evaluators).toHaveLength(1);
@@ -330,6 +332,38 @@ describe("installRuntimePluginLifecycle", () => {
     await expect(runtime.registerPlugin(failingPlugin)).rejects.toThrow("boom");
     expect(runtime.plugins).toHaveLength(0);
     expect(runtime.getPluginOwnership?.("@elizaos/plugin-broken")).toBeNull();
+  });
+
+  it("suppresses duplicate action registrations before core emits a warning", async () => {
+    const runtime = createMockRuntime();
+    runtime.actions.push({ name: "SEND_MESSAGE" });
+
+    await runtime.registerPlugin({
+      name: "@elizaos/plugin-duplicate-action",
+      description: "duplicate action demo",
+      actions: [
+        { name: "SEND_MESSAGE" } as never,
+        { name: "UNIQUE_ACTION" } as never,
+      ],
+    });
+
+    expect(runtime.actions.map((action: { name: string }) => action.name)).toEqual(
+      ["SEND_MESSAGE", "UNIQUE_ACTION"],
+    );
+    expect(
+      runtime.getPluginOwnership?.("@elizaos/plugin-duplicate-action")?.actions,
+    ).toEqual([
+      expect.objectContaining({
+        name: "UNIQUE_ACTION",
+      }),
+    ]);
+    expect(runtime.logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "SEND_MESSAGE",
+        plugin: "@elizaos/plugin-duplicate-action",
+      }),
+      "Skipping duplicate action before runtime registration",
+    );
   });
 
   it("refuses to unload adapter plugins without a runtime reload", async () => {

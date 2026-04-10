@@ -22,6 +22,10 @@
 	path = plugins/plugin-anthropic
 	url = https://github.com/elizaos-plugins/plugin-anthropic.git
 	branch = alpha
+[submodule "plugins/plugin-coding-agent"]
+	path = plugins/plugin-coding-agent
+	url = https://github.com/elizaos-plugins/plugin-coding-agent.git
+	branch = alpha
 [submodule "plugins/plugin-commands"]
 	path = plugins/plugin-commands
 	url = https://github.com/elizaos-plugins/plugin-commands.git
@@ -53,10 +57,6 @@
 [submodule "plugins/plugin-google-genai"]
 	path = plugins/plugin-google-genai
 	url = https://github.com/elizaos-plugins/plugin-google-genai.git
-	branch = alpha
-[submodule "plugins/plugin-knowledge"]
-	path = plugins/plugin-knowledge
-	url = https://github.com/elizaos-plugins/plugin-knowledge.git
 	branch = alpha
 [submodule "plugins/plugin-local-embedding"]
 	path = plugins/plugin-local-embedding
@@ -90,10 +90,6 @@
 	path = plugins/plugin-plugin-manager
 	url = https://github.com/elizaos-plugins/plugin-plugin-manager.git
 	branch = alpha
-[submodule "plugins/plugin-rolodex"]
-	path = plugins/plugin-rolodex
-	url = https://github.com/elizaos-plugins/plugin-rolodex.git
-	branch = alpha
 [submodule "plugins/plugin-secrets-manager"]
 	path = plugins/plugin-secrets-manager
 	url = https://github.com/elizaos-plugins/plugin-secrets-manager.git
@@ -110,10 +106,6 @@
 	path = plugins/plugin-telegram
 	url = https://github.com/elizaos-plugins/plugin-telegram.git
 	branch = alpha
-[submodule "plugins/plugin-trajectory-logger"]
-	path = plugins/plugin-trajectory-logger
-	url = https://github.com/elizaos-plugins/plugin-trajectory-logger.git
-	branch = alpha
 [submodule "plugins/plugin-trust"]
 	path = plugins/plugin-trust
 	url = https://github.com/elizaos-plugins/plugin-trust.git
@@ -125,6 +117,10 @@
 [submodule "plugins/plugin-discord"]
 	path = plugins/plugin-discord
 	url = https://github.com/elizaos-plugins/plugin-discord.git
+	branch = alpha
+[submodule "plugins/plugin-solana"]
+	path = plugins/plugin-solana
+	url = https://github.com/elizaos-plugins/plugin-solana.git
 	branch = alpha
 [submodule "cloud"]
 	path = cloud

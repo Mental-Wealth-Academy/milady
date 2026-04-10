@@ -484,7 +484,7 @@ describe("AppsView", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows valid app-capable games in production without a curated allowlist", () => {
+  it("shows only the curated Milady games in production", () => {
     expect(
       shouldShowAppInAppsView(
         createApp("@hyperscape/plugin-hyperscape", "Hyperscape", "Game", {
@@ -521,7 +521,7 @@ describe("AppsView", () => {
         }),
         true,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("keeps the same visibility rules in development", () => {
@@ -603,6 +603,14 @@ describe("AppsView", () => {
     });
     await flush();
 
+    await act(async () => {
+      findButtonByTitle(
+        tree.root,
+        "Open Defense of the Agents",
+      ).props.onClick();
+    });
+    await flush();
+
     expect(textOf(tree.root)).toContain("Live Operator Surface");
     expect(textOf(tree.root)).toContain("Autoplay Script");
     expect(textOf(tree.root)).toContain(
@@ -616,6 +624,7 @@ describe("AppsView", () => {
     const t = (k: string) => {
       if (k === "appsview.Active") return "Active";
       if (k === "appsview.Back") return "Back";
+      if (k === "appsview.Open") return "Open Hyperscape";
       if (k === "appsview.Refresh") return "Refresh";
       if (k === "appsview.ActiveOnly") return "Active Only";
       if (k === "appsview.SaySomethingToSel")
@@ -673,7 +682,12 @@ describe("AppsView", () => {
     });
     await flush();
 
-    const launchButton = findButtonByText(tree?.root, "appsview.Launch");
+    await act(async () => {
+      findButtonByTitle(tree.root, "Open Hyperscape").props.onClick();
+    });
+    await flush();
+
+    const launchButton = findButtonByText(tree.root, "appsview.Launch");
     await act(async () => {
       await launchButton.props.onClick();
     });
@@ -836,7 +850,7 @@ describe("AppsView", () => {
     });
     await flush();
 
-    expect(textOf(tree.root)).toContain("Recovery queue");
+    expect(textOf(tree.root)).toContain("Needs attention");
     expect(textOf(tree.root)).toContain("Hyperscape");
     expect(textOf(tree.root)).toContain("Reattach viewer");
     expect(textOf(tree.root)).toContain("Viewer is detached");
@@ -886,7 +900,12 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      await findButtonByText(tree?.root, "appsview.Launch").props.onClick();
+      findButtonByTitle(tree.root, "Open Hyperscape").props.onClick();
+    });
+    await flush();
+
+    await act(async () => {
+      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
     });
 
     expect(ctx.setActionNotice).toHaveBeenCalledWith(
@@ -937,7 +956,12 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      await findButtonByText(tree?.root, "appsview.Launch").props.onClick();
+      findButtonByTitle(tree.root, "Open Babylon").props.onClick();
+    });
+    await flush();
+
+    await act(async () => {
+      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
     });
 
     expect(popupSpy).toHaveBeenCalledWith(
@@ -990,7 +1014,12 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      await findButtonByText(tree?.root, "appsview.Launch").props.onClick();
+      findButtonByTitle(tree.root, "Open Babylon").props.onClick();
+    });
+    await flush();
+
+    await act(async () => {
+      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
     });
     expect(ctx.setActionNotice).toHaveBeenCalledWith(
       "Babylon opened in a new tab.",
@@ -999,7 +1028,7 @@ describe("AppsView", () => {
     );
 
     await act(async () => {
-      await findButtonByText(tree?.root, "appsview.Launch").props.onClick();
+      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
     });
     expect(ctx.setActionNotice).toHaveBeenCalledWith(
       "Failed to launch Babylon: network down",
@@ -1041,7 +1070,12 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      await findButtonByText(tree?.root, "appsview.Launch").props.onClick();
+      findButtonByTitle(tree.root, "Open Babylon").props.onClick();
+    });
+    await flush();
+
+    await act(async () => {
+      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
     });
 
     expect(request).toHaveBeenCalledWith({
@@ -1161,7 +1195,7 @@ describe("AppsView", () => {
     expect(mockClientFns.listHyperscapeEmbeddedAgents).not.toHaveBeenCalled();
   });
 
-  it("applies the selected launcher tile treatment after opening an app", async () => {
+  it("opens the selected app detail view after choosing a launcher tile", async () => {
     const ctx = createAppsContext();
     mockUseApp.mockReturnValue({
       ...ctx,
@@ -1192,11 +1226,15 @@ describe("AppsView", () => {
     await act(async () => {
       findButtonByTitle(tree?.root, "Open Hyperscape").props.onClick();
     });
+    await flush();
 
-    const selectedButton = findButtonByTitle(tree?.root, "Open Hyperscape");
-    expect(selectedButton.props.className).toContain("rounded-2xl");
-    expect(selectedButton.props.className).toContain("border-accent/35");
-    expect(selectedButton.props.className).toContain("bg-accent/10");
+    expect(
+      tree.root.findAll(
+        (node) => node.props["data-testid"] === "apps-detail-panel",
+      ).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(textOf(tree.root)).toContain("Hyperscape");
+    expect(textOf(tree.root)).toContain("appsview.Launch");
   });
 
   it("opens app details and can return to the app list", async () => {
@@ -1234,10 +1272,10 @@ describe("AppsView", () => {
       findButtonContainingText(tree?.root, "appsview.Back").props.onClick();
     });
     expect(
-      tree?.root.findAll(
-        (node) => text(node) === "Select an app to view details",
+      tree.root.findAll(
+        (node) => node.props["data-testid"] === "apps-detail-panel",
       ).length,
-    ).toBeGreaterThanOrEqual(1);
+    ).toBe(0);
     expect(
       tree?.root.findAll(
         (node) =>

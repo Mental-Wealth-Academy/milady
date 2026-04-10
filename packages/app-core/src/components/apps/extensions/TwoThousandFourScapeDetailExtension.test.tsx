@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import type { AppRunSummary, RegistryAppInfo } from "../../../api";
 import TestRenderer, { act } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { textOf } from "../../../../../../test/helpers/react-test";
+import type { AppRunSummary, RegistryAppInfo } from "../../../api";
 
 const mockUseApp = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
@@ -58,7 +58,7 @@ function createRun(overrides: Partial<AppRunSummary> = {}): AppRunSummary {
     launchType: "connect",
     launchUrl: "http://localhost:8880",
     viewer: {
-      url: "http://localhost:8880/bot",
+      url: "/api/apps/2004scape/viewer",
       embedParams: {
         bot: "BotName",
         password: "secret",
@@ -67,6 +67,7 @@ function createRun(overrides: Partial<AppRunSummary> = {}): AppRunSummary {
       authMessage: {
         type: "RS_2004SCAPE_AUTH",
         authToken: "token",
+        sessionToken: "secret",
         characterId: "character-1",
         agentId: "agent-1",
       },
@@ -83,21 +84,75 @@ function createRun(overrides: Partial<AppRunSummary> = {}): AppRunSummary {
       followEntity: "character-1",
       canSendCommands: true,
       controls: ["pause", "resume"],
-      summary: "Mining and banking safely in Lumbridge.",
-      goalLabel: "Train mining without risking the account.",
-      suggestedPrompts: ["bank before logging off", "avoid combat"],
+      summary: "Tutorial island: Do you want to skip the tutorial?",
+      goalLabel: "Finish tutorial and reach the mainland.",
+      suggestedPrompts: [
+        "Finish tutorial",
+        "Chop nearby tree",
+        "Catch nearby fish",
+        "Walk around",
+      ],
       telemetry: {
+        botName: "BotName",
+        autoPlay: true,
+        intent: "tutorial",
+        tutorial: {
+          active: true,
+          guideNearby: true,
+          prompt: "Do you want to skip the tutorial?",
+        },
+        player: {
+          name: "Scout Bot",
+          worldX: 3222,
+          worldZ: 3221,
+          hp: 10,
+          maxHp: 10,
+        },
+        combatStyle: {
+          weaponName: "Bronze dagger",
+          activeStyle: "Accurate",
+        },
+        nearbyNpcs: [
+          {
+            name: "RuneScape Guide",
+            distance: 1.2,
+            optionsWithIndex: [{ text: "Talk-to" }],
+          },
+        ],
+        nearbyLocs: [
+          {
+            name: "Tree",
+            distance: 2.4,
+            optionsWithIndex: [{ text: "Chop down" }],
+          },
+        ],
+        gameMessages: [
+          {
+            sender: "Game",
+            text: "Welcome to RuneScape.",
+          },
+        ],
+        recentDialogs: [
+          {
+            text: ["RuneScape Guide", "Do you want to skip the tutorial?"],
+          },
+        ],
+        skills: [
+          { name: "Woodcutting", level: 1 },
+          { name: "Fishing", level: 1 },
+        ],
+        inventory: [{ name: "Shrimps", amount: 1 }],
         recentActivity: [
           {
-            action: "mine",
-            detail: "Mined iron ore near the south wall.",
+            action: "tutorial",
+            detail: "Accepted the starter appearance preset.",
             ts: "2026-04-06T00:00:10.000Z",
           },
         ],
       },
     },
     status: "running",
-    summary: "Mining and banking safely in Lumbridge.",
+    summary: "Tutorial island: Do you want to skip the tutorial?",
     startedAt: "2026-04-06T00:00:00.000Z",
     updatedAt: "2026-04-06T00:00:10.000Z",
     lastHeartbeatAt: "2026-04-06T00:00:10.000Z",
@@ -105,7 +160,7 @@ function createRun(overrides: Partial<AppRunSummary> = {}): AppRunSummary {
     viewerAttachment: "attached",
     health: {
       state: "healthy",
-      message: "Mining and banking safely in Lumbridge.",
+      message: "Tutorial island: Do you want to skip the tutorial?",
     },
     ...overrides,
   };
@@ -118,7 +173,9 @@ function flushPromises(): Promise<void> {
 describe("TwoThousandFourScapeDetailExtension", () => {
   beforeEach(() => {
     mockUseApp.mockReset();
-    Object.values(mockClient).forEach((mockFn) => mockFn.mockReset());
+    Object.values(mockClient).forEach((mockFn) => {
+      mockFn.mockReset();
+    });
   });
 
   it("shows the operator fallback before a run exists", () => {
@@ -162,11 +219,17 @@ describe("TwoThousandFourScapeDetailExtension", () => {
 
     const output = textOf(tree.root);
     expect(output).toContain("2004scape Operator Surface");
-    expect(output).toContain("Auto-login RS_2004SCAPE_AUTH");
-    expect(output).toContain("Continuously running service");
-    expect(output).toContain("Mining and banking safely in Lumbridge.");
-    expect(output).toContain("Mined iron ore near the south wall.");
-    expect(output).toContain("bank before logging off");
+    expect(output).toContain("Credentials stored");
+    expect(output).toContain("Bot BotName is ready for automatic sign-in.");
+    expect(output).toContain("Autoplay active");
+    expect(output).toContain("Tutorial in progress");
+    expect(output).toContain("Live steering ready");
+    expect(output).toContain("Do you want to skip the tutorial?");
+    expect(output).toContain("RuneScape Guide");
+    expect(output).toContain("Bronze dagger");
+    expect(output).toContain("Chop nearby tree");
+    expect(output).not.toContain("RS_2004SCAPE_AUTH");
+    expect(output).not.toContain("secret");
 
     const pauseButton = tree.root
       .findAll((node) => node.type === "button")
@@ -183,7 +246,7 @@ describe("TwoThousandFourScapeDetailExtension", () => {
     const input = tree.root
       .findAll((node) => node.type === "input")
       .find((node) =>
-        String(node.props.placeholder ?? "").includes("Tell the bot"),
+        String(node.props.placeholder ?? "").includes("what to train"),
       );
     expect(input).toBeDefined();
     act(() => {

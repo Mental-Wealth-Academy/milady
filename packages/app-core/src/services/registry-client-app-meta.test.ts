@@ -227,6 +227,12 @@ describe("registry-client-app-meta", () => {
       ).toBeUndefined();
     });
 
+    it("maps the alternate Hyperscape app package onto the canonical runtime plugin", () => {
+      expect(
+        resolveAppOverride("@elizaos/app-hyperscape", undefined)?.runtimePlugin,
+      ).toBe("@hyperscape/plugin-hyperscape");
+    });
+
     it("merges host-owned overrides into existing Hyperscape metadata", () => {
       const existing: RegistryAppMeta = {
         displayName: "Hyperscape",
@@ -257,7 +263,13 @@ describe("registry-client-app-meta", () => {
       const result = resolveAppOverride("@elizaos/app-2004scape", undefined);
       expect(result).toBeDefined();
       expect(result?.launchType).toBe("connect");
+      expect(result?.launchUrl).toBe("/api/apps/2004scape/viewer");
       expect(result?.viewer?.postMessageAuth).toBe(true);
+      expect(result?.viewer?.url).toBe("/api/apps/2004scape/viewer");
+      expect(result?.viewer?.embedParams).toEqual({
+        bot: "",
+        password: "",
+      });
       expect(result?.uiExtension?.detailPanelId).toBe(
         "2004scape-operator-dashboard",
       );

@@ -27,24 +27,39 @@ export type OwnerContactRoutingHint = {
   platformIdentities: OwnerContactPlatformIdentity[];
   lastResponseAt: string | null;
   lastResponseChannel: string | null;
-  resolvedFrom: "config" | "rolodex" | "config+rolodex";
+  resolvedFrom: "config" | "relationships" | "config+relationships";
 };
 
-type RolodexContactLike = {
+export type OwnerContactResolution = {
+  source: string;
+  contact: OwnerContactEntry;
+  resolvedFrom: "config" | "owner_entity";
+};
+
+type RelationshipsContactLike = {
   preferences?: {
     preferredCommunicationChannel?: string;
   };
   customFields?: Record<string, string>;
 };
 
-type RolodexServiceLike = {
-  getContact(entityId: UUID): Promise<RolodexContactLike | null>;
+type RelationshipsServiceLike = {
+  getContact(entityId: UUID): Promise<RelationshipsContactLike | null>;
 };
 
 type RuntimeLike = Pick<
   IAgentRuntime,
   "getService" | "getEntityById" | "getRoomsForParticipant" | "getMemoriesByRoomIds"
 >;
+
+function getRelationshipsService(
+  runtime: RuntimeLike | null | undefined,
+): RelationshipsServiceLike | null {
+  if (!runtime?.getService) {
+    return null;
+  }
+  return runtime.getService("relationships") as unknown as RelationshipsServiceLike | null;
+}
 
 function ownerContactSourceCandidates(source: string): string[] {
   const trimmed = source.trim();
@@ -70,6 +85,13 @@ function canonicalOwnerContactSource(source: string): string {
   return source;
 }
 
+function sourceSupportsOwnerEntityFallback(source: string): boolean {
+  return (
+    source === "client_chat" ||
+    source === "discord"
+  );
+}
+
 export function resolveOwnerContactSource(
   ownerContacts: OwnerContactsConfig,
   source: string | null | undefined,
@@ -85,6 +107,37 @@ export function resolveOwnerContactSource(
     }
   }
   return null;
+}
+
+export function resolveOwnerContactWithFallback(args: {
+  ownerContacts: OwnerContactsConfig;
+  source: string | null | undefined;
+  ownerEntityId: string | null | undefined;
+}): OwnerContactResolution | null {
+  const configured = resolveOwnerContactSource(args.ownerContacts, args.source);
+  if (configured) {
+    return {
+      ...configured,
+      resolvedFrom: "config",
+    };
+  }
+
+  const normalizedSource = normalizeChatSource(args.source);
+  const ownerEntityId =
+    typeof args.ownerEntityId === "string" ? args.ownerEntityId.trim() : "";
+  if (
+    !normalizedSource ||
+    !ownerEntityId ||
+    !sourceSupportsOwnerEntityFallback(normalizedSource)
+  ) {
+    return null;
+  }
+
+  return {
+    source: canonicalOwnerContactSource(normalizedSource),
+    contact: { entityId: ownerEntityId },
+    resolvedFrom: "owner_entity",
+  };
 }
 
 export function loadOwnerContactsConfig(
@@ -149,7 +202,7 @@ export async function loadOwnerContactRoutingHints(
   runtime: RuntimeLike | null | undefined,
   ownerContacts: OwnerContactsConfig,
 ): Promise<Record<string, OwnerContactRoutingHint>> {
-  const rolodex = runtime?.getService?.("rolodex") as RolodexServiceLike | null;
+  const relationships = getRelationshipsService(runtime);
   const hints: Record<string, OwnerContactRoutingHint> = {};
   const entries = Object.entries(ownerContacts);
   for (const [source, contact] of entries) {
@@ -159,28 +212,28 @@ export async function loadOwnerContactRoutingHints(
     let preferredCommunicationChannel: string | null = null;
     let resolvedFrom: OwnerContactRoutingHint["resolvedFrom"] = "config";
 
-    if (contact.entityId && rolodex) {
+    if (contact.entityId && relationships) {
       try {
-        const rolodexContact = await rolodex.getContact(contact.entityId as UUID);
-        if (rolodexContact) {
-          resolvedFrom = "config+rolodex";
+        const relationshipsContact = await relationships.getContact(contact.entityId as UUID);
+        if (relationshipsContact) {
+          resolvedFrom = "config+relationships";
           preferredCommunicationChannel = normalizeChatSource(
-            rolodexContact.preferences?.preferredCommunicationChannel,
+            relationshipsContact.preferences?.preferredCommunicationChannel,
           );
           const nextChannelId = extractCustomField(
-            rolodexContact.customFields,
+            relationshipsContact.customFields,
             `${source}ChannelId`,
             `${source}channelId`,
             "channelId",
           );
           const nextRoomId = extractCustomField(
-            rolodexContact.customFields,
+            relationshipsContact.customFields,
             `${source}RoomId`,
             `${source}roomId`,
             "roomId",
           );
           const nextEntityId = extractCustomField(
-            rolodexContact.customFields,
+            relationshipsContact.customFields,
             `${source}EntityId`,
             `${source}entityId`,
             "entityId",
@@ -199,11 +252,11 @@ export async function loadOwnerContactRoutingHints(
         logger.debug(
           {
             boundary: "owner_contacts",
-            operation: "rolodex_contact_lookup",
+            operation: "relationships_contact_lookup",
             source,
             error: error instanceof Error ? error.message : String(error),
           },
-          "[owner-contacts] Failed to read rolodex contact hint; using static owner contact config.",
+          "[owner-contacts] Failed to read relationships contact hint; using static owner contact config.",
         );
       }
     }

@@ -4,14 +4,19 @@ import { loadElizaConfig } from "../config/config.js";
 import {
   loadOwnerContactRoutingHints,
   loadOwnerContactsConfig,
-  resolveOwnerContactSource,
   type OwnerContactRoutingHint,
+  resolveOwnerContactWithFallback,
 } from "../config/owner-contacts.js";
 import type {
   EscalationConfig,
   OwnerContactEntry,
   OwnerContactsConfig,
 } from "../config/types.agent-defaults.js";
+import { resolveOwnerEntityId } from "../runtime/owner-entity.js";
+import {
+  hasRuntimeSendHandler,
+  logMissingSendHandlerOnce,
+} from "./send-handler-availability.js";
 
 export interface EscalationState {
   id: string;
@@ -77,12 +82,21 @@ async function sendToChannel(
   text: string,
   ownerContacts: OwnerContactsConfig,
   routingHints: Record<string, OwnerContactRoutingHint>,
+  ownerEntityId: string | null,
 ): Promise<boolean> {
   const hint = routingHints[channel] ?? null;
   const resolvedContact =
-    resolveOwnerContactSource(ownerContacts, channel) ??
+    resolveOwnerContactWithFallback({
+      ownerContacts,
+      source: channel,
+      ownerEntityId,
+    }) ??
     (hint
-      ? resolveOwnerContactSource(ownerContacts, hint.source)
+      ? resolveOwnerContactWithFallback({
+          ownerContacts,
+          source: hint.source,
+          ownerEntityId,
+        })
       : null);
   const contact: OwnerContactEntry | undefined =
     resolvedContact?.contact ??
@@ -94,25 +108,36 @@ async function sendToChannel(
         }
       : undefined);
   if (!contact) {
-    logger.warn(`[escalation] No owner contact configured for channel "${channel}"`);
+    logger.warn(
+      `[escalation] No owner contact configured for channel "${channel}"`,
+    );
     return false;
   }
 
   try {
+    const targetSource = resolvedContact?.source ?? channel;
+    if (
+      targetSource === "client_chat" &&
+      !hasRuntimeSendHandler(runtime, targetSource)
+    ) {
+      logMissingSendHandlerOnce("escalation", targetSource);
+      return false;
+    }
+
     await runtime.sendMessageToTarget(
       {
-        source: resolvedContact?.source ?? channel,
+        source: targetSource,
         entityId: contact.entityId as UUID | undefined,
         channelId: contact.channelId,
         roomId: contact.roomId as UUID | undefined,
       } as Parameters<typeof runtime.sendMessageToTarget>[0],
       {
         text,
-        source: resolvedContact?.source ?? channel,
+        source: targetSource,
         metadata: {
           urgency: "urgent",
           escalation: true,
-          routeSource: resolvedContact?.source ?? channel,
+          routeSource: targetSource,
           routeResolution: hint?.resolvedFrom ?? "config",
           routeEndpoint:
             contact.channelId ?? contact.roomId ?? contact.entityId ?? null,
@@ -123,7 +148,10 @@ async function sendToChannel(
     );
     return true;
   } catch (err) {
-    logger.warn(`[escalation] Failed to send to channel "${channel}"`, err instanceof Error ? err.message : String(err));
+    logger.warn(
+      `[escalation] Failed to send to channel "${channel}"`,
+      err instanceof Error ? err.message : String(err),
+    );
     return false;
   }
 }
@@ -132,9 +160,13 @@ async function ownerRespondedSince(
   runtime: IAgentRuntime,
   ownerContacts: OwnerContactsConfig,
   routingHints: Record<string, OwnerContactRoutingHint>,
+  ownerEntityId: string | null,
   sinceTimestamp: number,
 ): Promise<boolean> {
   const entityIds = new Set<string>();
+  if (ownerEntityId) {
+    entityIds.add(ownerEntityId);
+  }
   for (const contact of Object.values(ownerContacts)) {
     if (contact.entityId) entityIds.add(contact.entityId);
   }
@@ -161,7 +193,10 @@ async function ownerRespondedSince(
       );
       if (ownerMessage) return true;
     } catch (err) {
-      logger.debug(`[escalation] Error checking owner response for entity ${entityId}`, err instanceof Error ? err.message : String(err));
+      logger.debug(
+        `[escalation] Error checking owner response for entity ${entityId}`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
@@ -181,7 +216,10 @@ function scheduleCheck(
     try {
       await EscalationService.checkEscalation(runtime, escalationId);
     } catch (err) {
-      logger.error("[escalation] Scheduled check failed", err instanceof Error ? err.message : String(err));
+      logger.error(
+        "[escalation] Scheduled check failed",
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }, delayMs);
 
@@ -209,7 +247,11 @@ export class EscalationService {
     const config = loadEscalationConfig();
     const channels = resolveChannels(config);
     const ownerContacts = loadOwnerContacts();
-    const routingHints = await loadOwnerContactRoutingHints(runtime, ownerContacts);
+    const routingHints = await loadOwnerContactRoutingHints(
+      runtime,
+      ownerContacts,
+    );
+    const ownerEntityId = await resolveOwnerEntityId(runtime);
     const waitMs = resolveWaitMs(config);
 
     idCounter += 1;
@@ -237,6 +279,7 @@ export class EscalationService {
         text,
         ownerContacts,
         routingHints,
+        ownerEntityId,
       );
       if (sent) {
         state.channelsSent.push(firstChannel);
@@ -269,6 +312,7 @@ export class EscalationService {
       runtime,
       ownerContacts,
     );
+    const ownerEntityId = await resolveOwnerEntityId(runtime);
     const maxRetries = resolveMaxRetries(config);
     const waitMs = resolveWaitMs(config);
 
@@ -276,6 +320,7 @@ export class EscalationService {
       runtime,
       ownerContacts,
       routingHints,
+      ownerEntityId,
       state.lastSentAt,
     );
 
@@ -304,6 +349,7 @@ export class EscalationService {
         state.text,
         ownerContacts,
         routingHints,
+        ownerEntityId,
       );
       if (sent) {
         state.channelsSent.push(nextChannel);

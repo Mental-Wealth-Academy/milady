@@ -17,6 +17,7 @@ function createRuntimeForChatRouteTests(options?: {
       onStreamChunk?: (chunk: string, messageId?: string) => Promise<void>;
     },
   ) => Promise<{
+    didRespond?: boolean;
     responseContent?: {
       text?: string;
       actions?: string[];
@@ -39,7 +40,7 @@ function createRuntimeForChatRouteTests(options?: {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
-    } as AgentRuntime["logger"]);
+    } as unknown as AgentRuntime["logger"]);
 
   return {
     agentId: stringToUuid("chat-route-agent"),
@@ -100,12 +101,13 @@ function createUserMessage(text: string) {
 
 describe("generateChatResponse fallback recovery", () => {
   it("does not warn about unexecuted fallback recovery for REPLY-only payloads", async () => {
+    const warn = vi.fn();
     const runtimeLogger = {
       debug: vi.fn(),
       info: vi.fn(),
-      warn: vi.fn(),
+      warn,
       error: vi.fn(),
-    } as AgentRuntime["logger"];
+    } as unknown as AgentRuntime["logger"];
     const runtime = createRuntimeForChatRouteTests({
       logger: runtimeLogger,
       handleMessage: async () => ({
@@ -123,7 +125,7 @@ describe("generateChatResponse fallback recovery", () => {
     );
 
     expect(result.text).toBe("hello there");
-    const warnedMessages = runtimeLogger.warn.mock.calls.map((args) =>
+    const warnedMessages = warn.mock.calls.map((args) =>
       String(args[1] ?? args[0] ?? ""),
     );
     expect(warnedMessages).not.toContain(
@@ -132,12 +134,13 @@ describe("generateChatResponse fallback recovery", () => {
   });
 
   it("still recovers executable fallback actions for balance intents", async () => {
+    const warn = vi.fn();
     const runtimeLogger = {
       debug: vi.fn(),
       info: vi.fn(),
-      warn: vi.fn(),
+      warn,
       error: vi.fn(),
-    } as AgentRuntime["logger"];
+    } as unknown as AgentRuntime["logger"];
     const runtime = createRuntimeForChatRouteTests({
       logger: runtimeLogger,
       handleMessage: async () => ({
@@ -177,7 +180,7 @@ describe("generateChatResponse fallback recovery", () => {
 
     expect(result.text).toContain("Wallet Balances:");
     expect(result.text).toContain("BNB: 0.1000");
-    const warnedMessages = runtimeLogger.warn.mock.calls.map((args) =>
+    const warnedMessages = warn.mock.calls.map((args) =>
       String(args[1] ?? args[0] ?? ""),
     );
     expect(warnedMessages).toContain(
@@ -198,5 +201,31 @@ describe("generateChatResponse fallback recovery", () => {
         timeoutDuration: 1_000,
       }),
     ).rejects.toThrow("Chat generation timed out after 1000ms");
+  });
+
+  it("treats pure IGNORE outcomes as an intentional no-response", async () => {
+    const runtime = createRuntimeForChatRouteTests({
+      handleMessage: async () => ({
+        didRespond: true,
+        responseContent: {
+          text: "",
+          actions: ["IGNORE"],
+        },
+        responseMessages: [],
+        mode: "actions",
+      }),
+    });
+
+    const result = await generateChatResponse(
+      runtime,
+      createUserMessage("hello"),
+      "ChatRouteAgent",
+      {
+        resolveNoResponseText: () => "Sorry, I'm having a provider issue",
+      },
+    );
+
+    expect(result.text).toBe("");
+    expect(result.noResponseReason).toBe("ignored");
   });
 });

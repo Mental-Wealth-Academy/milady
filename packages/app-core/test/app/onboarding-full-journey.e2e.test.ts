@@ -34,6 +34,12 @@ type AppHarnessState = {
   onboardingComplete: boolean;
   tab: string;
   actionNotice: null;
+  backendConnection: {
+    state: "connected" | "disconnected" | "reconnecting" | "failed";
+    reconnectAttempt: number;
+    maxReconnectAttempts: number;
+    showDisconnectedUI: boolean;
+  };
   onboardingStep: OnboardingStep;
   onboardingMode: "basic" | "advanced";
   onboardingActiveGuide: FlaminaGuideTopic | null;
@@ -279,8 +285,6 @@ vi.mock("@miladyai/app-core/src/app-shell-components", () => ({
   CompanionShell: ({ tab }: { tab: string }) =>
     React.createElement("main", null, `CompanionShell:${tab}`),
   CompanionView: () => React.createElement("div", null, "CompanionView"),
-  ConnectionLostOverlay: () =>
-    React.createElement("div", null, "ConnectionLostOverlay"),
   ConnectionFailedBanner: () =>
     React.createElement("div", null, "ConnectionFailedBanner"),
   ConnectionLostOverlay: () => null,
@@ -689,6 +693,12 @@ function createHarnessState(
     onboardingComplete: false,
     tab: "chat",
     actionNotice: null,
+    backendConnection: {
+      state: "disconnected",
+      reconnectAttempt: 0,
+      maxReconnectAttempts: 15,
+      showDisconnectedUI: false,
+    },
     onboardingStep: "identity",
     onboardingMode: "basic",
     onboardingActiveGuide: null,
@@ -910,6 +920,8 @@ function setupMock(state: AppHarnessState) {
       generated: true,
       persisted: false,
     })),
+    relaunchDesktop: vi.fn(async () => {}),
+    retryBackendConnection: vi.fn(),
     retryStartup: vi.fn(),
     startupPhase:
       state.startupStatus === "ready" ? "ready" : "starting-backend",

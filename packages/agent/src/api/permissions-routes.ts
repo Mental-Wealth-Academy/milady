@@ -1,11 +1,12 @@
 import type { AgentRuntime } from "@elizaos/core";
+import type { PermissionState } from "@miladyai/shared/contracts/permissions";
 import {
   getSelfControlPermissionState,
   openSelfControlPermissionLocation,
   requestSelfControlPermission,
 } from "@miladyai/plugin-selfcontrol/selfcontrol";
-import type { AutonomousConfigLike } from "../types/config-like";
-import type { RouteRequestContext } from "./route-helpers";
+import type { AutonomousConfigLike } from "../types/config-like.js";
+import type { RouteRequestContext } from "./route-helpers.js";
 
 interface PermissionAutonomousConfigLike extends AutonomousConfigLike {
   features?: {
@@ -14,14 +15,6 @@ interface PermissionAutonomousConfigLike extends AutonomousConfigLike {
   plugins?: {
     entries?: Record<string, { enabled?: boolean }>;
   };
-}
-
-interface PermissionState {
-  id: string;
-  status: string;
-  lastChecked: number;
-  canRequest: boolean;
-  reason?: string;
 }
 
 const WEBSITE_BLOCKING_PERMISSION_ID = "website-blocking";

@@ -18,33 +18,43 @@ import {
   type AppLaunchDiagnostic,
   type AppLaunchPreparation,
   type AppLaunchResult,
-  type AppRunCapabilityAvailability,
   type AppRunActionResult,
   type AppRunAwaySummary,
+  type AppRunCapabilityAvailability,
   type AppRunEvent,
   type AppRunSummary,
-  type AppSessionState,
   type AppSessionJsonValue,
+  type AppSessionState,
   type AppStopResult,
   type AppViewerAuthMessage,
+  getMiladyCuratedAppCatalogOrder,
+  getMiladyCuratedAppLookupNames,
   hasAppInterface,
   type InstalledAppInfo,
+  normalizeMiladyCuratedAppName,
   packageNameToAppDisplayName,
   packageNameToAppRouteSlug,
-} from "../contracts/apps";
-import { importAppPlugin, importAppRouteModule } from "./app-package-modules";
-import { readAppRunStore, writeAppRunStore } from "./app-run-store";
+} from "../contracts/apps.js";
+import {
+  importAppPlugin,
+  importAppRouteModule,
+} from "./app-package-modules.js";
+import { readAppRunStore, writeAppRunStore } from "./app-run-store.js";
+import {
+  generateBotPassword,
+  generateBotUsername,
+} from "./credential-words.js";
 import type {
   InstallProgressLike,
   PluginManagerLike,
   RegistryPluginInfo,
   RegistrySearchResult,
-} from "./plugin-manager-types";
-import { getPluginInfo, getRegistryPlugins } from "./registry-client";
+} from "./plugin-manager-types.js";
+import { getPluginInfo, getRegistryPlugins } from "./registry-client.js";
 import {
   mergeAppMeta as mergeRegistryAppMeta,
   resolveAppOverride,
-} from "./registry-client-app-meta";
+} from "./registry-client-app-meta.js";
 import { scoreEntries, toSearchResults } from "./registry-client-queries.js";
 
 const LOCAL_PLUGINS_DIR = "plugins";
@@ -56,17 +66,26 @@ export type {
   AppStopResult,
   AppViewerAuthMessage,
   InstalledAppInfo,
-} from "../contracts/apps";
+} from "../contracts/apps.js";
 
 const DEFAULT_VIEWER_SANDBOX = "allow-scripts allow-same-origin allow-popups";
 const RS_2004SCAPE_APP_ROUTE_SLUG = "2004scape";
 const RS_2004SCAPE_AUTH_MESSAGE_TYPE = "RS_2004SCAPE_AUTH";
+const RS_2004SCAPE_BOT_NAME_KEYS = ["RS_SDK_BOT_NAME", "BOT_NAME"] as const;
+const RS_2004SCAPE_BOT_PASSWORD_KEYS = [
+  "RS_SDK_BOT_PASSWORD",
+  "BOT_PASSWORD",
+] as const;
 const DEFAULT_RS_SDK_SERVER_URL = "https://rs-sdk-demo.fly.dev";
 const BABYLON_APP_ROUTE_SLUG = "babylon";
 const LOCAL_DEV_BABYLON_CLIENT_URL = "http://localhost:3000";
 const PRODUCTION_BABYLON_CLIENT_URL = "https://staging.babylon.market";
 const BABYLON_AGENT_SESSION_TOKEN_KEY = "BABYLON_AGENT_SESSION_TOKEN";
 const BABYLON_AGENT_SESSION_EXPIRES_AT_KEY = "BABYLON_AGENT_SESSION_EXPIRES_AT";
+const HYPERSCAPE_APP_ROUTE_SLUG = "hyperscape";
+const LOCAL_DEV_HYPERSCAPE_CLIENT_URL = "http://localhost:3333";
+const PRODUCTION_HYPERSCAPE_CLIENT_URL = "https://hyperscape.gg";
+const HYPERSCAPE_WALLET_AUTH_TIMEOUT_MS = 5_000;
 const SAFE_APP_URL_PROTOCOLS = new Set(["http:", "https:"]);
 const SAFE_APP_TEMPLATE_ENV_KEYS = new Set([
   "BABYLON_CLIENT_URL",
@@ -133,6 +152,10 @@ function isBabylonAppName(appName: string): boolean {
   return packageNameToAppRouteSlug(appName) === BABYLON_APP_ROUTE_SLUG;
 }
 
+function isHyperscapeAppName(appName: string): boolean {
+  return packageNameToAppRouteSlug(appName) === HYPERSCAPE_APP_ROUTE_SLUG;
+}
+
 /**
  * Quick TCP-level probe to check if the 2004scape game server is reachable.
  * Returns true if a connection can be established within the timeout.
@@ -192,6 +215,208 @@ function flattenAppInfo<T extends RegistryPluginInfo>(appInfo: T): T {
     viewer: resolveDisplayViewerInfo(meta.viewer ?? appInfo.viewer),
     session: meta.session ?? appInfo.session,
   };
+}
+
+function cloneRegistryPluginInfo<T extends RegistryPluginInfo>(appInfo: T): T {
+  return {
+    ...appInfo,
+    topics: [...appInfo.topics],
+    npm: { ...appInfo.npm },
+    git: { ...appInfo.git },
+    supports: { ...appInfo.supports },
+    appMeta: appInfo.appMeta
+      ? {
+          ...appInfo.appMeta,
+          capabilities: [...appInfo.appMeta.capabilities],
+          viewer: appInfo.appMeta.viewer
+            ? {
+                ...appInfo.appMeta.viewer,
+                embedParams: appInfo.appMeta.viewer.embedParams
+                  ? { ...appInfo.appMeta.viewer.embedParams }
+                  : undefined,
+              }
+            : undefined,
+          session: appInfo.appMeta.session
+            ? {
+                ...appInfo.appMeta.session,
+                features: appInfo.appMeta.session.features
+                  ? [...appInfo.appMeta.session.features]
+                  : undefined,
+              }
+            : undefined,
+        }
+      : undefined,
+  };
+}
+
+function canonicalizeCuratedRegistryPlugin<T extends RegistryPluginInfo>(
+  appInfo: T,
+  canonicalName: string,
+): T {
+  if (appInfo.name === canonicalName && appInfo.npm.package === canonicalName) {
+    return cloneRegistryPluginInfo(appInfo);
+  }
+
+  const next = cloneRegistryPluginInfo(appInfo);
+  next.name = canonicalName;
+  next.npm = {
+    ...next.npm,
+    package: canonicalName,
+  };
+  return next;
+}
+
+function mergeCatalogVariant<T extends RegistryPluginInfo>(
+  target: T,
+  candidate: RegistryPluginInfo,
+): T {
+  mergeLocalRegistryInfo(target, candidate);
+  target.stars = Math.max(target.stars, candidate.stars);
+  return target;
+}
+
+function compareCuratedCatalogCandidates(
+  left: RegistryPluginInfo,
+  right: RegistryPluginInfo,
+): number {
+  const orderDiff =
+    getMiladyCuratedAppCatalogOrder(left.name) -
+    getMiladyCuratedAppCatalogOrder(right.name);
+  if (orderDiff !== 0) {
+    return orderDiff;
+  }
+
+  const leftCanonicalName = normalizeMiladyCuratedAppName(left.name);
+  const rightCanonicalName = normalizeMiladyCuratedAppName(right.name);
+  const leftCanonicalPenalty = left.name === leftCanonicalName ? 0 : 1;
+  const rightCanonicalPenalty = right.name === rightCanonicalName ? 0 : 1;
+  if (leftCanonicalPenalty !== rightCanonicalPenalty) {
+    return leftCanonicalPenalty - rightCanonicalPenalty;
+  }
+
+  const leftLocalPenalty = left.localPath ? 0 : 1;
+  const rightLocalPenalty = right.localPath ? 0 : 1;
+  if (leftLocalPenalty !== rightLocalPenalty) {
+    return leftLocalPenalty - rightLocalPenalty;
+  }
+
+  return right.stars - left.stars || left.name.localeCompare(right.name);
+}
+
+function curateCatalogApps(
+  apps: Iterable<RegistryPluginInfo>,
+): RegistryAppPlugin[] {
+  const curated = new Map<string, RegistryAppPlugin>();
+  const candidates = Array.from(apps).sort(compareCuratedCatalogCandidates);
+
+  for (const app of candidates) {
+    const canonicalName = normalizeMiladyCuratedAppName(app.name);
+    if (!canonicalName) {
+      continue;
+    }
+
+    const normalized = canonicalizeCuratedRegistryPlugin(
+      app,
+      canonicalName,
+    ) as RegistryAppPlugin;
+    const existing = curated.get(canonicalName);
+    if (!existing) {
+      curated.set(canonicalName, normalized);
+      continue;
+    }
+
+    mergeCatalogVariant(existing, normalized);
+  }
+
+  return Array.from(curated.values()).sort(compareCuratedCatalogCandidates);
+}
+
+async function resolveCuratedAppInfo(
+  pluginManager: PluginManagerLike,
+  name: string,
+): Promise<RegistryAppPlugin | null> {
+  const canonicalName = normalizeMiladyCuratedAppName(name);
+  if (!canonicalName) {
+    return null;
+  }
+
+  const lookupNames = getMiladyCuratedAppLookupNames(name);
+  let appInfo: RegistryAppPlugin | null = null;
+
+  for (const candidateName of lookupNames) {
+    const remote = (await pluginManager.getRegistryPlugin(
+      candidateName,
+    )) as RegistryAppPlugin | null;
+    if (!remote) {
+      continue;
+    }
+
+    const normalized = canonicalizeCuratedRegistryPlugin(
+      remote,
+      canonicalName,
+    ) as RegistryAppPlugin;
+    if (!appInfo) {
+      appInfo = normalized;
+      continue;
+    }
+
+    mergeCatalogVariant(appInfo, normalized);
+  }
+
+  for (const candidateName of lookupNames) {
+    const localPluginInfo = await getPluginInfo(candidateName).catch(
+      () => null,
+    );
+    if (!localPluginInfo) {
+      continue;
+    }
+
+    const normalized = canonicalizeCuratedRegistryPlugin(
+      localPluginInfo,
+      canonicalName,
+    ) as RegistryAppPlugin;
+    if (!appInfo) {
+      appInfo = mergeLocalRegistryInfo(normalized, normalized);
+      continue;
+    }
+
+    mergeCatalogVariant(appInfo, normalized);
+  }
+
+  if (!appInfo) {
+    return null;
+  }
+
+  appInfo.appMeta = resolveEffectiveAppMeta(canonicalName, appInfo);
+  return flattenAppInfo(appInfo);
+}
+
+async function resolveNamedAppInfo(
+  pluginManager: PluginManagerLike,
+  name: string,
+): Promise<RegistryAppPlugin | null> {
+  let appInfo = (await pluginManager.getRegistryPlugin(
+    name,
+  )) as RegistryAppPlugin | null;
+  const localPluginInfo = await getPluginInfo(name).catch(() => null);
+
+  if (localPluginInfo) {
+    if (!appInfo) {
+      appInfo = mergeLocalRegistryInfo(
+        cloneRegistryPluginInfo(localPluginInfo) as RegistryAppPlugin,
+        localPluginInfo,
+      );
+    } else {
+      mergeLocalRegistryInfo(appInfo, localPluginInfo);
+    }
+  }
+
+  if (!appInfo) {
+    return null;
+  }
+
+  appInfo.appMeta = resolveEffectiveAppMeta(name, appInfo);
+  return flattenAppInfo(appInfo);
 }
 
 function resolvePluginPackageName(appInfo: RegistryPluginInfo): string {
@@ -333,7 +558,14 @@ function getTemplateFallbackValue(key: string): string | undefined {
     if (runtimeBotName && runtimeBotName.length > 0) {
       return runtimeBotName;
     }
-    return "testbot";
+    return undefined;
+  }
+  if (key === "RS_SDK_BOT_PASSWORD") {
+    const runtimeBotPassword = process.env.BOT_PASSWORD?.trim();
+    if (runtimeBotPassword && runtimeBotPassword.length > 0) {
+      return runtimeBotPassword;
+    }
+    return undefined;
   }
   if (key === "RS_SDK_SERVER_URL") {
     return DEFAULT_RS_SDK_SERVER_URL;
@@ -364,6 +596,27 @@ function resolve2004scapeServerUrl(runtime?: IAgentRuntime | null): string {
   return DEFAULT_RS_SDK_SERVER_URL;
 }
 
+function get2004scapeCredentialKeys(
+  key: "RS_SDK_BOT_NAME" | "RS_SDK_BOT_PASSWORD",
+): readonly string[] {
+  return key === "RS_SDK_BOT_NAME"
+    ? RS_2004SCAPE_BOT_NAME_KEYS
+    : RS_2004SCAPE_BOT_PASSWORD_KEYS;
+}
+
+function resolve2004scapeCredential(
+  runtime: IAgentRuntime | null | undefined,
+  key: "RS_SDK_BOT_NAME" | "RS_SDK_BOT_PASSWORD",
+): string | undefined {
+  for (const credentialKey of get2004scapeCredentialKeys(key)) {
+    const value = resolveSettingLike(runtime, credentialKey);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // 2004scape credential auto-provisioning
 // ---------------------------------------------------------------------------
@@ -374,16 +627,11 @@ function persist2004scapeCredential(
   value: string,
   secret = false,
 ): void {
-  process.env[key] = value;
-  if (!runtime) return;
-
-  try {
-    runtime.setSetting(key, value, secret);
-  } catch (err) {
-    logger.error(
-      `[app-manager] Failed to persist 2004scape credential "${key}": ${err}`,
-    );
+  const credentialKeys = get2004scapeCredentialKeys(key);
+  for (const credentialKey of credentialKeys) {
+    process.env[credentialKey] = value;
   }
+  if (!runtime) return;
 
   const character = runtime.character as {
     settings?: { secrets?: Record<string, string> };
@@ -395,61 +643,51 @@ function persist2004scapeCredential(
   if (!character.settings.secrets) {
     character.settings.secrets = {};
   }
-  character.settings.secrets[key] = value;
   if (!character.secrets) {
     character.secrets = {};
   }
-  character.secrets[key] = value;
+
+  for (const credentialKey of credentialKeys) {
+    try {
+      runtime.setSetting(credentialKey, value, secret);
+    } catch (err) {
+      logger.error(
+        `[app-manager] Failed to persist 2004scape credential "${credentialKey}": ${err}`,
+      );
+    }
+    character.settings.secrets[credentialKey] = value;
+    character.secrets[credentialKey] = value;
+  }
 }
 
-/**
- * Derive a 2004scape-safe username from the agent's display name.
- * Rules: lowercase alphanumeric only, max 12 chars.
- */
-function derive2004scapeUsername(agentName: string): string {
-  return (
-    agentName
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .slice(0, 12) || "agent"
-  );
-}
-
-function generateRandomPassword(length = 16): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = crypto.randomBytes(length);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
-}
 async function prepare2004scapeLaunch(
   runtime: IAgentRuntime | null,
 ): Promise<AppLaunchDiagnostic[]> {
-  if (!runtime) return [];
+  const primaryName = resolveSettingLike(runtime, "RS_SDK_BOT_NAME");
+  const compatName = resolveSettingLike(runtime, "BOT_NAME");
+  const primaryPassword = resolveSettingLike(runtime, "RS_SDK_BOT_PASSWORD");
+  const compatPassword = resolveSettingLike(runtime, "BOT_PASSWORD");
+  const agentDisplayName = runtime?.character?.name || "agent";
+  const username =
+    primaryName ?? compatName ?? generateBotUsername(agentDisplayName);
+  const password = primaryPassword ?? compatPassword ?? generateBotPassword();
 
-  const existingName = resolveSettingLike(runtime, "RS_SDK_BOT_NAME");
-  const existingPassword = resolveSettingLike(runtime, "RS_SDK_BOT_PASSWORD");
+  const shouldPersistName = primaryName !== username || compatName !== username;
+  const shouldPersistPassword =
+    primaryPassword !== password || compatPassword !== password;
 
-  // Both present — nothing to do.
-  if (existingName && existingPassword) {
-    return [];
-  }
-
-  // One present but not the other — respect what the user set,
-  // only fill in the missing half.
-  const agentDisplayName = runtime.character?.name || "agent";
-  const username = existingName || derive2004scapeUsername(agentDisplayName);
-  const password = existingPassword || generateRandomPassword();
-
-  if (!existingName) {
+  if (shouldPersistName) {
     persist2004scapeCredential(runtime, "RS_SDK_BOT_NAME", username);
   }
-  if (!existingPassword) {
+  if (shouldPersistPassword) {
     persist2004scapeCredential(runtime, "RS_SDK_BOT_PASSWORD", password, true);
   }
 
-  logger.info(
-    `[app-manager] Auto-provisioned 2004scape credentials for "${username}"`,
-  );
+  if (shouldPersistName || shouldPersistPassword) {
+    logger.info(
+      `[app-manager] Prepared 2004scape credentials for "${username}"`,
+    );
+  }
 
   return [];
 }
@@ -764,11 +1002,27 @@ function readSafeTemplateEnv(key: string): string | undefined {
 
 function substituteTemplateVars(
   raw: string,
-  options?: { preserveUnknown?: boolean },
+  options?: {
+    preserveUnknown?: boolean;
+    /** Resolve `{HYPERSCAPE_CLIENT_URL}` for launch (not for catalog display). */
+    hyperscapeClientDefault?: boolean;
+    runtime?: IAgentRuntime | null;
+  },
 ): string {
   const preserveUnknown = options?.preserveUnknown ?? true;
+  const hyperscapeClientDefault = options?.hyperscapeClientDefault === true;
   return raw.replace(/\{([A-Z0-9_]+)\}/g, (_full, key: string) => {
-    const value = readSafeTemplateEnv(key) ?? getTemplateFallbackValue(key);
+    const value =
+      (SAFE_APP_TEMPLATE_ENV_KEYS.has(key)
+        ? resolveSettingLike(options?.runtime, key)
+        : undefined) ??
+      readSafeTemplateEnv(key) ??
+      (hyperscapeClientDefault && key === "HYPERSCAPE_CLIENT_URL"
+        ? isProductionRuntime()
+          ? PRODUCTION_HYPERSCAPE_CLIENT_URL
+          : LOCAL_DEV_HYPERSCAPE_CLIENT_URL
+        : undefined) ??
+      getTemplateFallbackValue(key);
     if (value !== undefined) {
       return value;
     }
@@ -779,18 +1033,29 @@ function substituteTemplateVars(
 function buildViewerUrl(
   baseUrl: string,
   embedParams?: Record<string, string>,
+  runtime?: IAgentRuntime | null,
 ): string {
   if (!embedParams || Object.keys(embedParams).length === 0) {
-    return substituteTemplateVars(baseUrl, { preserveUnknown: false });
+    return substituteTemplateVars(baseUrl, {
+      preserveUnknown: false,
+      hyperscapeClientDefault: true,
+      runtime,
+    });
   }
   const resolvedBaseUrl = substituteTemplateVars(baseUrl, {
     preserveUnknown: false,
+    hyperscapeClientDefault: true,
+    runtime,
   });
   const [beforeHash, hashPartRaw] = resolvedBaseUrl.split("#", 2);
   const [pathPart, queryPartRaw] = beforeHash.split("?", 2);
   const queryParams = new URLSearchParams(queryPartRaw ?? "");
   for (const [key, rawValue] of Object.entries(embedParams)) {
-    const nextValue = substituteTemplateVars(rawValue).trim();
+    const nextValue = substituteTemplateVars(rawValue, {
+      preserveUnknown: false,
+      hyperscapeClientDefault: true,
+      runtime,
+    }).trim();
     if (!nextValue) {
       queryParams.delete(key);
       continue;
@@ -804,13 +1069,18 @@ function buildViewerUrl(
 
 function resolveViewerEmbedParams(
   embedParams?: Record<string, string>,
+  runtime?: IAgentRuntime | null,
 ): Record<string, string> | undefined {
   if (!embedParams) return undefined;
   const resolved = Object.fromEntries(
     Object.entries(embedParams)
       .map(([key, value]) => [
         key,
-        substituteTemplateVars(value, { preserveUnknown: false }).trim(),
+        substituteTemplateVars(value, {
+          preserveUnknown: false,
+          hyperscapeClientDefault: true,
+          runtime,
+        }).trim(),
       ])
       .filter(([, value]) => value.length > 0),
   );
@@ -857,6 +1127,29 @@ async function buildViewerAuthMessage(
     );
   }
 
+  if (isHyperscapeAppName(appInfo.name)) {
+    const authToken = resolveSettingLike(runtime, "HYPERSCAPE_AUTH_TOKEN");
+    if (!authToken) {
+      return undefined;
+    }
+    const agentId =
+      typeof runtime?.agentId === "string" && runtime.agentId.trim().length > 0
+        ? runtime.agentId.trim()
+        : undefined;
+    if (!agentId) {
+      return undefined;
+    }
+    const characterId =
+      resolveSettingLike(runtime, "HYPERSCAPE_CHARACTER_ID") ?? agentId;
+    return {
+      type: "HYPERSCAPE_AUTH",
+      authToken,
+      agentId,
+      characterId,
+      followEntity: characterId,
+    };
+  }
+
   // Babylon auth — passes agent credentials to the viewer iframe
   if (isBabylonAppName(appInfo.name)) {
     const agentId =
@@ -879,26 +1172,24 @@ async function buildViewerAuthMessage(
 
   // 2004scape auth - uses auto-provisioned or user-supplied credentials
   if (is2004scapeAppName(appInfo.name)) {
-    const username =
-      resolveSettingLike(runtime, "RS_SDK_BOT_NAME") ||
-      process.env.BOT_NAME?.trim() ||
-      "testbot";
-    const password =
-      resolveSettingLike(runtime, "RS_SDK_BOT_PASSWORD") ||
-      process.env.BOT_PASSWORD?.trim() ||
-      "";
+    await prepare2004scapeLaunch(runtime ?? null);
+    const username = resolve2004scapeCredential(runtime, "RS_SDK_BOT_NAME");
+    const password = resolve2004scapeCredential(runtime, "RS_SDK_BOT_PASSWORD");
 
-    if (!password) {
+    if (!username || !password) {
       logger.warn(
-        "[app-manager] 2004scape credentials incomplete — no password set. " +
-          "Launch the app to auto-provision credentials.",
+        "[app-manager] 2004scape credentials are unavailable. " +
+          "Launch the app with a live runtime to auto-provision credentials.",
       );
+      return undefined;
     }
 
     return {
       type: RS_2004SCAPE_AUTH_MESSAGE_TYPE,
       authToken: username,
       sessionToken: password,
+      characterId: username,
+      agentId: runtime?.agentId,
     };
   }
 
@@ -925,7 +1216,7 @@ async function buildViewerConfig(
       );
     }
     const resolvedEmbedParams = {
-      ...(resolveViewerEmbedParams(viewerInfo.embedParams) ?? {}),
+      ...(resolveViewerEmbedParams(viewerInfo.embedParams, runtime) ?? {}),
     };
     if (authMessage?.followEntity && !resolvedEmbedParams.followEntity) {
       resolvedEmbedParams.followEntity = authMessage.followEntity;
@@ -935,7 +1226,7 @@ async function buildViewerConfig(
         ? resolvedEmbedParams
         : undefined;
     const viewerUrl = normalizeSafeAppUrl(
-      buildViewerUrl(viewerInfo.url, finalEmbedParams),
+      buildViewerUrl(viewerInfo.url, finalEmbedParams, runtime),
     );
     if (!viewerUrl) {
       throw new Error(
@@ -997,6 +1288,13 @@ function buildAppSession(
     ? "Connecting to Babylon..."
     : "Connecting session...";
 
+  const characterId =
+    authMessage?.characterId ??
+    (isHyperscapeAppName(appInfo.name)
+      ? resolveSettingLike(runtime, "HYPERSCAPE_CHARACTER_ID")
+      : undefined);
+  const followEntity = authMessage?.followEntity ?? characterId ?? undefined;
+
   return {
     sessionId,
     appName: appInfo.name,
@@ -1004,8 +1302,8 @@ function buildAppSession(
     status: "connecting",
     displayName: appInfo.displayName ?? appInfo.name,
     agentId: authMessage?.agentId ?? runtimeAgentId,
-    characterId: authMessage?.characterId,
-    followEntity: authMessage?.followEntity ?? undefined,
+    characterId,
+    followEntity,
     canSendCommands,
     controls,
     summary,
@@ -1049,22 +1347,149 @@ async function resolveLaunchSession(
   return buildAppSession(appInfo, viewer?.authMessage, runtime);
 }
 
+function persistHyperscapeCredential(
+  runtime: IAgentRuntime | null,
+  key: "HYPERSCAPE_AUTH_TOKEN" | "HYPERSCAPE_CHARACTER_ID",
+  value: string,
+  secret = false,
+): void {
+  if (!runtime) {
+    return;
+  }
+
+  try {
+    runtime.setSetting?.(key, value, secret);
+  } catch (err) {
+    logger.error(
+      `[app-manager] Failed to persist Hyperscape credential "${key}": ${err}`,
+    );
+  }
+
+  const character = runtime.character as {
+    settings?: { secrets?: Record<string, string> };
+    secrets?: Record<string, string>;
+  };
+  if (!character.settings) {
+    character.settings = {};
+  }
+  if (!character.settings.secrets) {
+    character.settings.secrets = {};
+  }
+  character.settings.secrets[key] = value;
+  if (!character.secrets) {
+    character.secrets = {};
+  }
+  character.secrets[key] = value;
+}
+
+function resolveHyperscapeApiBaseUrl(
+  runtime: IAgentRuntime | null,
+): string | null {
+  const configuredUrl = resolveSettingLike(runtime, "HYPERSCAPE_API_URL");
+  if (!configuredUrl) {
+    return null;
+  }
+
+  const normalized = normalizeSafeAppUrl(configuredUrl);
+  if (!normalized || normalized.startsWith("/")) {
+    logger.warn(
+      "[app-manager] Ignoring invalid HYPERSCAPE_API_URL; expected an absolute http/https URL.",
+    );
+    return null;
+  }
+
+  return normalized.replace(/\/+$/, "");
+}
+
+async function prepareHyperscapeWalletAuthFromRuntime(
+  runtime: IAgentRuntime | null,
+): Promise<void> {
+  if (!runtime) {
+    return;
+  }
+  if (resolveSettingLike(runtime, "HYPERSCAPE_AUTH_TOKEN")) {
+    return;
+  }
+  const base = resolveHyperscapeApiBaseUrl(runtime);
+  if (!base) {
+    return;
+  }
+  let agent: unknown;
+  try {
+    if (typeof runtime.getAgent === "function" && runtime.agentId) {
+      agent = await runtime.getAgent(runtime.agentId);
+    }
+  } catch {
+    agent = null;
+  }
+  const walletAddresses =
+    agent && typeof agent === "object"
+      ? (agent as { walletAddresses?: { evm?: string } }).walletAddresses
+      : undefined;
+  let evm = walletAddresses?.evm?.trim();
+  if (!evm) {
+    const existingPk =
+      resolveSettingLike(runtime, "EVM_PRIVATE_KEY")?.trim() ||
+      process.env.EVM_PRIVATE_KEY?.trim();
+    if (existingPk) {
+      const { deriveEvmAddress } = await import("../api/wallet.js");
+      evm = deriveEvmAddress(existingPk);
+    }
+  }
+  if (!evm) {
+    logger.info(
+      "[app-manager] Skipping Hyperscape wallet auth: no EVM address or EVM_PRIVATE_KEY is available.",
+    );
+    return;
+  }
+  try {
+    const walletAuthUrl = new URL("/api/agents/wallet-auth", `${base}/`);
+    const res = await fetch(walletAuthUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: evm,
+        walletType: "evm",
+        agentName: runtime.character?.name,
+        agentId: runtime.agentId,
+      }),
+      signal: AbortSignal.timeout(HYPERSCAPE_WALLET_AUTH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return;
+    }
+    const data = (await res.json()) as {
+      success?: unknown;
+      authToken?: unknown;
+      characterId?: unknown;
+    };
+    if (data.success !== true || typeof data.authToken !== "string") {
+      return;
+    }
+    persistHyperscapeCredential(
+      runtime,
+      "HYPERSCAPE_AUTH_TOKEN",
+      data.authToken,
+      true,
+    );
+    if (typeof data.characterId === "string" && data.characterId.trim()) {
+      persistHyperscapeCredential(
+        runtime,
+        "HYPERSCAPE_CHARACTER_ID",
+        data.characterId.trim(),
+      );
+    }
+  } catch {
+    // Fixture or network unavailable — viewer may still load without auth.
+  }
+}
+
 async function prepareLaunch(
   appInfo: RegistryAppPlugin,
   launchUrl: string | null,
   runtime: IAgentRuntime | null,
 ): Promise<AppLaunchPreparation> {
   const routeModule = await importAppRouteModule(appInfo.name);
-  if (typeof routeModule?.prepareLaunch === "function") {
-    return (
-      (await routeModule.prepareLaunch({
-        appName: appInfo.name,
-        launchUrl,
-        runtime,
-        viewer: null,
-      })) ?? {}
-    );
-  }
 
   if (isBabylonAppName(appInfo.name)) {
     const diagnostics = await prepareBabylonLaunch(runtime);
@@ -1093,9 +1518,40 @@ async function prepareLaunch(
         ],
       };
     }
+    const routePreparation =
+      typeof routeModule?.prepareLaunch === "function"
+        ? ((await routeModule.prepareLaunch({
+            appName: appInfo.name,
+            launchUrl,
+            runtime,
+            viewer: null,
+          })) ?? {})
+        : {};
     return {
-      diagnostics: await prepare2004scapeLaunch(runtime),
+      ...routePreparation,
+      diagnostics: [
+        ...(routePreparation.diagnostics ?? []),
+        ...(await prepare2004scapeLaunch(runtime)),
+      ],
     };
+  }
+
+  if (typeof routeModule?.prepareLaunch === "function") {
+    const preparation =
+      (await routeModule.prepareLaunch({
+        appName: appInfo.name,
+        launchUrl,
+        runtime,
+        viewer: null,
+      })) ?? {};
+    if (isHyperscapeAppName(appInfo.name)) {
+      await prepareHyperscapeWalletAuthFromRuntime(runtime);
+    }
+    return preparation;
+  }
+  if (isHyperscapeAppName(appInfo.name)) {
+    await prepareHyperscapeWalletAuthFromRuntime(runtime);
+    return {};
   }
 
   return {};
@@ -1121,7 +1577,7 @@ function applyLaunchPreparation(
 ): RegistryAppPlugin {
   const launchUrl =
     preparation.launchUrl !== undefined
-      ? preparation.launchUrl ?? undefined
+      ? (preparation.launchUrl ?? undefined)
       : appInfo.launchUrl;
   const viewer =
     preparation.viewer === undefined
@@ -1159,7 +1615,20 @@ function isRuntimePluginReady(
   appInfo: RegistryAppPlugin,
   runtime: IAgentRuntime | null,
 ): boolean {
-  return isRuntimePluginActive(appInfo, runtime);
+  if (!isRuntimePluginActive(appInfo, runtime)) {
+    return false;
+  }
+  if (isHyperscapeAppName(appInfo.name)) {
+    const rt = runtime as unknown as {
+      hasService?: (name: string) => boolean;
+      getService?: (name: string) => unknown;
+    };
+    return Boolean(
+      rt.hasService?.("hyperscapeService") ||
+        rt.getService?.("hyperscapeService"),
+    );
+  }
+  return true;
 }
 
 function getRuntimePluginCandidates(appInfo: RegistryAppPlugin): string[] {
@@ -1189,15 +1658,18 @@ function collect2004scapeLaunchDiagnostics(
   }
 
   const diagnostics: AppLaunchDiagnostic[] = [];
-  const botName = resolveSettingLike(runtime, "RS_SDK_BOT_NAME");
-  const botPassword = resolveSettingLike(runtime, "RS_SDK_BOT_PASSWORD");
+  const botName = resolve2004scapeCredential(runtime, "RS_SDK_BOT_NAME");
+  const botPassword = resolve2004scapeCredential(
+    runtime,
+    "RS_SDK_BOT_PASSWORD",
+  );
 
   if (!botName || !botPassword) {
     diagnostics.push({
       code: "2004scape-credentials-missing",
       severity: "warning",
       message:
-        "2004scape bot credentials could not be generated. The viewer will load without auto-login.",
+        "2004scape bot credentials are not stored yet. The viewer will load without auto-login until launch provisions them.",
     });
   }
 
@@ -1206,11 +1678,32 @@ function collect2004scapeLaunchDiagnostics(
       code: "2004scape-auth-unavailable",
       severity: "error",
       message:
-        "2004scape auto-sign-in requires RS_SDK_BOT_NAME and RS_SDK_BOT_PASSWORD to be configured.",
+        "2004scape auto-sign-in could not resolve stored bot credentials for this run.",
     });
   }
 
   return diagnostics;
+}
+
+function collectHyperscapeLaunchDiagnostics(
+  appInfo: RegistryAppPlugin,
+  viewer: AppViewerConfig | null,
+): AppLaunchDiagnostic[] {
+  if (!isHyperscapeAppName(appInfo.name)) {
+    return [];
+  }
+  const wantsAuth = Boolean(appInfo.viewer?.postMessageAuth);
+  if (wantsAuth && !viewer?.authMessage) {
+    return [
+      {
+        code: "hyperscape-auth-unavailable",
+        severity: "error",
+        message:
+          "Hyperscape postMessage auth requires HYPERSCAPE_AUTH_TOKEN and a runtime agent id.",
+      },
+    ];
+  }
+  return [];
 }
 
 async function collectLaunchDiagnostics(
@@ -1221,21 +1714,31 @@ async function collectLaunchDiagnostics(
   runtime: IAgentRuntime | null,
 ): Promise<AppLaunchDiagnostic[]> {
   const routeModule = await importAppRouteModule(appInfo.name);
+  const diagnosticViewer =
+    viewer && appInfo.viewer?.postMessageAuth && !viewer.authMessage
+      ? { ...viewer, postMessageAuth: true }
+      : viewer;
   if (typeof routeModule?.collectLaunchDiagnostics === "function") {
-    const diagnosticViewer =
-      viewer && appInfo.viewer?.postMessageAuth && !viewer.authMessage
-        ? { ...viewer, postMessageAuth: true }
-        : viewer;
-    return routeModule.collectLaunchDiagnostics({
+    const pluginDiagnostics = await routeModule.collectLaunchDiagnostics({
       appName: appInfo.name,
       launchUrl,
       runtime,
       viewer: diagnosticViewer,
       session,
     });
+    if (isHyperscapeAppName(appInfo.name)) {
+      return [
+        ...pluginDiagnostics,
+        ...collectHyperscapeLaunchDiagnostics(appInfo, viewer),
+      ];
+    }
+    return pluginDiagnostics;
   }
   if (is2004scapeAppName(appInfo.name)) {
     return collect2004scapeLaunchDiagnostics(appInfo, viewer, session, runtime);
+  }
+  if (isHyperscapeAppName(appInfo.name)) {
+    return collectHyperscapeLaunchDiagnostics(appInfo, viewer);
   }
   return [];
 }
@@ -1406,14 +1909,17 @@ function deriveHealthFacetState(
   return "unknown";
 }
 
-function deriveRunHealthDetails(run: AppRunSummary): AppRunSummary["healthDetails"] {
-  const viewerState: AppRunSummary["healthDetails"]["viewer"]["state"] = !run.viewer
-    ? "unknown"
-    : run.viewerAttachment === "attached"
-      ? "healthy"
-      : run.viewerAttachment === "detached"
-        ? "degraded"
-        : "offline";
+function deriveRunHealthDetails(
+  run: AppRunSummary,
+): AppRunSummary["healthDetails"] {
+  const viewerState: AppRunSummary["healthDetails"]["viewer"]["state"] =
+    !run.viewer
+      ? "unknown"
+      : run.viewerAttachment === "attached"
+        ? "healthy"
+        : run.viewerAttachment === "detached"
+          ? "degraded"
+          : "offline";
   const authState: AppRunSummary["healthDetails"]["auth"]["state"] = run.session
     ? run.viewerAttachment === "attached" || run.viewer == null
       ? "healthy"
@@ -1468,7 +1974,7 @@ function deriveAwaySummary(run: AppRunSummary): AppRunAwaySummary {
     message:
       recent.length > 0
         ? recent.join(" ")
-        : run.summary ?? `${run.displayName} is ${run.status}.`,
+        : (run.summary ?? `${run.displayName} is ${run.status}.`),
     eventCount: run.recentEvents.length,
     since: run.recentEvents.at(-1)?.createdAt ?? run.startedAt,
     until: run.recentEvents[0]?.createdAt ?? run.updatedAt,
@@ -1553,7 +2059,8 @@ function buildRunSummary(input: {
           runId: input.runId,
           appName: input.appName,
           viewerAttachment:
-            input.viewerAttachment ?? (input.viewer ? "attached" : "unavailable"),
+            input.viewerAttachment ??
+            (input.viewer ? "attached" : "unavailable"),
           characterId: input.session?.characterId ?? null,
           agentId: input.session?.agentId ?? null,
         },
@@ -1714,42 +2221,48 @@ export class AppManager {
       if (!nextSession) {
         const summary = "Run session is no longer available.";
         const nextRun = this.storeRun(
-          updateRunSummary(run, {
-            session: buildUnavailableSession(run, "offline", summary),
-            status: "offline",
-            summary,
-          }, {
-            kind: "health",
-            severity: "warning",
-            message: summary,
-            status: "offline",
-            details: {
-              runId: run.runId,
-              appName: run.appName,
+          updateRunSummary(
+            run,
+            {
+              session: buildUnavailableSession(run, "offline", summary),
+              status: "offline",
+              summary,
             },
-          }),
+            {
+              kind: "health",
+              severity: "warning",
+              message: summary,
+              status: "offline",
+              details: {
+                runId: run.runId,
+                appName: run.appName,
+              },
+            },
+          ),
         );
         return nextRun;
       }
       const nextRun = this.storeRun(
-        updateRunSummary(run, {
-          session: nextSession,
-          status: nextSession.status,
-          summary: nextSession.summary ?? run.summary,
-        }, {
-          kind: "refresh",
-          severity:
-            nextSession.status === "running" ? "info" : "warning",
-          message:
-            nextSession.summary ??
-            `${run.displayName} session refreshed.`,
-          status: nextSession.status,
-          details: {
-            runId: run.runId,
-            appName: run.appName,
-            sessionId: nextSession.sessionId,
+        updateRunSummary(
+          run,
+          {
+            session: nextSession,
+            status: nextSession.status,
+            summary: nextSession.summary ?? run.summary,
           },
-        }),
+          {
+            kind: "refresh",
+            severity: nextSession.status === "running" ? "info" : "warning",
+            message:
+              nextSession.summary ?? `${run.displayName} session refreshed.`,
+            status: nextSession.status,
+            details: {
+              runId: run.runId,
+              appName: run.appName,
+              sessionId: nextSession.sessionId,
+            },
+          },
+        ),
       );
       return nextRun;
     } catch (error) {
@@ -1759,20 +2272,24 @@ export class AppManager {
           : "Run verification failed.";
       const nextStatus = run.session ? "disconnected" : "offline";
       const nextRun = this.storeRun(
-        updateRunSummary(run, {
-          session: buildUnavailableSession(run, nextStatus, message),
-          status: nextStatus,
-          summary: message,
-        }, {
-          kind: "health",
-          severity: "error",
-          message,
-          status: nextStatus,
-          details: {
-            runId: run.runId,
-            appName: run.appName,
+        updateRunSummary(
+          run,
+          {
+            session: buildUnavailableSession(run, nextStatus, message),
+            status: nextStatus,
+            summary: message,
           },
-        }),
+          {
+            kind: "health",
+            severity: "error",
+            message,
+            status: nextStatus,
+            details: {
+              runId: run.runId,
+              appName: run.appName,
+            },
+          },
+        ),
       );
       return nextRun;
     }
@@ -1827,7 +2344,9 @@ export class AppManager {
     } catch {
       // local discovery is best-effort
     }
-    const apps = Array.from(registry.values()).filter(isAppRegistryPlugin);
+    const apps = curateCatalogApps(
+      Array.from(registry.values()).filter(isAppRegistryPlugin),
+    );
     return apps.map(flattenAppInfo);
   }
 
@@ -1836,10 +2355,9 @@ export class AppManager {
     query: string,
     limit = 15,
   ): Promise<RegistrySearchResult[]> {
-    const registry = await pluginManager.refreshRegistry();
-    const appEntries = Array.from(registry.values())
-      .filter(isAppRegistryPlugin)
-      .map(flattenAppInfo);
+    const appEntries = (await this.listAvailable(pluginManager)).map(
+      flattenAppInfo,
+    );
     const results = scoreEntries(
       appEntries,
       query,
@@ -1858,28 +2376,10 @@ export class AppManager {
     pluginManager: PluginManagerLike,
     name: string,
   ): Promise<RegistryPluginInfo | null> {
-    let appInfo = await pluginManager.getRegistryPlugin(name);
-    const localPluginInfo = await getPluginInfo(name);
-
-    if (localPluginInfo) {
-      if (!appInfo) {
-        appInfo = mergeLocalRegistryInfo(
-          { ...localPluginInfo },
-          localPluginInfo,
-        );
-      } else {
-        mergeLocalRegistryInfo(appInfo, localPluginInfo);
-      }
-    }
-
-    if (!appInfo) return null;
-
-    // Apply local app overrides (viewer URL, sandbox, embed params, etc.)
-    // so displayName / launchType / viewer are populated even when the
-    // npm registry has no metadata for this app.
-    appInfo.appMeta = resolveEffectiveAppMeta(name, appInfo);
-
-    return flattenAppInfo(appInfo);
+    return (
+      (await resolveCuratedAppInfo(pluginManager, name)) ??
+      (await resolveNamedAppInfo(pluginManager, name))
+    );
   }
 
   async listRuns(
@@ -1923,20 +2423,23 @@ export class AppManager {
     }
 
     const updated = this.storeRun(
-      updateRunSummary(run, {
-        viewerAttachment: run.viewer ? "attached" : "unavailable",
-      }, {
-        kind: "attach",
-        message:
-          run.viewer
+      updateRunSummary(
+        run,
+        {
+          viewerAttachment: run.viewer ? "attached" : "unavailable",
+        },
+        {
+          kind: "attach",
+          message: run.viewer
             ? `${run.displayName} viewer attached.`
             : `${run.displayName} viewer is unavailable.`,
-        status: run.session?.status ?? run.status,
-        details: {
-          runId: run.runId,
-          appName: run.appName,
+          status: run.session?.status ?? run.status,
+          details: {
+            runId: run.runId,
+            appName: run.appName,
+          },
         },
-      }),
+      ),
     );
 
     return {
@@ -1956,20 +2459,23 @@ export class AppManager {
     }
 
     const updated = this.storeRun(
-      updateRunSummary(run, {
-        viewerAttachment: run.viewer ? "detached" : "unavailable",
-      }, {
-        kind: "detach",
-        message:
-          run.viewer
+      updateRunSummary(
+        run,
+        {
+          viewerAttachment: run.viewer ? "detached" : "unavailable",
+        },
+        {
+          kind: "detach",
+          message: run.viewer
             ? `${run.displayName} viewer detached.`
             : `${run.displayName} viewer is unavailable.`,
-        status: run.session?.status ?? run.status,
-        details: {
-          runId: run.runId,
-          appName: run.appName,
+          status: run.session?.status ?? run.status,
+          details: {
+            runId: run.runId,
+            appName: run.appName,
+          },
         },
-      }),
+      ),
     );
 
     return {
@@ -1994,37 +2500,12 @@ export class AppManager {
     onProgress?: (progress: InstallProgressLike) => void,
     _runtime?: IAgentRuntime | null,
   ): Promise<AppLaunchResult> {
-    let appInfo = (await pluginManager.getRegistryPlugin(
-      name,
-    )) as RegistryAppPlugin | null;
-    let localPluginInfo: Awaited<ReturnType<typeof getPluginInfo>> | null =
-      null;
-    // Supplement with local registry metadata since the elizaos plugin-manager
-    // service doesn't include our local workspace app discovery.
-    try {
-      localPluginInfo = await getPluginInfo(name);
-      if (localPluginInfo) {
-        if (!appInfo) {
-          appInfo = mergeLocalRegistryInfo(
-            { ...localPluginInfo } as RegistryAppPlugin,
-            localPluginInfo,
-          );
-        } else {
-          mergeLocalRegistryInfo(appInfo, localPluginInfo);
-        }
-      }
-    } catch {
-      // local lookup is best-effort
-    }
+    let appInfo =
+      (await resolveCuratedAppInfo(pluginManager, name)) ??
+      (await resolveNamedAppInfo(pluginManager, name));
     if (!appInfo) {
       throw new Error(`App "${name}" not found in the registry.`);
     }
-
-    // Apply local app overrides (viewer URL, sandbox, embed params, etc.)
-    // and flatten appMeta onto the top-level fields so launchUrl / viewer
-    // are populated even when the npm registry has no metadata for this app.
-    appInfo.appMeta = resolveEffectiveAppMeta(name, appInfo);
-    appInfo = flattenAppInfo(appInfo);
 
     // The app's plugin is what the agent needs to play the game.
     // It's the same npm package name as the app, or a separate plugin ref.
@@ -2032,10 +2513,7 @@ export class AppManager {
       appInfo.runtimePlugin ?? resolvePluginPackageName(appInfo);
 
     // Check if this is a local plugin (already present in plugins/ directory)
-    const isLocal =
-      Boolean(localPluginInfo?.localPath) ||
-      Boolean(appInfo.localPath) ||
-      isLocalPlugin(appInfo);
+    const isLocal = Boolean(appInfo.localPath) || isLocalPlugin(appInfo);
 
     // Check if the plugin is already installed
     const installed = await pluginManager.listInstalledPlugins();
@@ -2084,6 +2562,7 @@ export class AppManager {
       ? normalizeSafeAppUrl(
           substituteTemplateVars(appInfo.launchUrl, {
             preserveUnknown: false,
+            hyperscapeClientDefault: true,
           }),
         )
       : null;
@@ -2098,6 +2577,7 @@ export class AppManager {
     const resolvedLaunchUrl = appInfo.launchUrl
       ? substituteTemplateVars(appInfo.launchUrl, {
           preserveUnknown: false,
+          hyperscapeClientDefault: true,
         })
       : null;
     const launchUrl = resolvedLaunchUrl
@@ -2132,9 +2612,9 @@ export class AppManager {
     await ensureRuntimeReady(appInfo, viewer, launchUrl, _runtime ?? null);
 
     // Build viewer config from registry app metadata
-    const session = _runtime
-      ? await resolveLaunchSession(appInfo, viewer, launchUrl, _runtime)
-      : buildAppSession(appInfo, viewer?.authMessage, _runtime);
+    const session = viewer
+      ? await resolveLaunchSession(appInfo, viewer, launchUrl, _runtime ?? null)
+      : buildAppSession(appInfo, undefined, _runtime);
     const diagnostics = [
       ...launchPreparationDiagnostics,
       ...(await collectLaunchDiagnostics(
@@ -2148,26 +2628,30 @@ export class AppManager {
     const existingRun = this.findMatchingRun(name, session, viewer);
     const run = this.storeRun(
       existingRun
-        ? updateRunSummary(existingRun, {
-            displayName: appInfo.displayName ?? appInfo.name,
-            pluginName,
-            launchType: appInfo.launchType ?? "connect",
-            launchUrl,
-            viewer,
-            session,
-            viewerAttachment: viewer ? "attached" : "unavailable",
-          }, {
-            kind: "refresh",
-            message:
-              session?.summary ??
-              `${appInfo.displayName ?? appInfo.name} launch state refreshed.`,
-            status: session?.status ?? (viewer ? "running" : "launching"),
-            details: {
-              runId: existingRun.runId,
-              appName: name,
-              sessionId: session?.sessionId ?? null,
+        ? updateRunSummary(
+            existingRun,
+            {
+              displayName: appInfo.displayName ?? appInfo.name,
+              pluginName,
+              launchType: appInfo.launchType ?? "connect",
+              launchUrl,
+              viewer,
+              session,
+              viewerAttachment: viewer ? "attached" : "unavailable",
             },
-          })
+            {
+              kind: "refresh",
+              message:
+                session?.summary ??
+                `${appInfo.displayName ?? appInfo.name} launch state refreshed.`,
+              status: session?.status ?? (viewer ? "running" : "launching"),
+              details: {
+                runId: existingRun.runId,
+                appName: name,
+                sessionId: session?.sessionId ?? null,
+              },
+            },
+          )
         : buildRunSummary({
             runId: crypto.randomUUID(),
             appName: name,

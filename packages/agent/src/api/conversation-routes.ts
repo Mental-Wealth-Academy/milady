@@ -652,14 +652,12 @@ export async function handleConversationRoutes(
           const contentSource = (m.content as Record<string, unknown>)?.source;
           const meta = m.metadata as Record<string, unknown> | undefined;
           const entityName = meta?.entityName;
-          // Surface a source tag for every visible message so the UI can render
-          // a consistent channel chip on native dashboard turns as well.
           const normalizedSource =
             typeof contentSource === "string" &&
             contentSource.length > 0 &&
             contentSource !== "client_chat"
               ? contentSource
-              : "milady";
+              : undefined;
           return {
             id: m.id ?? "",
             role: m.entityId === agentId ? "assistant" : "user",
@@ -669,6 +667,16 @@ export async function handleConversationRoutes(
             from:
               typeof entityName === "string" && entityName.length > 0
                 ? entityName
+                : undefined,
+            fromUserName:
+              typeof meta?.entityUserName === "string" &&
+              meta.entityUserName.length > 0
+                ? meta.entityUserName
+                : undefined,
+            avatarUrl:
+              typeof meta?.entityAvatarUrl === "string" &&
+              meta.entityAvatarUrl.length > 0
+                ? meta.entityAvatarUrl
                 : undefined,
           };
         })
@@ -885,25 +893,35 @@ export async function handleConversationRoutes(
       );
 
       if (!aborted) {
-        const resolvedText = normalizeChatResponseText(
-          result.text,
-          state.logBuffer,
-          runtime,
-        );
-        await persistAssistantConversationMemory(
-          runtime,
-          conv.roomId,
-          resolvedText,
-          channelType,
-          turnStartedAt,
-        );
         conv.updatedAt = new Date().toISOString();
-        writeSseJson(res, {
-          type: "done",
-          fullText: resolvedText,
-          agentName: result.agentName,
-          ...(result.usage ? { estimatedUsage: result.usage } : {}),
-        });
+        if (result.noResponseReason !== "ignored") {
+          const resolvedText = normalizeChatResponseText(
+            result.text,
+            state.logBuffer,
+            runtime,
+          );
+          await persistAssistantConversationMemory(
+            runtime,
+            conv.roomId,
+            resolvedText,
+            channelType,
+            turnStartedAt,
+          );
+          writeSseJson(res, {
+            type: "done",
+            fullText: resolvedText,
+            agentName: result.agentName,
+            ...(result.usage ? { estimatedUsage: result.usage } : {}),
+          });
+        } else {
+          writeSseJson(res, {
+            type: "done",
+            fullText: "",
+            agentName: result.agentName,
+            noResponseReason: "ignored",
+            ...(result.usage ? { estimatedUsage: result.usage } : {}),
+          });
+        }
       }
     } catch (err) {
       if (!aborted) {
@@ -1031,23 +1049,31 @@ export async function handleConversationRoutes(
         },
       );
 
-      const resolvedText = normalizeChatResponseText(
-        result.text,
-        state.logBuffer,
-        runtime,
-      );
-      await persistAssistantConversationMemory(
-        runtime,
-        conv.roomId,
-        resolvedText,
-        channelType,
-        turnStartedAt,
-      );
       conv.updatedAt = new Date().toISOString();
-      json(res, {
-        text: resolvedText,
-        agentName: result.agentName,
-      });
+      if (result.noResponseReason !== "ignored") {
+        const resolvedText = normalizeChatResponseText(
+          result.text,
+          state.logBuffer,
+          runtime,
+        );
+        await persistAssistantConversationMemory(
+          runtime,
+          conv.roomId,
+          resolvedText,
+          channelType,
+          turnStartedAt,
+        );
+        json(res, {
+          text: resolvedText,
+          agentName: result.agentName,
+        });
+      } else {
+        json(res, {
+          text: "",
+          agentName: result.agentName,
+          noResponseReason: "ignored",
+        });
+      }
     } catch (err) {
       logger.warn(
         `[conversations] POST /messages failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1166,8 +1192,17 @@ export async function handleConversationRoutes(
         state.agentName,
       );
 
-      if (newTitle) {
-        conv.title = newTitle;
+      const fallbackTitle = prompt
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .slice(0, 5)
+        .join(" ")
+        .trim();
+      const resolvedTitle = newTitle ?? fallbackTitle;
+
+      if (resolvedTitle) {
+        conv.title = resolvedTitle;
         conv.updatedAt = new Date().toISOString();
         await syncConversationRoomTitle(state, conv);
       }

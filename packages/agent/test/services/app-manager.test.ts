@@ -9,29 +9,51 @@ import type {
   RegistryPluginInfo,
 } from "../../src/services/plugin-manager-types";
 
-const appPackageModuleMocks = vi.hoisted(() => {
-  const HyperscapeServiceStub = {
-    serviceType: "hyperscapeService",
-  };
+type AppPackageModuleMocks = {
+  importAppPlugin: ReturnType<typeof vi.fn>;
+  importAppRouteModule: ReturnType<typeof vi.fn>;
+};
 
-  return {
-    importAppPlugin: vi.fn(async (packageName: string) => ({
-      name: packageName,
-      services: [HyperscapeServiceStub],
-    })),
-    importAppRouteModule: vi.fn(),
-  };
-});
+type RegistryClientMocks = {
+  getPluginInfo: ReturnType<typeof vi.fn>;
+  getRegistryPlugins: ReturnType<typeof vi.fn>;
+};
 
-const registryClientMocks = vi.hoisted(() => ({
-  getPluginInfo: vi.fn(async () => null),
-  getRegistryPlugins: vi.fn(async () => new Map()),
-}));
+var appPackageModuleMocksSingleton: AppPackageModuleMocks | undefined;
+var registryClientMocksSingleton: RegistryClientMocks | undefined;
 
-vi.mock("../../src/services/app-package-modules", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/services/app-package-modules")
-  >("../../src/services/app-package-modules");
+function getAppPackageModuleMocks(): AppPackageModuleMocks {
+  if (!appPackageModuleMocksSingleton) {
+    appPackageModuleMocksSingleton = {
+      importAppPlugin: vi.fn(async (packageName: string) => ({
+        name: packageName,
+        services: [{ serviceType: "hyperscapeService" }],
+      })),
+      importAppRouteModule: vi.fn(),
+    };
+  }
+  return appPackageModuleMocksSingleton;
+}
+
+function getRegistryClientMocks(): RegistryClientMocks {
+  if (!registryClientMocksSingleton) {
+    registryClientMocksSingleton = {
+      getPluginInfo: vi.fn(async () => null),
+      getRegistryPlugins: vi.fn(async () => new Map()),
+    };
+  }
+  return registryClientMocksSingleton;
+}
+
+const appPackageModuleMocks = getAppPackageModuleMocks();
+const registryClientMocks = getRegistryClientMocks();
+
+vi.mock("../../src/services/app-package-modules", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../src/services/app-package-modules")
+    >();
+  const appPackageModuleMocks = getAppPackageModuleMocks();
   return {
     ...actual,
     importAppPlugin: appPackageModuleMocks.importAppPlugin,
@@ -42,10 +64,13 @@ vi.mock("../../src/services/app-package-modules", async () => {
   };
 });
 
-vi.mock("../../src/services/registry-client", () => ({
-  getPluginInfo: registryClientMocks.getPluginInfo,
-  getRegistryPlugins: registryClientMocks.getRegistryPlugins,
-}));
+vi.mock("../../src/services/registry-client", () => {
+  const registryClientMocks = getRegistryClientMocks();
+  return {
+    getPluginInfo: registryClientMocks.getPluginInfo,
+    getRegistryPlugins: registryClientMocks.getRegistryPlugins,
+  };
+});
 
 import { AppManager } from "../../src/services/app-manager";
 
@@ -103,6 +128,8 @@ const HYPERSCAPE_APP_INFO: RegistryPluginInfo = {
       mode: "spectator",
       surface: "agent-control",
       followEntity: "{HYPERSCAPE_CHARACTER_ID}",
+      hiddenUI: "chat,inventory,minimap,hotbar,stats",
+      quality: "medium",
     },
     postMessageAuth: true,
     sandbox: "allow-scripts allow-same-origin allow-popups allow-forms",
@@ -129,6 +156,8 @@ const HYPERSCAPE_APP_INFO: RegistryPluginInfo = {
         mode: "spectator",
         surface: "agent-control",
         followEntity: "{HYPERSCAPE_CHARACTER_ID}",
+        hiddenUI: "chat,inventory,minimap,hotbar,stats",
+        quality: "medium",
       },
       postMessageAuth: true,
       sandbox: "allow-scripts allow-same-origin allow-popups allow-forms",
@@ -205,6 +234,26 @@ const BABYLON_APP_INFO: RegistryPluginInfo = {
     v2Version: "1.0.0",
   },
   supports: { v0: false, v1: true, v2: true },
+};
+
+const HYPERSCAPE_ALIAS_APP_INFO: RegistryPluginInfo = {
+  ...HYPERSCAPE_APP_INFO,
+  name: "@elizaos/app-hyperscape",
+  gitRepo: "elizaos/app-hyperscape",
+  gitUrl: "https://github.com/elizaos/app-hyperscape",
+  npm: {
+    package: "@elizaos/app-hyperscape",
+    v0Version: null,
+    v1Version: "1.0.0",
+    v2Version: "1.0.0",
+  },
+  runtimePlugin: undefined,
+  appMeta: HYPERSCAPE_APP_INFO.appMeta
+    ? {
+        ...HYPERSCAPE_APP_INFO.appMeta,
+        runtimePlugin: "@hyperscape/plugin-hyperscape",
+      }
+    : undefined,
 };
 
 function buildPluginManager(
@@ -977,11 +1026,121 @@ describe("AppManager", () => {
     ]);
   });
 
+  it("returns only the curated four games and deduplicates Hyperscape aliases", async () => {
+    const defenseAppInfo: RegistryPluginInfo = {
+      name: "@elizaos/app-defense-of-the-agents",
+      gitRepo: "elizaos/app-defense-of-the-agents",
+      gitUrl: "https://github.com/elizaos/app-defense-of-the-agents",
+      displayName: "Defense of the Agents",
+      description: "Defense lane loop",
+      homepage: "https://defense.example",
+      topics: ["game"],
+      stars: 0,
+      language: "TypeScript",
+      kind: "app",
+      category: "game",
+      launchType: "url",
+      launchUrl: "https://defense.example",
+      capabilities: ["strategy"],
+      npm: {
+        package: "@elizaos/app-defense-of-the-agents",
+        v0Version: null,
+        v1Version: "1.0.0",
+        v2Version: "1.0.0",
+      },
+      supports: { v0: false, v1: true, v2: true },
+    };
+    const unsupportedAppInfo: RegistryPluginInfo = {
+      name: "@elizaos/app-hyperfy",
+      gitRepo: "elizaos/app-hyperfy",
+      gitUrl: "https://github.com/elizaos/app-hyperfy",
+      displayName: "Hyperfy",
+      description: "Unsupported world",
+      homepage: "https://hyperfy.example",
+      topics: ["world"],
+      stars: 0,
+      language: "TypeScript",
+      kind: "app",
+      category: "world",
+      launchType: "url",
+      launchUrl: "https://hyperfy.example",
+      capabilities: ["exploration"],
+      npm: {
+        package: "@elizaos/app-hyperfy",
+        v0Version: null,
+        v1Version: "1.0.0",
+        v2Version: "1.0.0",
+      },
+      supports: { v0: false, v1: true, v2: true },
+    };
+
+    registryClientMocks.getRegistryPlugins.mockResolvedValue(
+      new Map<string, RegistryPluginInfo>([
+        [HYPERSCAPE_APP_INFO.name, HYPERSCAPE_APP_INFO],
+        [HYPERSCAPE_ALIAS_APP_INFO.name, HYPERSCAPE_ALIAS_APP_INFO],
+        [BABYLON_APP_INFO.name, BABYLON_APP_INFO],
+        [RS_2004SCAPE_APP_INFO.name, RS_2004SCAPE_APP_INFO],
+        [defenseAppInfo.name, defenseAppInfo],
+        [unsupportedAppInfo.name, unsupportedAppInfo],
+      ]),
+    );
+
+    const pluginManager = buildPluginManager([], null);
+    (
+      pluginManager.refreshRegistry as ReturnType<typeof vi.fn>
+    ).mockResolvedValue(
+      new Map<string, RegistryPluginInfo>([
+        [HYPERSCAPE_ALIAS_APP_INFO.name, HYPERSCAPE_ALIAS_APP_INFO],
+        [BABYLON_APP_INFO.name, BABYLON_APP_INFO],
+        [RS_2004SCAPE_APP_INFO.name, RS_2004SCAPE_APP_INFO],
+        [defenseAppInfo.name, defenseAppInfo],
+        [unsupportedAppInfo.name, unsupportedAppInfo],
+      ]),
+    );
+
+    const manager = new AppManager();
+    const apps = await manager.listAvailable(pluginManager);
+
+    expect(apps.map((app) => app.name)).toEqual([
+      "@hyperscape/plugin-hyperscape",
+      "@elizaos/app-babylon",
+      "@elizaos/app-2004scape",
+      "@elizaos/app-defense-of-the-agents",
+    ]);
+  });
+
+  it("resolves the canonical Hyperscape app info through the alternate package name", async () => {
+    const pluginManager = buildPluginManager([], null);
+    (
+      pluginManager.getRegistryPlugin as ReturnType<typeof vi.fn>
+    ).mockImplementation(async (name: string) =>
+      name === "@elizaos/app-hyperscape" ? HYPERSCAPE_ALIAS_APP_INFO : null,
+    );
+
+    registryClientMocks.getPluginInfo.mockImplementation(
+      async (name: string) =>
+        name === "@elizaos/app-hyperscape" ? HYPERSCAPE_ALIAS_APP_INFO : null,
+    );
+
+    const manager = new AppManager();
+    const info = await manager.getInfo(
+      pluginManager,
+      "@hyperscape/plugin-hyperscape",
+    );
+
+    expect(info).not.toBeNull();
+    expect(info?.name).toBe("@hyperscape/plugin-hyperscape");
+    expect(info?.runtimePlugin).toBe("@hyperscape/plugin-hyperscape");
+    expect(info?.displayName).toBe("Hyperscape");
+  });
+
   it("resolves a live Hyperscape session at launch instead of returning a synthetic pending session", async () => {
     const fixtureServer = await startHyperscapeFixtureServer();
     process.env.HYPERSCAPE_API_URL = fixtureServer.url;
 
-    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "milady-plugin-hyperscape-live-"));
+    const stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "milady-plugin-hyperscape-live-"),
+    );
     try {
       const manager = new AppManager({ stateDir });
       const runtime = createRuntimeStub({
@@ -1487,9 +1646,112 @@ describe("AppManager", () => {
     );
   });
 
-  it("auto-provisions a local wallet for Hyperscape launch when the runtime has none", async () => {
+  it("persists Hyperscape auth settings on the runtime and attaches a timeout signal", async () => {
+    delete process.env.HYPERSCAPE_AUTH_TOKEN;
+    delete process.env.HYPERSCAPE_CHARACTER_ID;
+    process.env.HYPERSCAPE_API_URL = "https://hyperscape.test";
+    appPackageModuleMocks.importAppRouteModule.mockResolvedValue({});
+
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            authToken: "fixture-auth-token",
+            characterId: "char-runtime",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const manager = new AppManager();
+      const runtime = createRuntimeStub({
+        characterName: "Scout",
+        agentRecord: {
+          walletAddresses: {
+            evm: "0x1234567890123456789012345678901234567890",
+          },
+        },
+      }) as IAgentRuntime & {
+        getSetting: (key: string) => string | null;
+      };
+
+      const result = await manager.launch(
+        buildPluginManager([]),
+        "@hyperscape/plugin-hyperscape",
+        undefined,
+        runtime,
+      );
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+        "https://hyperscape.test/api/agents/wallet-auth",
+      );
+      expect(runtime.getSetting("HYPERSCAPE_AUTH_TOKEN")).toBe(
+        "fixture-auth-token",
+      );
+      expect(runtime.getSetting("HYPERSCAPE_CHARACTER_ID")).toBe(
+        "char-runtime",
+      );
+      expect(process.env.HYPERSCAPE_AUTH_TOKEN).toBeUndefined();
+      expect(process.env.HYPERSCAPE_CHARACTER_ID).toBeUndefined();
+      expect(result.viewer?.authMessage).toEqual(
+        expect.objectContaining({
+          type: "HYPERSCAPE_AUTH",
+          authToken: "fixture-auth-token",
+          characterId: "char-runtime",
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("derives the Hyperscape wallet address from an existing EVM private key", async () => {
     const fixtureServer = await startHyperscapeFixtureServer();
     process.env.HYPERSCAPE_API_URL = fixtureServer.url;
+    appPackageModuleMocks.importAppRouteModule.mockResolvedValue({});
+
+    try {
+      const privateKey =
+        "0x59c6995e998f97a5a0044976f094538e8d7d8f0d5f7d7d5f5b5c5d5e5f606162";
+      const { deriveEvmAddress } = await import("../../src/api/wallet.js");
+      const runtime = createRuntimeStub({
+        characterName: "Scout",
+        settings: {
+          EVM_PRIVATE_KEY: privateKey,
+        },
+      });
+
+      const manager = new AppManager();
+      await manager.launch(
+        buildPluginManager([]),
+        "@hyperscape/plugin-hyperscape",
+        undefined,
+        runtime,
+      );
+
+      expect(fixtureServer.walletAuthRequests).toHaveLength(1);
+      expect(fixtureServer.walletAuthRequests[0]?.walletType).toBe("evm");
+      expect(fixtureServer.walletAuthRequests[0]?.walletAddress).toBe(
+        deriveEvmAddress(privateKey),
+      );
+    } finally {
+      await fixtureServer.close();
+    }
+  });
+
+  it("does not auto-provision a local wallet for Hyperscape launch when none exists", async () => {
+    const fixtureServer = await startHyperscapeFixtureServer();
+    process.env.HYPERSCAPE_API_URL = fixtureServer.url;
+    appPackageModuleMocks.importAppRouteModule.mockResolvedValue({});
 
     try {
       delete process.env.HYPERSCAPE_AUTH_TOKEN;
@@ -1511,21 +1773,43 @@ describe("AppManager", () => {
         runtime,
       );
 
-      expect(fixtureServer.walletAuthRequests).toHaveLength(1);
-      expect(fixtureServer.walletAuthRequests[0]?.walletType).toBe("evm");
-      expect(fixtureServer.walletAuthRequests[0]?.walletAddress).toMatch(
-        /^0x[0-9a-f]{40}$/i,
-      );
-      expect(result.viewer?.postMessageAuth).toBe(true);
-      expect(result.viewer?.authMessage).toEqual(
-        expect.objectContaining({
-          type: "HYPERSCAPE_AUTH",
-          agentId: "runtime-agent-id",
-          characterId: "char-runtime",
-        }),
-      );
+      expect(fixtureServer.walletAuthRequests).toHaveLength(0);
+      expect(result.viewer?.authMessage).toBeUndefined();
+      expect(runtime.getSetting("HYPERSCAPE_AUTH_TOKEN")).toBeNull();
     } finally {
       await fixtureServer.close();
+    }
+  });
+
+  it("ignores invalid Hyperscape API URLs before issuing wallet auth requests", async () => {
+    process.env.HYPERSCAPE_API_URL = "file:///tmp/not-allowed";
+    appPackageModuleMocks.importAppRouteModule.mockResolvedValue({});
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const manager = new AppManager();
+      const runtime = createRuntimeStub({
+        characterName: "Scout",
+        agentRecord: {
+          walletAddresses: {
+            evm: "0x1234567890123456789012345678901234567890",
+          },
+        },
+      });
+
+      const result = await manager.launch(
+        buildPluginManager([]),
+        "@hyperscape/plugin-hyperscape",
+        undefined,
+        runtime,
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.viewer?.authMessage).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 
@@ -1534,7 +1818,9 @@ describe("AppManager", () => {
     process.env.BABYLON_API_URL = fixtureServer.url;
     process.env.BABYLON_CLIENT_URL = fixtureServer.url;
 
-    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "milady-app-babylon-live-"));
+    const stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "milady-app-babylon-live-"),
+    );
     try {
       const manager = new AppManager({ stateDir });
       const runtime = createRuntimeStub({
@@ -1820,7 +2106,9 @@ describe("AppManager", () => {
           ]),
           awaySummary: expect.objectContaining({
             eventCount: 2,
-            message: expect.stringContaining("Defense loop is holding mid lane."),
+            message: expect.stringContaining(
+              "Defense loop is holding mid lane.",
+            ),
           }),
           healthDetails: expect.objectContaining({
             checkedAt: expect.any(String),
@@ -1902,7 +2190,9 @@ describe("AppManager", () => {
             }),
           ]),
           awaySummary: expect.objectContaining({
-            message: expect.stringContaining("Run verification failed: viewer bridge is offline"),
+            message: expect.stringContaining(
+              "Run verification failed: viewer bridge is offline",
+            ),
           }),
         }),
       );
@@ -1927,6 +2217,142 @@ describe("AppManager", () => {
         } else {
           delete process.env[key];
         }
+      }
+    });
+
+    it("auto-provisions 2004scape credentials and mirrors them into legacy keys", async () => {
+      delete process.env.RS_SDK_BOT_NAME;
+      delete process.env.RS_SDK_BOT_PASSWORD;
+      delete process.env.BOT_NAME;
+      delete process.env.BOT_PASSWORD;
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response("ok", { status: 200 }));
+
+      try {
+        const manager = new AppManager();
+        const pluginManager = buildPluginManager([], RS_2004SCAPE_APP_INFO);
+        const runtime = createRuntimeStub({ characterName: "Scout Bot" });
+
+        const result = await manager.launch(
+          pluginManager,
+          "@elizaos/app-2004scape",
+          undefined,
+          runtime,
+        );
+
+        const authMessage = result.viewer?.authMessage;
+        expect(authMessage?.type).toBe("RS_2004SCAPE_AUTH");
+        expect(authMessage?.authToken).toMatch(/^[a-z0-9]+$/);
+        expect((authMessage?.authToken ?? "").length).toBeLessThanOrEqual(12);
+        expect(authMessage?.authToken).not.toBe("testbot");
+        expect((authMessage?.sessionToken ?? "").length).toBeGreaterThan(0);
+        expect(result.viewer?.url).toBe("/api/apps/2004scape/viewer");
+        expect(result.viewer?.embedParams).toBeUndefined();
+
+        expect(process.env.RS_SDK_BOT_NAME).toBe(authMessage?.authToken);
+        expect(process.env.BOT_NAME).toBe(authMessage?.authToken);
+        expect(process.env.RS_SDK_BOT_PASSWORD).toBe(authMessage?.sessionToken);
+        expect(process.env.BOT_PASSWORD).toBe(authMessage?.sessionToken);
+        expect(runtime.getSetting("RS_SDK_BOT_NAME")).toBe(
+          authMessage?.authToken,
+        );
+        expect(runtime.getSetting("BOT_NAME")).toBe(authMessage?.authToken);
+        expect(runtime.getSetting("RS_SDK_BOT_PASSWORD")).toBe(
+          authMessage?.sessionToken,
+        );
+        expect(runtime.getSetting("BOT_PASSWORD")).toBe(
+          authMessage?.sessionToken,
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("promotes legacy BOT credentials into the RS_SDK launch contract", async () => {
+      delete process.env.RS_SDK_BOT_NAME;
+      delete process.env.RS_SDK_BOT_PASSWORD;
+      process.env.BOT_NAME = "legacybot";
+      process.env.BOT_PASSWORD = "legacy-pass-42";
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response("ok", { status: 200 }));
+
+      try {
+        const manager = new AppManager();
+        const pluginManager = buildPluginManager([], RS_2004SCAPE_APP_INFO);
+        const runtime = createRuntimeStub({ characterName: "Scout Bot" });
+
+        const result = await manager.launch(
+          pluginManager,
+          "@elizaos/app-2004scape",
+          undefined,
+          runtime,
+        );
+
+        const authMessage = result.viewer?.authMessage;
+        expect(authMessage).toEqual(
+          expect.objectContaining({
+            type: "RS_2004SCAPE_AUTH",
+            authToken: "legacybot",
+            sessionToken: "legacy-pass-42",
+          }),
+        );
+        expect(result.viewer?.url).toBe("/api/apps/2004scape/viewer");
+        expect(result.viewer?.embedParams).toBeUndefined();
+        expect(process.env.RS_SDK_BOT_NAME).toBe("legacybot");
+        expect(process.env.RS_SDK_BOT_PASSWORD).toBe("legacy-pass-42");
+        expect(runtime.getSetting("RS_SDK_BOT_NAME")).toBe("legacybot");
+        expect(runtime.getSetting("RS_SDK_BOT_PASSWORD")).toBe(
+          "legacy-pass-42",
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("prefers RS_SDK credentials when legacy BOT credentials drift out of sync", async () => {
+      process.env.RS_SDK_BOT_NAME = "stablebot";
+      process.env.RS_SDK_BOT_PASSWORD = "stable-pass-42";
+      process.env.BOT_NAME = "wrongbot";
+      process.env.BOT_PASSWORD = "wrong-pass-42";
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response("ok", { status: 200 }));
+
+      try {
+        const manager = new AppManager();
+        const pluginManager = buildPluginManager([], RS_2004SCAPE_APP_INFO);
+        const runtime = createRuntimeStub({ characterName: "Scout Bot" });
+
+        const result = await manager.launch(
+          pluginManager,
+          "@elizaos/app-2004scape",
+          undefined,
+          runtime,
+        );
+
+        expect(result.viewer?.authMessage).toEqual(
+          expect.objectContaining({
+            type: "RS_2004SCAPE_AUTH",
+            authToken: "stablebot",
+            sessionToken: "stable-pass-42",
+          }),
+        );
+        expect(result.viewer?.url).toBe("/api/apps/2004scape/viewer");
+        expect(result.viewer?.embedParams).toBeUndefined();
+        expect(process.env.BOT_NAME).toBe("stablebot");
+        expect(process.env.BOT_PASSWORD).toBe("stable-pass-42");
+        expect(runtime.getSetting("BOT_NAME")).toBe("stablebot");
+        expect(runtime.getSetting("BOT_PASSWORD")).toBe("stable-pass-42");
+      } finally {
+        globalThis.fetch = originalFetch;
       }
     });
 
@@ -2059,9 +2485,9 @@ describe("AppManager", () => {
       );
 
       expect(info).not.toBeNull();
-      expect(info!.displayName).toBe("Hyperscape");
-      expect(info!.launchType).toBe("connect");
-      expect(info!.appMeta?.bridgeExport).toBe("./app");
+      expect(info?.displayName).toBe("Hyperscape");
+      expect(info?.launchType).toBe("connect");
+      expect(info?.appMeta?.bridgeExport).toBe("./app");
     });
 
     it("returns null for an unknown app", async () => {
@@ -2084,8 +2510,8 @@ describe("AppManager", () => {
       );
 
       expect(info).not.toBeNull();
-      expect(info!.displayName).toBe("Hyperscape");
-      expect(info!.launchType).toBe("connect");
+      expect(info?.displayName).toBe("Hyperscape");
+      expect(info?.launchType).toBe("connect");
     });
   });
 });

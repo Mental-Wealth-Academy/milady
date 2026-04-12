@@ -140,7 +140,7 @@ describe("Electrobun release workflow drift", () => {
     );
     const releaseCheckIndex = workflow.indexOf("run: bun run release:check");
 
-    expect(workflow).toContain('BUN_VERSION: "1.3.9"');
+    expect(workflow).toContain('BUN_VERSION: "1.3.11"');
     expect(workflow).toContain('NODE_NO_WARNINGS: "1"');
     expect(workflow).toContain("bun-version: $" + "{{ env.BUN_VERSION }}");
     expect(workflow).not.toContain("bun-version: latest");
@@ -150,7 +150,7 @@ describe("Electrobun release workflow drift", () => {
     expect(workflow).toContain("needs: [prepare, validate-release]");
     expect(workflow).toContain(
       // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression
-      "runs-on: ${{ vars.RUNNER_UBUNTU || (github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest') }}",
+      "runs-on: ${{ vars.RUNNER_UBUNTU || 'ubuntu-24.04' }}",
     );
   });
 
@@ -176,6 +176,45 @@ describe("Electrobun release workflow drift", () => {
       "MILADY_RELEASE_TAG: ${{ needs.prepare.outputs.tag }}",
     );
     expect(workflow).toContain('MILADY_VALIDATE_CDN: "1"');
+  });
+
+  it("builds LifeOps Browser companion release bundles from the same tag", () => {
+    const workflow = fs.readFileSync(WORKFLOW_PATH, "utf8");
+    const companionJobIndex = workflow.indexOf(
+      "name: Build LifeOps Browser companions",
+    );
+    const releaseJobIndex = workflow.indexOf("name: Create Release");
+    const publishJobIndex = workflow.indexOf(
+      "name: Publish LifeOps Browser companions",
+    );
+
+    expect(companionJobIndex).toBeGreaterThan(-1);
+    expect(releaseJobIndex).toBeGreaterThan(companionJobIndex);
+    expect(publishJobIndex).toBeGreaterThan(releaseJobIndex);
+    expect(workflow).toContain("build-browser-companions:");
+    expect(workflow).toContain("runs-on: macos-14");
+    expect(workflow).toContain(
+      "MILADY_RELEASE_TAG: $" + "{{ needs.prepare.outputs.tag }}",
+    );
+    expect(workflow).toContain("bun run lifeops:browser:package:release");
+    expect(workflow).toContain('echo "packaged=true" >> "$GITHUB_OUTPUT"');
+    expect(workflow).toContain(
+      "LifeOps Browser packaging failed; desktop release will continue without browser companion bundles.",
+    );
+    expect(workflow).toContain(
+      "name: Upload LifeOps Browser release artifacts",
+    );
+    expect(workflow).toContain("name: lifeops-browser-store-bundles");
+    expect(workflow).toContain("needs: [prepare, build]");
+    expect(workflow).toContain(
+      "needs: [prepare, build-browser-companions, release]",
+    );
+    expect(workflow).toContain("name: Download LifeOps Browser artifacts");
+    expect(workflow).toContain("pattern: lifeops-browser-*");
+    expect(workflow).toContain(
+      "name: Attach LifeOps Browser assets to GitHub release",
+    );
+    expect(workflow).toContain("gh release upload");
   });
 
   it("requires an explicit tag for manual non-tag runs", () => {
@@ -301,7 +340,7 @@ describe("Electrobun release workflow drift", () => {
     );
     expect(workflow).toContain(
       // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression
-      "runner: ${{ vars.RUNNER_WINDOWS || (github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-windows-2025' || 'windows-2025') }}",
+      "runner: ${{ vars.RUNNER_WINDOWS || 'windows-2025' }}",
     );
     expect(workflow).not.toContain(
       'Join-Path $PWD "apps/app/electrobun/node_modules/electrobun"',
@@ -379,23 +418,79 @@ describe("Electrobun release workflow drift", () => {
     expect(workflow).toContain("ELECTROBUN_REAL_HDIUTIL: /usr/bin/hdiutil");
   });
 
-  it("keeps updater transport files off the public GitHub release asset list", () => {
+  it("keeps desktop release files, updater channels, and browser companions split into separate workflow sections", () => {
     const workflow = fs.readFileSync(WORKFLOW_PATH, "utf8");
+    const publicReleaseIndex = workflow.indexOf(
+      "name: Collect public release files",
+    );
+    const updateChannelIndex = workflow.indexOf(
+      "name: Collect update channel files",
+    );
+    const checksumsIndex = workflow.indexOf("name: Generate checksums");
+    const publishBrowserIndex = workflow.indexOf(
+      "name: Publish LifeOps Browser companions",
+    );
 
-    expect(workflow).toContain("name: Collect public release files");
-    expect(workflow).toContain(' -name "*.dmg" -o \\');
-    expect(workflow).toContain(' -name "Milady-Setup-*.exe" -o \\');
-    expect(workflow).toContain(' -name "Milady-Setup-*.exe.zip" -o \\');
-    expect(workflow).toContain(' -name "*Setup*.tar.gz" -o \\');
-    expect(workflow).toContain(' -name "*.msix" \\');
-    expect(workflow).not.toContain(' -name "*.exe" -o \\');
+    expect(publicReleaseIndex).toBeGreaterThan(-1);
+    expect(updateChannelIndex).toBeGreaterThan(publicReleaseIndex);
+    expect(checksumsIndex).toBeGreaterThan(updateChannelIndex);
+    expect(publishBrowserIndex).toBeGreaterThan(checksumsIndex);
 
-    expect(workflow).toContain("name: Collect update channel files");
-    expect(workflow).toContain(' -name "*.tar.zst" -o \\');
-    expect(workflow).toContain(' -name "*.patch" -o \\');
-    expect(workflow).toContain(' -name "*-update.json" \\');
+    const publicReleaseSection = workflow.slice(
+      publicReleaseIndex,
+      updateChannelIndex,
+    );
+    const updateChannelSection = workflow.slice(
+      updateChannelIndex,
+      checksumsIndex,
+    );
+    const browserReleaseSection = workflow.slice(publishBrowserIndex);
+
+    expect(publicReleaseSection).toContain(' -name "*.dmg" -o \\');
+    expect(publicReleaseSection).toContain(' -name "Milady-Setup-*.exe" -o \\');
+    expect(publicReleaseSection).toContain(
+      ' -name "Milady-Setup-*.exe.zip" -o \\',
+    );
+    expect(publicReleaseSection).toContain(' -name "*Setup*.tar.gz" -o \\');
+    expect(publicReleaseSection).toContain(' -name "*.msix" \\');
+    expect(publicReleaseSection).not.toContain(
+      ' -name "lifeops-browser-chrome-v*.zip" -o \\',
+    );
+    expect(publicReleaseSection).not.toContain(
+      ' -name "lifeops-browser-safari-v*.zip" -o \\',
+    );
+    expect(publicReleaseSection).not.toContain(
+      ' -name "lifeops-browser-release-manifest-v*.json" -o \\',
+    );
+    expect(publicReleaseSection).not.toContain(
+      ' -name "lifeops-browser-safari-project-v*.zip" -o \\',
+    );
+    expect(publicReleaseSection).not.toContain(' -name "*.exe" -o \\');
+
+    expect(updateChannelSection).toContain(' -name "*.tar.zst" -o \\');
+    expect(updateChannelSection).toContain(' -name "*.patch" -o \\');
+    expect(updateChannelSection).toContain(' -name "*-update.json" \\');
+    expect(updateChannelSection).toContain("update-channel/");
+    expect(updateChannelSection).not.toContain(
+      ' -name "lifeops-browser-chrome-v*.zip" -o \\',
+    );
+    expect(updateChannelSection).not.toContain(
+      ' -name "lifeops-browser-safari-v*.zip" -o \\',
+    );
+    expect(updateChannelSection).not.toContain(
+      ' -name "lifeops-browser-release-manifest-v*.json" \\',
+    );
+
     expect(workflow).toContain("files: release-files/*");
-    expect(workflow).toContain("update-channel/");
+    expect(browserReleaseSection).toContain(
+      ' -name "lifeops-browser-chrome-v*.zip" -o \\',
+    );
+    expect(browserReleaseSection).toContain(
+      ' -name "lifeops-browser-safari-v*.zip" -o \\',
+    );
+    expect(browserReleaseSection).toContain(
+      ' -name "lifeops-browser-release-manifest-v*.json" \\',
+    );
   });
 
   it("installs Inno Setup 6.7.1 and builds a standalone Windows installer", () => {

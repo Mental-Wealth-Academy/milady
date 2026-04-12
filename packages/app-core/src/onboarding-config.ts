@@ -1,20 +1,20 @@
 import {
   normalizeOnboardingProviderId,
-  requiresAdditionalRuntimeProvider,
   type OnboardingCredentialInputs,
   type OnboardingLocalProviderId,
+  requiresAdditionalRuntimeProvider,
 } from "@miladyai/shared/contracts/onboarding";
 import type {
   DeploymentTargetConfig,
-  ServiceRouteConfig,
   LinkedAccountsConfig,
+  ServiceRouteConfig,
   ServiceRoutingConfig,
 } from "@miladyai/shared/contracts/service-routing";
 import {
   buildDefaultElizaCloudServiceRouting,
   buildElizaCloudServiceRoute,
 } from "@miladyai/shared/contracts/service-routing";
-import { type OnboardingServerTarget } from "./onboarding/server-target";
+import type { OnboardingServerTarget } from "./onboarding/server-target";
 
 export interface BuildOnboardingConnectionArgs {
   onboardingServerTarget?: OnboardingServerTarget;
@@ -36,6 +36,24 @@ export interface BuildOnboardingConnectionArgs {
   onboardingMegaModel?: string;
   onboardingResponseHandlerModel?: string;
   onboardingActionPlannerModel?: string;
+  // Feature toggles from onboarding features step
+  onboardingFeatureTelegram?: boolean;
+  onboardingFeatureDiscord?: boolean;
+  onboardingFeaturePhone?: boolean;
+  onboardingFeatureCrypto?: boolean;
+  onboardingFeatureBrowser?: boolean;
+}
+
+/** Feature selections from the onboarding features step. */
+export interface OnboardingFeatureSetup {
+  connectors: {
+    telegram?: { managed: boolean };
+    discord?: { managed: boolean };
+  };
+  capabilities: {
+    crypto?: boolean;
+    browser?: boolean;
+  };
 }
 
 export interface BuildOnboardingRuntimeConfigResult {
@@ -44,6 +62,7 @@ export interface BuildOnboardingRuntimeConfigResult {
   serviceRouting: ServiceRoutingConfig | undefined;
   credentialInputs: OnboardingCredentialInputs | undefined;
   needsProviderSetup: boolean;
+  featureSetup: OnboardingFeatureSetup | undefined;
 }
 
 function trimToUndefined(value: unknown): string | undefined {
@@ -216,11 +235,36 @@ export function buildOnboardingRuntimeConfig(
 
   const hasCredentialInputs = Object.keys(credentialInputs).length > 0;
 
+  // Build feature setup from onboarding feature toggles
+  const hasFeatures =
+    args.onboardingFeatureTelegram ||
+    args.onboardingFeatureDiscord ||
+    args.onboardingFeatureCrypto ||
+    args.onboardingFeatureBrowser;
+
+  const featureSetup: OnboardingFeatureSetup | undefined = hasFeatures
+    ? {
+        connectors: {
+          ...(args.onboardingFeatureTelegram
+            ? { telegram: { managed: true } }
+            : {}),
+          ...(args.onboardingFeatureDiscord
+            ? { discord: { managed: true } }
+            : {}),
+        },
+        capabilities: {
+          ...(args.onboardingFeatureCrypto ? { crypto: true } : {}),
+          ...(args.onboardingFeatureBrowser ? { browser: true } : {}),
+        },
+      }
+    : undefined;
+
   return {
     deploymentTarget,
     linkedAccounts: hasLinkedAccounts ? linkedAccounts : undefined,
     serviceRouting: hasServiceRouting ? serviceRouting : undefined,
     credentialInputs: hasCredentialInputs ? credentialInputs : undefined,
     needsProviderSetup: !serviceRouting.llmText,
+    featureSetup,
   };
 }

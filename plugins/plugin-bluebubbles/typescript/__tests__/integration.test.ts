@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { logger } from "@elizaos/core";
 import {
 	API_ENDPOINTS,
 	DEFAULT_WEBHOOK_PATH,
@@ -10,6 +11,7 @@ import {
 	GROUP_POLICY_DISABLED,
 	GROUP_POLICY_OPEN,
 } from "../src/constants";
+import { BlueBubblesClient } from "../src/client";
 
 import {
 	isHandleAllowed,
@@ -23,6 +25,11 @@ import blueBubblesPlugin, {
 	sendMessageAction,
 	sendReactionAction,
 } from "../src/index";
+import { resolveBlueBubblesAutoStartConfig } from "../src/service";
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 // ----------------------------------------------------------------
 // Plugin exports
@@ -196,6 +203,200 @@ describe("validateConfig", () => {
 			webhookPath: "/custom/webhook",
 		});
 		expect(config.webhookPath).toBe("/custom/webhook");
+	});
+});
+
+describe("BlueBubblesClient", () => {
+	it("lists chats via the query endpoint", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						data: [{ guid: "chat-1", chatIdentifier: "chat-1", participants: [] }],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		const client = new BlueBubblesClient({
+			enabled: true,
+			serverUrl: "http://localhost:1234",
+			password: "secret",
+		});
+
+		await client.listChats(5, 2);
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		const [url, init] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe(
+			"http://localhost:1234/api/v1/chat/query?password=secret",
+		);
+		expect(init?.method).toBe("POST");
+		expect(init?.body).toBe(
+			JSON.stringify({
+				limit: 5,
+				offset: 2,
+				with: ["lastMessage", "participants"],
+			}),
+		);
+	});
+
+	it("creates group chats via the new-chat endpoint", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						data: { guid: "chat-1", chatIdentifier: "chat-1", participants: [] },
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		const client = new BlueBubblesClient({
+			enabled: true,
+			serverUrl: "http://localhost:1234",
+			password: "secret",
+		});
+
+		await client.createGroupChat(["+15551234567"], "Test", "hello");
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		const [url, init] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe(
+			"http://localhost:1234/api/v1/chat/new?password=secret",
+		);
+		expect(init?.method).toBe("POST");
+		expect(init?.body).toBe(
+			JSON.stringify({
+				addresses: ["+15551234567"],
+				name: "Test",
+				message: "hello",
+				service: "iMessage",
+			}),
+		);
+	});
+
+	it("renames group chats with PUT", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				new Response(JSON.stringify({ data: {} }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+		const client = new BlueBubblesClient({
+			enabled: true,
+			serverUrl: "http://localhost:1234",
+			password: "secret",
+		});
+
+		await client.renameGroupChat("iMessage;-;+15551234567", "Renamed");
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		const [url, init] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe(
+			"http://localhost:1234/api/v1/chat/iMessage%3B-%3B%2B15551234567?password=secret",
+		);
+		expect(init?.method).toBe("PUT");
+		expect(init?.body).toBe(JSON.stringify({ displayName: "Renamed" }));
+	});
+});
+
+describe("BlueBubblesService", () => {
+	it("uses default macOS auto-start settings for local BlueBubbles servers", () => {
+		expect(
+			resolveBlueBubblesAutoStartConfig(
+				{
+					serverUrl: "http://127.0.0.1:1234",
+					password: "secret",
+				},
+				"darwin",
+			),
+		).toEqual({
+			command: "open",
+			args: ["-a", "BlueBubbles"],
+			cwd: undefined,
+			waitMs: 15000,
+		});
+	});
+
+	it("degrades to a warning when the startup probe cannot reach the server", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			new Error("Unable to connect. Is the computer able to access the url?"),
+		);
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		const service = await BlueBubblesService.start({
+			character: { name: "Test Agent" },
+			getSetting: (key: string) => {
+				if (key === "BLUEBUBBLES_SERVER_URL") {
+					return "http://192.168.1.20:1234";
+				}
+				if (key === "BLUEBUBBLES_PASSWORD") {
+					return "secret";
+				}
+				return undefined;
+			},
+		} as any);
+
+		expect(service.isConnected()).toBe(false);
+		expect(service.getIsRunning()).toBe(false);
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining("BlueBubbles server unavailable at startup"),
+		);
+		expect(errorSpy).not.toHaveBeenCalled();
+	});
+
+	it("can auto-start BlueBubbles and finish startup once the server becomes reachable", async () => {
+		const spawnSpy = vi
+			.spyOn(BlueBubblesService.prototype as any, "spawnAutoStartProcess")
+			.mockResolvedValue(undefined);
+		const probeSpy = vi
+			.spyOn(BlueBubblesClient.prototype, "probe")
+			.mockResolvedValueOnce({
+				ok: false,
+				error: "Unable to connect. Is the computer able to access the url?",
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				serverVersion: "1.12.0",
+				osVersion: "14.5",
+				privateApiEnabled: true,
+				helperConnected: true,
+			});
+		const listChatsSpy = vi
+			.spyOn(BlueBubblesClient.prototype, "listChats")
+			.mockResolvedValue([]);
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		const service = await BlueBubblesService.start({
+			character: { name: "Test Agent" },
+			getSetting: (key: string) => {
+				switch (key) {
+					case "BLUEBUBBLES_SERVER_URL":
+						return "http://localhost:1234";
+					case "BLUEBUBBLES_PASSWORD":
+						return "secret";
+					case "BLUEBUBBLES_AUTOSTART_COMMAND":
+						return "open";
+					case "BLUEBUBBLES_AUTOSTART_ARGS":
+						return '["-a","BlueBubbles"]';
+					case "BLUEBUBBLES_AUTOSTART_WAIT_MS":
+						return "0";
+					default:
+						return undefined;
+				}
+			},
+		} as any);
+
+		expect(service.isConnected()).toBe(true);
+		expect(service.getIsRunning()).toBe(true);
+		expect(probeSpy).toHaveBeenCalledTimes(2);
+		expect(listChatsSpy).toHaveBeenCalledOnce();
+		expect(spawnSpy).toHaveBeenCalledWith("open", ["-a", "BlueBubbles"], undefined);
+		expect(errorSpy).not.toHaveBeenCalled();
 	});
 });
 

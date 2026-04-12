@@ -27,7 +27,7 @@ export const BUNDLED_WORKSPACE_BUILDS = [
       "dist",
       "index.js",
     ),
-    args: ["run", "build"],
+    args: ["../../scripts/build-bundled-orchestrator-artifact.mjs"],
   },
   {
     label: "@elizaos/plugin-agent-skills",
@@ -45,165 +45,29 @@ export const BUNDLED_WORKSPACE_BUILDS = [
       "dist",
       "index.js",
     ),
-    args: ["run", "build"],
+    args: ["../../../scripts/build-bundled-agent-skills-artifact.mjs"],
   },
-  {
-    label: "@elizaos/plugin-cron",
-    cwd: path.join("plugins", "plugin-cron", "typescript"),
-    manifest: path.join("plugins", "plugin-cron", "typescript", "package.json"),
-    artifact: path.join(
-      "plugins",
-      "plugin-cron",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-edge-tts",
-    cwd: path.join("plugins", "plugin-edge-tts", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-edge-tts",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-edge-tts",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-experience",
-    cwd: path.join("plugins", "plugin-experience", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-experience",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-experience",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-local-embedding",
-    cwd: path.join("plugins", "plugin-local-embedding", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-local-embedding",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-local-embedding",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-ollama",
-    cwd: path.join("plugins", "plugin-ollama", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-ollama",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-ollama",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-openai",
-    cwd: path.join("plugins", "plugin-openai", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-openai",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-openai",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-personality",
-    cwd: path.join("plugins", "plugin-personality", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-personality",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-personality",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-shell",
-    cwd: path.join("plugins", "plugin-shell", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-shell",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-shell",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
-  {
-    label: "@elizaos/plugin-trust",
-    cwd: path.join("plugins", "plugin-trust", "typescript"),
-    manifest: path.join(
-      "plugins",
-      "plugin-trust",
-      "typescript",
-      "package.json",
-    ),
-    artifact: path.join(
-      "plugins",
-      "plugin-trust",
-      "typescript",
-      "dist",
-      "index.js",
-    ),
-    args: ["run", "build"],
-  },
+  // NOTE: earlier revisions of this file (cherry-picked from the
+  // unmerged commit eb4846c50) tried to build 12 more workspace
+  // plugins — plugin-anthropic, plugin-cron, plugin-edge-tts,
+  // plugin-experience, plugin-local-embedding, plugin-ollama,
+  // plugin-openai, plugin-personality, plugin-plugin-manager,
+  // plugin-shell, plugin-sql, plugin-trust — so that their `dist/`
+  // declarations would be available for TypeScript resolution when
+  // `MILADY_SKIP_LOCAL_UPSTREAMS=1`. In practice at least one of
+  // those plugins (plugin-anthropic) has a pre-existing
+  // `ModelType.TEXT_MEDIUM` compat bug against the current
+  // `@elizaos/core`, which makes the postinstall fail as soon as
+  // the anthropic build is attempted:
+  //
+  //   Error: index.ts(170,43): error TS2339: Property 'TEXT_MEDIUM'
+  //   does not exist on type '{...}'.
+  //
+  // Nothing we ship here consumes those plugins at build-time from
+  // source, so building them is a footgun. Keep only the two
+  // historically-bundled builds (plugin-agent-orchestrator and
+  // plugin-agent-skills) that actually need to be on disk for
+  // downstream packaging to work.
 ];
 
 function runCommand(command, args, { cwd, env = process.env, label } = {}) {

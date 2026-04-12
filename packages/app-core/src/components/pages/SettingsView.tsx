@@ -20,6 +20,7 @@ import {
   SidebarPanel,
   SidebarScrollRegion,
   Spinner,
+  Switch,
   useLinkedSidebarSelection,
 } from "@miladyai/ui";
 import { AlertTriangle, Download, Upload } from "lucide-react";
@@ -33,11 +34,13 @@ import {
   useState,
 } from "react";
 import { useApp } from "../../state";
+import { WidgetHost } from "../../widgets";
 import { CodingAgentSettingsSection } from "../coding/CodingAgentSettingsSection";
-import { LifeOpsSettingsSection } from "../settings/LifeOpsSettingsSection";
 import { MediaSettingsSection } from "../settings/MediaSettingsSection";
 import { PermissionsSection } from "../settings/PermissionsSection";
 import { ProviderSwitcher } from "../settings/ProviderSwitcher";
+import { AppearanceSettingsSection } from "../settings/AppearanceSettingsSection";
+import { ConnectorsPageView } from "./ConnectorsPageView";
 import { CloudDashboard } from "./ElizaCloudDashboard";
 import { ReleaseCenterView } from "./ReleaseCenterView";
 
@@ -59,21 +62,6 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     label: "providerswitcher.elizaCloud",
     description: "settings.sections.cloud.desc",
     keywords: ["cloud", "billing", "credits", "auth", "subscription"],
-  },
-  {
-    id: "life-ops",
-    label: "settings.sections.lifeops.label",
-    description: "settings.sections.lifeops.desc",
-    keywords: [
-      "life ops",
-      "google",
-      "gmail",
-      "calendar",
-      "oauth",
-      "connector",
-      "cloud managed",
-      "local google",
-    ],
   },
   {
     id: "ai-model",
@@ -110,6 +98,52 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
       "speech",
       "tts",
       "avatar",
+    ],
+  },
+  {
+    id: "appearance",
+    label: "settings.sections.appearance.label",
+    description: "settings.sections.appearance.desc",
+    keywords: [
+      "appearance",
+      "theme",
+      "content pack",
+      "vrm",
+      "avatar",
+      "background",
+      "color scheme",
+      "skin",
+      "character",
+    ],
+  },
+  {
+    id: "connectors",
+    label: "nav.social",
+    description: "settings.sections.connectors.desc",
+    keywords: [
+      "connectors",
+      "integration",
+      "discord",
+      "telegram",
+      "whatsapp",
+      "gmail",
+      "calendar",
+      "oauth",
+      "accounts",
+      "services",
+    ],
+  },
+  {
+    id: "capabilities",
+    label: "settings.sections.capabilities.label",
+    description: "settings.sections.capabilities.desc",
+    keywords: [
+      "capabilities",
+      "wallet",
+      "browser",
+      "enable",
+      "disable",
+      "feature",
     ],
   },
   {
@@ -210,6 +244,60 @@ const SettingsSection = forwardRef<HTMLElement, SettingsSectionProps>(
     );
   },
 );
+
+/* ── Capabilities Section ────────────────────────────────────────────── */
+
+function CapabilitiesSection() {
+  const { walletEnabled, browserEnabled, setState, t } = useApp();
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="font-medium text-sm">
+            {t("settings.sections.capabilities.walletLabel", {
+              defaultValue: "Enable Wallet",
+            })}
+          </div>
+          <div className="text-xs text-muted">
+            {t("settings.sections.wallet.enableHint", {
+              defaultValue:
+                "Show the Wallet tab for managing crypto wallets and token balances",
+            })}
+          </div>
+        </div>
+        <Switch
+          checked={walletEnabled}
+          onCheckedChange={(checked) => setState("walletEnabled", !!checked)}
+          aria-label={t("settings.sections.capabilities.walletLabel", {
+            defaultValue: "Enable Wallet",
+          })}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="font-medium text-sm">
+            {t("settings.sections.capabilities.browserLabel", {
+              defaultValue: "Enable Browser",
+            })}
+          </div>
+          <div className="text-xs text-muted">
+            {t("settings.sections.capabilities.browserHint", {
+              defaultValue:
+                "Show the Browser tab for agent-controlled web browsing",
+            })}
+          </div>
+        </div>
+        <Switch
+          checked={browserEnabled}
+          onCheckedChange={(checked) => setState("browserEnabled", !!checked)}
+          aria-label={t("settings.sections.capabilities.browserLabel", {
+            defaultValue: "Enable Browser",
+          })}
+        />
+      </div>
+    </div>
+  );
+}
 
 /* ── Updates Section ─────────────────────────────────────────────────── */
 
@@ -752,17 +840,6 @@ export function SettingsView({
         </SettingsSection>
       )}
 
-      {visibleSectionIds.has("life-ops") && (
-        <SettingsSection
-          id="life-ops"
-          title={t("settings.sections.lifeops.label")}
-          description={t("settings.sections.lifeops.desc")}
-          ref={registerContentItem("life-ops")}
-        >
-          <LifeOpsSettingsSection />
-        </SettingsSection>
-      )}
-
       {visibleSectionIds.has("coding-agents") && (
         <SettingsSection
           id="coding-agents"
@@ -782,6 +859,48 @@ export function SettingsView({
           ref={registerContentItem("media")}
         >
           <MediaSettingsSection />
+        </SettingsSection>
+      )}
+
+      {visibleSectionIds.has("appearance") && (
+        <SettingsSection
+          id="appearance"
+          title={t("settings.sections.appearance.label", {
+            defaultValue: "Appearance",
+          })}
+          description={t("settings.sections.appearance.desc", {
+            defaultValue: "Content packs, VRM avatars, backgrounds, and themes",
+          })}
+          ref={registerContentItem("appearance")}
+        >
+          <AppearanceSettingsSection />
+        </SettingsSection>
+      )}
+
+      {visibleSectionIds.has("connectors") && (
+        <SettingsSection
+          id="connectors"
+          title={t("nav.social")}
+          description={t("settings.sections.connectors.desc")}
+          bodyClassName="p-0"
+          ref={registerContentItem("connectors")}
+        >
+          <ConnectorsPageView />
+        </SettingsSection>
+      )}
+
+      {visibleSectionIds.has("capabilities") && (
+        <SettingsSection
+          id="capabilities"
+          title={t("settings.sections.capabilities.label", {
+            defaultValue: "Capabilities",
+          })}
+          description={t("settings.sections.capabilities.desc", {
+            defaultValue: "Enable or disable agent capabilities",
+          })}
+          ref={registerContentItem("capabilities")}
+        >
+          <CapabilitiesSection />
         </SettingsSection>
       )}
 
@@ -840,6 +959,8 @@ export function SettingsView({
     <PageLayout
       className={cn("h-full", inModal && "min-h-0")}
       data-testid="settings-shell"
+      footer={<WidgetHost slot="settings" />}
+      footerClassName="pt-2"
       sidebar={settingsSidebar}
       contentRef={contentContainerRef}
       contentClassName={SETTINGS_CONTENT_CLASS}

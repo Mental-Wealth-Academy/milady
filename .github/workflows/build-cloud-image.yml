@@ -70,7 +70,7 @@ permissions:
 jobs:
   build:
     name: Build cloud app image
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
@@ -117,6 +117,21 @@ jobs:
         run: |
           cd apps/app
           bun scripts/plugin-build.mjs
+
+      - name: Build shared workspace
+        run: |
+          cd packages/shared
+          bun run build
+
+      - name: Build selfcontrol workspace
+        run: |
+          cd packages/plugin-selfcontrol
+          bun run build
+
+      - name: Build agent workspace
+        run: |
+          cd packages/agent
+          bun run build:docker-dist
 
       - name: Build bundled orchestrator workspace
         run: |

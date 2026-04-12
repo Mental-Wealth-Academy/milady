@@ -144,17 +144,17 @@ export function ApiKeyConfig({
   }
 
   return (
-    <div className="mt-4 pt-4 border-t border-[var(--border)]">
+    <div className="mt-4 pt-4 border-t border-border">
       <div className="flex justify-between items-center mb-3">
         <div className="text-xs font-semibold">
           {selectedProvider.name} {t("nav.settings")}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-[var(--muted)]">
+          <span className="text-xs-tight text-muted">
             {setCount}/{params.length} {t("apikeyconfig.configured")}
           </span>
           <span
-            className="text-[11px] px-2 py-[3px] border"
+            className="text-xs-tight px-2 py-[3px] border"
             style={{
               borderColor: selectedProvider.configured
                 ? "var(--ok)"
@@ -194,11 +194,11 @@ export function ApiKeyConfig({
               : t("apikeyconfig.fetchModels")}
           </Button>
           <span
-            className={`text-[11px] min-h-4 flex items-center max-w-[min(100%,16rem)] ${
+            className={`text-xs-tight min-h-4 flex items-center max-w-[min(100%,16rem)] ${
               modelsFetchResult
                 ? modelsFetchResult.tone === "error"
-                  ? "text-[var(--danger)]"
-                  : "text-[var(--ok)]"
+                  ? "text-danger"
+                  : "text-ok"
                 : "text-transparent select-none"
             }`}
             aria-live="polite"
@@ -211,7 +211,7 @@ export function ApiKeyConfig({
           size="sm"
           onClick={() => handlePluginSave(selectedProvider.id)}
           disabled={isSaving}
-          className={saveSuccess ? "bg-[var(--ok)] border-[var(--ok)]" : ""}
+          className={saveSuccess ? "bg-ok border-ok" : ""}
         >
           {isSaving
             ? t("apikeyconfig.saving")

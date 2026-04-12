@@ -69,12 +69,14 @@ export function installTaskProgressStreamer(
   >();
   const heartbeatSent = new Set<string>();
   const finalSent = new Set<string>();
+  const loginNoticeSent = new Set<string>();
 
   const forgetSession = (sessionId: string): void => {
     sessionStartedAt.delete(sessionId);
     sessionWorkdirs.delete(sessionId);
     sessionRooms.delete(sessionId);
     heartbeatSent.delete(sessionId);
+    loginNoticeSent.delete(sessionId);
     // NOTE: do NOT clear finalSent here. finalSent is a "we already posted the
     // final report for this session" gate and must survive the stopped event,
     // which can fire between task_complete and the 10s postFinalReport delay.
@@ -149,8 +151,13 @@ export function installTaskProgressStreamer(
       setTimeout(async () => {
         // Resolve room routing HERE (not at session start) because the
         // fire-and-forget async lookup at start may not have finished yet.
-        let roomCache = sessionRooms;
-        if (!sessionRooms.has(sessionId)) {
+        let roomCache: typeof sessionRooms;
+        const cachedRoom = sessionRooms.get(sessionId);
+        if (cachedRoom) {
+          // Snapshot the entry — forgetSession may delete it from sessionRooms
+          // before this callback runs.
+          roomCache = new Map([[sessionId, cachedRoom]]);
+        } else {
           const meta = svc.sessionMetadata?.get(sessionId) as SessionMetadata | undefined;
           let roomId = meta?.roomId;
           if (!roomId && meta?.threadId) {
@@ -167,14 +174,17 @@ export function installTaskProgressStreamer(
           if (roomId) {
             const room = await runtime.getRoom(roomId).catch(() => null);
             if (room?.source) {
-              const resolved = new Map([[sessionId, {
+              roomCache = new Map([[sessionId, {
                 roomId,
                 channelId: room.channelId ?? room.id,
                 source: room.source,
                 serverId: room.serverId,
               }]]);
-              roomCache = resolved;
+            } else {
+              roomCache = new Map();
             }
+          } else {
+            roomCache = new Map();
           }
         }
         logger.info(
@@ -185,8 +195,8 @@ export function installTaskProgressStreamer(
       return;
     }
 
-    if (event === "login_required" && !finalSent.has(sessionId)) {
-      finalSent.add(sessionId);
+    if (event === "login_required" && !loginNoticeSent.has(sessionId)) {
+      loginNoticeSent.add(sessionId);
       const login = data as { instructions?: string; url?: string } | undefined;
       const message = [
         "task agent needs a provider login before it can continue",

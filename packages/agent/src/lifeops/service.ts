@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
-import { type IAgentRuntime, logger, stringToUuid } from "@elizaos/core";
+import {
+  type IAgentRuntime,
+  logger,
+  ModelType,
+  stringToUuid,
+} from "@elizaos/core";
 import {
   getSelfControlStatus,
   startSelfControlBlock,
@@ -12,7 +17,9 @@ import type {
   CompleteLifeOpsBrowserSessionRequest,
   CompleteLifeOpsOccurrenceRequest,
   ConfirmLifeOpsBrowserSessionRequest,
+  CreateLifeOpsBrowserCompanionPairingRequest,
   CreateLifeOpsBrowserSessionRequest,
+  CreateLifeOpsCalendarEventAttendee,
   CreateLifeOpsCalendarEventRequest,
   CreateLifeOpsDefinitionRequest,
   CreateLifeOpsGmailBatchReplyDraftsRequest,
@@ -29,7 +36,9 @@ import type {
   LifeOpsAuditEvent,
   LifeOpsAuditEventType,
   LifeOpsBrowserAction,
+  LifeOpsBrowserCompanionPairingResponse,
   LifeOpsBrowserCompanionStatus,
+  LifeOpsBrowserCompanionSyncResponse,
   LifeOpsBrowserKind,
   LifeOpsBrowserPageContext,
   LifeOpsBrowserPermissionState,
@@ -101,12 +110,14 @@ import type {
   LifeOpsXConnectorStatus,
   LifeOpsXPostResponse,
   SendLifeOpsGmailBatchReplyRequest,
+  SendLifeOpsGmailMessageRequest,
   SendLifeOpsGmailReplyRequest,
   SetLifeOpsReminderPreferenceRequest,
   SnoozeLifeOpsOccurrenceRequest,
   StartLifeOpsGoogleConnectorRequest,
   StartLifeOpsGoogleConnectorResponse,
   SyncLifeOpsBrowserStateRequest,
+  UpdateLifeOpsBrowserSessionProgressRequest,
   UpdateLifeOpsBrowserSettingsRequest,
   UpdateLifeOpsDefinitionRequest,
   UpdateLifeOpsGoalRequest,
@@ -148,6 +159,7 @@ import {
   LIFEOPS_WORKFLOW_TRIGGER_TYPES,
   LIFEOPS_X_CAPABILITIES,
 } from "@miladyai/shared/contracts/lifeops";
+import { readProfileFromMetadata } from "../activity-profile/service.js";
 import {
   loadOwnerContactRoutingHints,
   loadOwnerContactsConfig,
@@ -156,15 +168,25 @@ import {
 } from "../config/owner-contacts.js";
 import { getAgentEventService } from "../runtime/agent-event-service.js";
 import { resolveOwnerEntityId } from "../runtime/owner-entity.js";
+import { registerEscalationChannel } from "../services/escalation.js";
 import {
   computeNextCronRunAtMs,
   parseCronExpression,
 } from "../triggers/scheduling.js";
 import {
+  buildNativeAppleReminderMetadata,
+  createNativeAppleReminderLikeItem,
+  deleteNativeAppleReminderLikeItem,
+  readNativeAppleReminderMetadata,
+  updateNativeAppleReminderLikeItem,
+} from "./apple-reminders.js";
+import {
+  computeAdaptiveWindowPolicy,
   DEFAULT_REMINDER_STEPS,
   isValidTimeZone,
   resolveDefaultTimeZone,
   resolveDefaultWindowPolicy,
+  windowPolicyMatchesDefaults,
 } from "./defaults.js";
 import { materializeDefinitionOccurrences } from "./engine.js";
 import {
@@ -174,7 +196,10 @@ import {
 } from "./google-api-error.js";
 import {
   createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
+  fetchGoogleCalendarEvent,
   fetchGoogleCalendarEvents,
+  updateGoogleCalendarEvent,
 } from "./google-calendar.js";
 import {
   resolveGoogleAvailableModes,
@@ -189,6 +214,7 @@ import {
   fetchGoogleGmailTriageMessages,
   type SyncedGoogleGmailMessageDetail,
   type SyncedGoogleGmailMessageSummary,
+  sendGoogleGmailMessage,
   sendGoogleGmailReply,
 } from "./google-gmail.js";
 import {
@@ -233,6 +259,10 @@ import {
   type LifeOpsWebsiteAccessGrant,
 } from "./repository.js";
 import {
+  ROUTINE_SEED_TEMPLATES,
+  type RoutineSeedTemplate,
+} from "./seed-routines.js";
+import {
   addDaysToLocalDate,
   addMinutes,
   buildUtcDateFromLocalParts,
@@ -255,6 +285,7 @@ const GOOGLE_GMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 const GOOGLE_PRIMARY_CALENDAR_ID = "primary";
 const GOOGLE_GMAIL_MAILBOX = "me";
 const DEFAULT_GMAIL_TRIAGE_MAX_RESULTS = 12;
+const DEFAULT_NEXT_EVENT_LOOKAHEAD_DAYS = 30;
 const DEFAULT_GMAIL_SEARCH_SCAN_LIMIT = 50;
 const DEFAULT_GMAIL_SEARCH_CACHE_SCAN_LIMIT = 200;
 const DEFAULT_REMINDER_PROCESS_LIMIT = 24;
@@ -290,6 +321,26 @@ const REMINDER_ESCALATION_RESOLUTION_METADATA_KEY =
 const REMINDER_ESCALATION_RESOLUTION_NOTE_METADATA_KEY =
   "reminderEscalationResolutionNote";
 const reminderProcessingQueues = new Map<string, Promise<void>>();
+const LIFEOPS_TIME_ZONE_ALIASES: Record<string, string> = {
+  pst: "America/Los_Angeles",
+  pdt: "America/Los_Angeles",
+  pt: "America/Los_Angeles",
+  pacific: "America/Los_Angeles",
+  mst: "America/Denver",
+  mdt: "America/Denver",
+  mt: "America/Denver",
+  mountain: "America/Denver",
+  cst: "America/Chicago",
+  cdt: "America/Chicago",
+  ct: "America/Chicago",
+  central: "America/Chicago",
+  est: "America/New_York",
+  edt: "America/New_York",
+  et: "America/New_York",
+  eastern: "America/New_York",
+  utc: "UTC",
+  gmt: "UTC",
+};
 const PROACTIVE_TASK_QUERY_TAGS = ["queue", "repeat", "proactive"] as const;
 const REMINDER_ESCALATION_DELAYS: Record<
   LifeOpsReminderUrgency,
@@ -371,6 +422,8 @@ type ReminderActivityProfileSnapshot = {
   secondaryPlatform: string | null;
   lastSeenPlatform: string | null;
   isCurrentlyActive: boolean;
+  /** Epoch ms when owner was last seen active across any platform. */
+  lastSeenAt: number | null;
 };
 
 type RuntimeOwnerContactResolution = {
@@ -995,6 +1048,11 @@ function shouldDeliverReminderForIntensity(
   return true;
 }
 
+/**
+ * When the previous reminder was confirmed read but the occurrence is still
+ * incomplete, use a shorter delay — the owner is aware but needs a nudge.
+ * Standard "delivered" (unknown read status) keeps the normal delay.
+ */
 function resolveReminderEscalationDelayMinutes(
   urgency: LifeOpsReminderUrgency,
   previousOutcome: LifeOpsReminderAttemptOutcome,
@@ -1004,7 +1062,16 @@ function resolveReminderEscalationDelayMinutes(
     return 0;
   }
   const delays = REMINDER_ESCALATION_DELAYS[urgency];
-  return repeat ? delays.repeatMinutes : delays.initialMinutes;
+  const base = repeat ? delays.repeatMinutes : delays.initialMinutes;
+  if (base === null) {
+    return null;
+  }
+  // Owner saw the reminder — they're reachable but haven't acted. Use 60%
+  // of the normal delay since awareness is confirmed.
+  if (previousOutcome === "delivered_read") {
+    return Math.max(1, Math.round(base * 0.6));
+  }
+  return base;
 }
 
 function readReminderPreferenceSettingFromMetadata(
@@ -1361,6 +1428,38 @@ function normalizeCalendarTimeZone(value: unknown): string {
   return normalizeValidTimeZone(value, "timeZone", resolveDefaultTimeZone());
 }
 
+function normalizeCalendarDateTimeInTimeZone(
+  value: unknown,
+  field: string,
+  timeZone: string,
+): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const text = requireNonEmptyString(value, field);
+  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(text)) {
+    return normalizeIsoString(text, field);
+  }
+
+  const localMatch = text.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/,
+  );
+  if (localMatch) {
+    const localized = buildUtcDateFromLocalParts(timeZone, {
+      year: Number(localMatch[1]),
+      month: Number(localMatch[2]),
+      day: Number(localMatch[3]),
+      hour: Number(localMatch[4] ?? "0"),
+      minute: Number(localMatch[5] ?? "0"),
+      second: Number(localMatch[6] ?? "0"),
+    });
+    localized.setUTCMilliseconds(Number((localMatch[7] ?? "0").padEnd(3, "0")));
+    return localized.toISOString();
+  }
+
+  return normalizeIsoString(text, field);
+}
+
 function resolveCalendarWindow(args: {
   now: Date;
   timeZone: string;
@@ -1419,6 +1518,48 @@ function resolveCalendarWindow(args: {
   return {
     timeMin: dayStart.toISOString(),
     timeMax: dayEnd.toISOString(),
+  };
+}
+
+function resolveNextCalendarEventWindow(args: {
+  now: Date;
+  timeZone: string;
+  requestedTimeMin?: string;
+  requestedTimeMax?: string;
+  lookaheadDays?: number;
+}): { timeMin: string; timeMax: string } {
+  const explicitWindow = resolveCalendarWindow({
+    now: args.now,
+    timeZone: args.timeZone,
+    requestedTimeMin: args.requestedTimeMin,
+    requestedTimeMax: args.requestedTimeMax,
+  });
+
+  if (args.requestedTimeMin || args.requestedTimeMax) {
+    return explicitWindow;
+  }
+
+  const zonedNow = getZonedDateParts(args.now, args.timeZone);
+  const endDate = addDaysToLocalDate(
+    {
+      year: zonedNow.year,
+      month: zonedNow.month,
+      day: zonedNow.day,
+    },
+    args.lookaheadDays ?? DEFAULT_NEXT_EVENT_LOOKAHEAD_DAYS,
+  );
+  const timeMax = buildUtcDateFromLocalParts(args.timeZone, {
+    year: endDate.year,
+    month: endDate.month,
+    day: endDate.day,
+    hour: 0,
+    minute: 0,
+    second: 0,
+  }).toISOString();
+
+  return {
+    timeMin: explicitWindow.timeMin,
+    timeMax,
   };
 }
 
@@ -1577,12 +1718,16 @@ function resolveCalendarEventRange(
     };
   }
 
-  const startAt = normalizeOptionalIsoString(request.startAt, "startAt");
+  const startAt = normalizeCalendarDateTimeInTimeZone(
+    request.startAt,
+    "startAt",
+    timeZone,
+  );
   if (!startAt) {
     fail(400, "startAt is required when windowPreset is not provided");
   }
   const endAt =
-    normalizeOptionalIsoString(request.endAt, "endAt") ??
+    normalizeCalendarDateTimeInTimeZone(request.endAt, "endAt", timeZone) ??
     addMinutes(new Date(startAt), durationMinutes).toISOString();
   if (Date.parse(endAt) <= Date.parse(startAt)) {
     fail(400, "endAt must be later than startAt");
@@ -1722,6 +1867,79 @@ function parseGmailDateBoundary(value: string): number | null {
   return Date.UTC(year, month - 1, day, 0, 0, 0, 0);
 }
 
+function splitMailboxLikeList(value: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  let angleDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const next = value[index + 1];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char;
+      continue;
+    }
+    if (!inQuotes && char === "<") {
+      angleDepth += 1;
+      current += char;
+      continue;
+    }
+    if (!inQuotes && char === ">") {
+      angleDepth = Math.max(0, angleDepth - 1);
+      current += char;
+      continue;
+    }
+    if (!inQuotes && angleDepth === 0 && char === "|" && next === "|") {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) {
+        parts.push(trimmed);
+      }
+      current = "";
+      index += 1;
+      continue;
+    }
+    if (
+      !inQuotes &&
+      angleDepth === 0 &&
+      (char === "," || char === ";" || char === "\n")
+    ) {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) {
+        parts.push(trimmed);
+      }
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  const trimmed = current.trim();
+  if (trimmed.length > 0) {
+    parts.push(trimmed);
+  }
+  return parts;
+}
+
+function extractNormalizedEmailAddress(value: string): string | null {
+  const trimmed = value.trim().replace(/^mailto:/i, "");
+  if (!trimmed) {
+    return null;
+  }
+  const angleMatch = trimmed.match(/<\s*([^<>\s@]+@[^<>\s@]+)\s*>/u);
+  const rawCandidate =
+    angleMatch?.[1] ??
+    trimmed.match(/([^\s<>()"';,]+@[^\s<>()"';,]+)/u)?.[1] ??
+    trimmed;
+  const normalized = rawCandidate
+    .trim()
+    .replace(/^["']+|["']+$/g, "")
+    .replace(/[>;,\s]+$/g, "")
+    .toLowerCase();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(normalized) ? normalized : null;
+}
+
 function normalizeOptionalMessageIdArray(
   value: unknown,
   field: string,
@@ -1776,13 +1994,24 @@ function normalizeGmailSearchQueryMatches(
   const tokens: string[] = [];
   let current = "";
   let inQuotes = false;
+  let braceDepth = 0;
   for (const char of query.trim()) {
     if (char === '"') {
       inQuotes = !inQuotes;
       current += char;
       continue;
     }
-    if (!inQuotes && /\s/.test(char)) {
+    if (!inQuotes && char === "{") {
+      braceDepth += 1;
+      current += char;
+      continue;
+    }
+    if (!inQuotes && char === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      current += char;
+      continue;
+    }
+    if (!inQuotes && braceDepth === 0 && /\s/.test(char)) {
       if (current.length > 0) {
         tokens.push(current);
         current = "";
@@ -1797,75 +2026,132 @@ function normalizeGmailSearchQueryMatches(
   if (tokens.length === 0) {
     return false;
   }
+
+  const matchesToken = (token: string): boolean => {
+    const normalizedToken = token.trim();
+    if (normalizedToken.length === 0) {
+      return true;
+    }
+    const isNegated = normalizedToken.startsWith("-");
+    const tokenBody = isNegated
+      ? normalizedToken.slice(1).trim()
+      : normalizedToken;
+    if (!tokenBody) {
+      return true;
+    }
+    if (tokenBody.startsWith("{") && tokenBody.endsWith("}")) {
+      const groupMembers = tokenBody
+        .slice(1, -1)
+        .trim()
+        .split(/\s+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      if (groupMembers.length === 0) {
+        return true;
+      }
+      const groupMatched = groupMembers.some((entry) => matchesToken(entry));
+      return isNegated ? !groupMatched : groupMatched;
+    }
+    const operatorMatch = tokenBody.match(/^([a-z_]+):(.*)$/i);
+    const rawValue = operatorMatch ? operatorMatch[2] : tokenBody;
+    const value = rawValue.replace(/^"|"$/g, "").trim().toLowerCase();
+    if (value.length === 0) {
+      return true;
+    }
+
+    const labelTokens = message.labels.map((label) => label.toLowerCase());
+    const hasAttachment =
+      typeof message.metadata?.hasAttachments === "boolean"
+        ? message.metadata.hasAttachments === true
+        : /\battach(?:ed|ment|ments)?\b/i.test(
+            `${message.subject} ${message.snippet}`,
+          );
+    const matched = (() => {
+      if (!operatorMatch) {
+        return all.includes(value);
+      }
+
+      const operator = operatorMatch[1].toLowerCase();
+      switch (operator) {
+        case "from":
+          if (value === "me") {
+            return labelTokens.includes("sent");
+          }
+          return sender.includes(value);
+        case "subject":
+          return subject.includes(value);
+        case "to":
+          return to.includes(value);
+        case "cc":
+          return cc.includes(value);
+        case "label":
+        case "labels":
+          return labels.includes(value);
+        case "category":
+          return labelTokens.includes(`category_${value}`);
+        case "in":
+          return value === "anywhere" ? true : labelTokens.includes(value);
+        case "has":
+          return value === "attachment" ? hasAttachment : all.includes(value);
+        case "is":
+          if (value === "unread") {
+            return message.isUnread;
+          }
+          if (value === "read") {
+            return !message.isUnread;
+          }
+          if (value === "important") {
+            return message.isImportant;
+          }
+          if (value === "starred") {
+            return labelTokens.includes("starred");
+          }
+          return all.includes(value);
+        case "newer_than": {
+          const relativeMs = parseGmailRelativeDuration(value);
+          return relativeMs === null
+            ? all.includes(value)
+            : receivedAtMs >= nowMs - relativeMs;
+        }
+        case "older_than": {
+          const relativeMs = parseGmailRelativeDuration(value);
+          return relativeMs === null
+            ? all.includes(value)
+            : receivedAtMs <= nowMs - relativeMs;
+        }
+        case "after": {
+          const boundary = parseGmailDateBoundary(value);
+          return boundary === null
+            ? all.includes(value)
+            : receivedAtMs >= boundary;
+        }
+        case "before": {
+          const boundary = parseGmailDateBoundary(value);
+          return boundary === null
+            ? all.includes(value)
+            : receivedAtMs < boundary;
+        }
+        default:
+          return all.includes(value);
+      }
+    })();
+    return isNegated ? !matched : matched;
+  };
+
   return tokens.every((token) => {
     const normalizedToken = token.trim();
     if (normalizedToken.length === 0) {
       return true;
     }
     const operatorMatch = normalizedToken.match(/^([a-z_]+):(.*)$/i);
-    const rawValue = operatorMatch ? operatorMatch[2] : normalizedToken;
-    const value = rawValue.replace(/^"|"$/g, "").trim().toLowerCase();
-    if (value.length === 0) {
-      return true;
+    if (
+      operatorMatch &&
+      operatorMatch[1].toLowerCase() === "or" &&
+      operatorMatch[2]
+    ) {
+      return matchesToken(operatorMatch[2]);
     }
-
-    if (!operatorMatch) {
-      return all.includes(value);
-    }
-
-    const operator = operatorMatch[1].toLowerCase();
-    switch (operator) {
-      case "from":
-        return sender.includes(value);
-      case "subject":
-        return subject.includes(value);
-      case "to":
-        return to.includes(value);
-      case "cc":
-        return cc.includes(value);
-      case "label":
-      case "labels":
-        return labels.includes(value);
-      case "in":
-        return value === "anywhere" ? true : labels.includes(value);
-      case "is":
-        if (value === "unread") {
-          return message.isUnread;
-        }
-        if (value === "read") {
-          return !message.isUnread;
-        }
-        if (value === "important") {
-          return message.isImportant;
-        }
-        return all.includes(value);
-      case "newer_than": {
-        const relativeMs = parseGmailRelativeDuration(value);
-        return relativeMs === null
-          ? all.includes(value)
-          : receivedAtMs >= nowMs - relativeMs;
-      }
-      case "older_than": {
-        const relativeMs = parseGmailRelativeDuration(value);
-        return relativeMs === null
-          ? all.includes(value)
-          : receivedAtMs <= nowMs - relativeMs;
-      }
-      case "after": {
-        const boundary = parseGmailDateBoundary(value);
-        return boundary === null
-          ? all.includes(value)
-          : receivedAtMs >= boundary;
-      }
-      case "before": {
-        const boundary = parseGmailDateBoundary(value);
-        return boundary === null
-          ? all.includes(value)
-          : receivedAtMs < boundary;
-      }
-      default:
-        return all.includes(value);
-    }
+    return matchesToken(normalizedToken);
   });
 }
 
@@ -1906,17 +2192,17 @@ function normalizeOptionalStringArray(
   if (value === undefined) {
     return undefined;
   }
-  if (!Array.isArray(value)) {
-    fail(400, `${field} must be an array`);
-  }
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? splitMailboxLikeList(value)
+      : fail(400, `${field} must be an array or string`);
   const items: string[] = [];
   const seen = new Set<string>();
-  for (const [index, candidate] of value.entries()) {
-    const item = requireNonEmptyString(
-      candidate,
-      `${field}[${index}]`,
-    ).toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(item)) {
+  for (const [index, candidate] of rawValues.entries()) {
+    const source = requireNonEmptyString(candidate, `${field}[${index}]`);
+    const item = extractNormalizedEmailAddress(source);
+    if (!item) {
       fail(400, `${field}[${index}] must be a valid email address`);
     }
     if (seen.has(item)) {
@@ -2066,24 +2352,16 @@ function summarizeGmailNeedsResponse(
   };
 }
 
-function buildGmailReplyDraft(args: {
+function buildFallbackGmailReplyDraftBody(args: {
   message: LifeOpsGmailMessageSummary;
   tone: "brief" | "neutral" | "warm";
   intent?: string;
   includeQuotedOriginal: boolean;
   senderName: string;
-  sendAllowed: boolean;
-}): LifeOpsGmailReplyDraft {
+}): string {
   const recipientLabel =
-    args.message.from.split("<")[0]?.trim() ||
-    args.message.fromEmail ||
-    "there";
-  const greeting =
-    args.tone === "brief"
-      ? `Hi ${recipientLabel},`
-      : args.tone === "warm"
-        ? `Hi ${recipientLabel},`
-        : `Hello ${recipientLabel},`;
+    args.message.from.split("<")[0]?.trim() || args.message.fromEmail || "";
+  const greeting = recipientLabel ? `${recipientLabel},` : "";
   const subject = args.message.subject.trim() || "your message";
   const bodyCore = args.intent?.trim()
     ? args.intent.trim()
@@ -2092,11 +2370,55 @@ function buildGmailReplyDraft(args: {
       : args.tone === "warm"
         ? `Thanks for reaching out about ${subject}. I reviewed your note and wanted to follow up.`
         : `Thanks for the note about ${subject}. I reviewed your message and wanted to follow up.`;
-  const bodyLines = [greeting, "", bodyCore, "", "Best,", args.senderName];
+  const bodyLines = [greeting, bodyCore, args.senderName].filter(
+    (line) => line.trim().length > 0,
+  );
   if (args.includeQuotedOriginal && args.message.snippet.trim().length > 0) {
-    bodyLines.push("", "Quoted context:", args.message.snippet.trim());
+    bodyLines.push(
+      "",
+      ...args.message.snippet
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line.trim()}`),
+    );
   }
 
+  return bodyLines.join("\n");
+}
+
+function normalizeGeneratedGmailReplyDraftBody(value: string): string | null {
+  const withoutThink = value.replace(/<think>[\s\S]*?<\/think>/gi, " ").trim();
+  if (!withoutThink) {
+    return null;
+  }
+  const withoutCodeFences = withoutThink
+    .replace(/^```[a-z0-9_-]*\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const withoutSubject = withoutCodeFences.replace(/^subject:\s*.+\n+/i, "");
+  const normalized = withoutSubject
+    .replace(/\r\n/g, "\n")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function buildGmailReplyPreviewLines(bodyText: string): string[] {
+  const lines = bodyText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 3);
+  return lines.length > 0 ? lines : [bodyText.trim()].filter(Boolean);
+}
+
+function buildGmailReplyDraft(args: {
+  message: LifeOpsGmailMessageSummary;
+  senderName: string;
+  sendAllowed: boolean;
+  bodyText: string;
+}): LifeOpsGmailReplyDraft {
   const recipient = args.message.replyTo ?? args.message.fromEmail ?? null;
   if (!recipient) {
     fail(409, "The selected Gmail message has no replyable sender.");
@@ -2108,31 +2430,11 @@ function buildGmailReplyDraft(args: {
     subject: args.message.subject,
     to: [recipient.toLowerCase()],
     cc: [],
-    bodyText: bodyLines.join("\n"),
-    previewLines: bodyLines.slice(0, 3),
+    bodyText: args.bodyText,
+    previewLines: buildGmailReplyPreviewLines(args.bodyText),
     sendAllowed: args.sendAllowed,
     requiresConfirmation: true,
   };
-}
-
-function buildGmailReplyDrafts(args: {
-  messages: LifeOpsGmailMessageSummary[];
-  tone: "brief" | "neutral" | "warm";
-  intent?: string;
-  includeQuotedOriginal: boolean;
-  senderName: string;
-  sendAllowed: boolean;
-}): LifeOpsGmailReplyDraft[] {
-  return args.messages.map((message) =>
-    buildGmailReplyDraft({
-      message,
-      tone: args.tone,
-      intent: args.intent,
-      includeQuotedOriginal: args.includeQuotedOriginal,
-      senderName: args.senderName,
-      sendAllowed: args.sendAllowed,
-    }),
-  );
 }
 
 function createCalendarEventId(
@@ -2248,10 +2550,12 @@ function normalizeValidTimeZone(
   if (candidate.length === 0) {
     return fallback;
   }
-  if (!isValidTimeZone(candidate)) {
+  const normalized =
+    LIFEOPS_TIME_ZONE_ALIASES[candidate.toLowerCase()] ?? candidate;
+  if (!isValidTimeZone(normalized)) {
     fail(400, `${field} must be a valid IANA time zone`);
   }
-  return candidate;
+  return normalized;
 }
 
 function normalizeWindowPolicyInput(
@@ -2566,7 +2870,10 @@ function normalizeBrowserPermissionStateInput(
     grantedOrigins:
       grantedOrigins === undefined
         ? [...current.grantedOrigins]
-        : normalizeOriginList(grantedOrigins, "permissions.grantedOrigins"),
+        : normalizeBrowserPermissionGrantList(
+            grantedOrigins,
+            "permissions.grantedOrigins",
+          ),
     incognitoEnabled:
       normalizeOptionalBoolean(
         input.incognitoEnabled,
@@ -2587,6 +2894,57 @@ function normalizeOrigin(value: unknown, field: string): string {
     fail(400, `${field} must use http or https`);
   }
   return parsed.origin;
+}
+
+function normalizeBrowserPermissionGrant(
+  value: unknown,
+  field: string,
+): string {
+  const text = requireNonEmptyString(value, field);
+  const isHostPermissionPattern =
+    /^(?:https?|file|ftp|chrome-extension|moz-extension):\/\/\S+$/i.test(text);
+
+  if (text === "<all_urls>") {
+    return text;
+  }
+
+  if (
+    isHostPermissionPattern &&
+    (text.includes("*") || !/^(?:https?):\/\//i.test(text))
+  ) {
+    return text;
+  }
+
+  try {
+    return normalizeOrigin(text, field);
+  } catch (error) {
+    if (!(error instanceof LifeOpsServiceError) || error.status !== 400) {
+      throw error;
+    }
+  }
+
+  if (isHostPermissionPattern) {
+    return text;
+  }
+
+  fail(
+    400,
+    `${field} must be a valid origin URL or browser host-permission pattern`,
+  );
+}
+
+function normalizeBrowserPermissionGrantList(
+  value: unknown,
+  field: string,
+): string[] {
+  if (!Array.isArray(value)) {
+    fail(400, `${field} must be an array`);
+  }
+  return normalizedStringSet(
+    value.map((candidate, index) =>
+      normalizeBrowserPermissionGrant(candidate, `${field}[${index}]`),
+    ),
+  );
 }
 
 function normalizeOriginList(value: unknown, field: string): string[] {
@@ -3571,14 +3929,216 @@ function buildReminderBody(args: {
   scheduledFor: string;
   channel: LifeOpsReminderStep["channel"];
   lifecycle?: ReminderAttemptLifecycle;
+  dueAt?: string | null;
+  nearbyReminderTitles?: string[];
 }): string {
-  const at = new Date(args.scheduledFor).toISOString();
-  const prefix =
-    args.lifecycle === "escalation" ? "Follow-up reminder" : "Reminder";
+  const focus =
+    args.lifecycle === "escalation"
+      ? `${args.title} still needs your attention`
+      : `${args.title} is up`;
+  const reminderAt = args.dueAt ?? args.scheduledFor;
+  const reminderDate = new Date(reminderAt);
+  const timePhrase = Number.isNaN(reminderDate.getTime())
+    ? ""
+    : (() => {
+        const deltaMinutes = Math.round(
+          (reminderDate.getTime() - Date.now()) / 60_000,
+        );
+        if (Math.abs(deltaMinutes) <= 10) {
+          return " now";
+        }
+        const sameDay =
+          reminderDate.toDateString() === new Date().toDateString();
+        const formatted = reminderDate.toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        return sameDay
+          ? ` at ${formatted}`
+          : ` on ${reminderDate.toLocaleString()}`;
+      })();
+  const nearby =
+    Array.isArray(args.nearbyReminderTitles) &&
+    args.nearbyReminderTitles.length > 0
+      ? ` ${formatNearbyReminderTitlesForFallback(args.nearbyReminderTitles)}`
+      : "";
   if (args.channel === "voice") {
-    return `${prefix} for ${args.title}. Scheduled at ${at}.`;
+    return `${focus}${timePhrase}.${nearby}`.trim();
   }
-  return `${prefix}: ${args.title} is due. Scheduled at ${at}.`;
+  return `${focus}${timePhrase}.${nearby}`.trim();
+}
+
+function normalizeCharacterLines(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+function buildReminderVoiceContext(runtime: IAgentRuntime): string {
+  const character = runtime.character;
+  if (!character || typeof character !== "object") {
+    return "";
+  }
+  const sections: string[] = [];
+  if (
+    typeof character.system === "string" &&
+    character.system.trim().length > 0
+  ) {
+    sections.push(`System:\n${character.system.trim()}`);
+  }
+  const bioLines = normalizeCharacterLines(character.bio);
+  if (bioLines.length > 0) {
+    sections.push(`Bio:\n${bioLines.map((line) => `- ${line}`).join("\n")}`);
+  }
+  const styleLines = [
+    ...normalizeCharacterLines(character.style?.all),
+    ...normalizeCharacterLines(character.style?.chat),
+  ];
+  if (styleLines.length > 0) {
+    sections.push(
+      `Style:\n${styleLines.map((line) => `- ${line}`).join("\n")}`,
+    );
+  }
+  return sections.join("\n\n");
+}
+
+function formatReminderConversationLine(args: {
+  agentId: string;
+  agentName: string;
+  ownerEntityId: string;
+  memory: {
+    entityId?: string;
+    content?: { text?: string; type?: string };
+  };
+}): string | null {
+  const text =
+    typeof args.memory.content?.text === "string"
+      ? args.memory.content.text.trim()
+      : "";
+  if (
+    !text ||
+    args.memory.content?.type === "action_result" ||
+    text.startsWith("Reminder:") ||
+    text.startsWith("Agent reminder:")
+  ) {
+    return null;
+  }
+  const speaker =
+    args.memory.entityId === args.agentId
+      ? args.agentName
+      : args.memory.entityId === args.ownerEntityId
+        ? "User"
+        : "Other";
+  return `${speaker}: ${text}`;
+}
+
+function normalizeGeneratedReminderBody(value: string): string | null {
+  return normalizeGeneratedLifeOpsAssistantText(value, [
+    /^(?:follow[- ]?up reminder|reminder)\s*[:,-]\s*/i,
+  ]);
+}
+
+function normalizeGeneratedWorkflowBody(value: string): string | null {
+  return normalizeGeneratedLifeOpsAssistantText(value, [
+    /^(?:scheduled workflow|workflow)\s*[:,-]\s*/i,
+  ]);
+}
+
+function normalizeGeneratedLifeOpsAssistantText(
+  value: string,
+  stripPrefixes: RegExp[] = [],
+): string | null {
+  let cleaned = value
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  for (const pattern of stripPrefixes) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+  if (!cleaned) {
+    return null;
+  }
+  return cleaned.length > 280
+    ? `${cleaned.slice(0, 277).trimEnd()}...`
+    : cleaned;
+}
+
+function formatNearbyReminderTitlesForPrompt(titles: string[]): string {
+  if (titles.length === 0) {
+    return "None.";
+  }
+  return titles.map((title) => `- ${title}`).join("\n");
+}
+
+function formatNearbyReminderTitlesForFallback(titles: string[]): string {
+  const unique = [...new Set(titles)].slice(0, 2);
+  if (unique.length === 0) {
+    return "";
+  }
+  if (unique.length === 1) {
+    return `You also have ${unique[0]} coming up.`;
+  }
+  return `You also have ${unique[0]} and ${unique[1]} coming up.`;
+}
+
+function collectNearbyReminderTitles(args: {
+  currentOwnerId: string;
+  currentAnchorAt: string | null;
+  occurrences: Array<Pick<LifeOpsOccurrenceView, "id" | "title" | "dueAt">>;
+  events: Array<Pick<LifeOpsCalendarEvent, "id" | "title" | "startAt">>;
+  limit?: number;
+}): string[] {
+  const anchorMs = Date.parse(args.currentAnchorAt ?? "");
+  const candidates = [
+    ...args.occurrences
+      .filter((occurrence) => occurrence.id !== args.currentOwnerId)
+      .map((occurrence) => ({
+        title: occurrence.title,
+        at: occurrence.dueAt,
+      })),
+    ...args.events
+      .filter((event) => event.id !== args.currentOwnerId)
+      .map((event) => ({
+        title: event.title,
+        at: event.startAt,
+      })),
+  ]
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        title: string;
+        at: string;
+      } =>
+        typeof candidate.title === "string" &&
+        candidate.title.trim().length > 0 &&
+        typeof candidate.at === "string" &&
+        candidate.at.trim().length > 0,
+    )
+    .map((candidate) => ({
+      title: candidate.title.trim(),
+      atMs: Date.parse(candidate.at.trim()),
+    }))
+    .filter((candidate) => Number.isFinite(candidate.atMs))
+    .sort((left, right) => {
+      if (Number.isFinite(anchorMs)) {
+        return Math.abs(left.atMs - anchorMs) - Math.abs(right.atMs - anchorMs);
+      }
+      return left.atMs - right.atMs;
+    });
+
+  return [...new Set(candidates.map((candidate) => candidate.title))].slice(
+    0,
+    Math.max(0, args.limit ?? 3),
+  );
 }
 
 function createBrowserSessionActions(
@@ -3588,6 +4148,67 @@ function createBrowserSessionActions(
     ...action,
     id: crypto.randomUUID(),
   }));
+}
+
+function hashBrowserCompanionPairingToken(token: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(requireNonEmptyString(token, "pairingToken"))
+    .digest("hex");
+}
+
+const MAX_PENDING_BROWSER_PAIRING_TOKENS = 4;
+
+function normalizePendingBrowserPairingTokenHashes(
+  hashes: readonly string[],
+  activePairingTokenHash: string | null,
+): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of hashes) {
+    if (
+      !candidate ||
+      candidate === activePairingTokenHash ||
+      seen.has(candidate)
+    ) {
+      continue;
+    }
+    seen.add(candidate);
+    normalized.push(candidate);
+    if (normalized.length >= MAX_PENDING_BROWSER_PAIRING_TOKENS) {
+      break;
+    }
+  }
+  return normalized;
+}
+
+function browserSessionMatchesCompanion(
+  session: LifeOpsBrowserSession,
+  companion: LifeOpsBrowserCompanionStatus,
+): boolean {
+  if (session.browser && session.browser !== companion.browser) {
+    return false;
+  }
+  if (session.companionId && session.companionId !== companion.id) {
+    return false;
+  }
+  if (session.profileId && session.profileId !== companion.profileId) {
+    return false;
+  }
+  return true;
+}
+
+function normalizeBrowserSessionActionIndex(
+  value: unknown,
+  maxActions: number,
+): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    fail(400, "currentActionIndex must be a non-negative integer");
+  }
+  if (maxActions <= 0) {
+    return 0;
+  }
+  return Math.min(value, maxActions - 1);
 }
 
 function resolveAwaitingBrowserActionId(
@@ -3870,6 +4491,14 @@ export class LifeOpsService {
   private readonly ownerEntityIdValue: string;
   private readonly googleManagedClient: GoogleManagedClient;
   private ownerRoutingEntityIdPromise: Promise<string | null> | null = null;
+
+  /** Cached adaptive window policy derived from the activity profile.
+   *  Recomputed at most every 30 minutes to avoid re-reading task metadata
+   *  on every occurrence refresh. */
+  private adaptiveWindowPolicyCache: {
+    policy: ReturnType<typeof computeAdaptiveWindowPolicy>;
+    computedAt: number;
+  } | null = null;
 
   constructor(
     private readonly runtime: IAgentRuntime,
@@ -4784,42 +5413,226 @@ export class LifeOpsService {
   }
 
   private emitInAppReminderNudge(args: {
-    title: string;
+    text: string;
     ownerType: "occurrence" | "calendar_event";
     ownerId: string;
     subjectType: LifeOpsSubjectType;
     scheduledFor: string;
     dueAt: string | null;
   }): void {
-    const timeLabel = args.dueAt
-      ? ` Due ${new Date(args.dueAt).toLocaleString()}.`
-      : "";
-    const prefix =
-      args.subjectType === "agent" ? "Agent reminder:" : "Reminder:";
-    this.emitAssistantEvent(
-      `${prefix} ${args.title}.${timeLabel}`,
-      "lifeops-reminder",
-      {
-        ownerType: args.ownerType,
-        ownerId: args.ownerId,
-        subjectType: args.subjectType,
-        scheduledFor: args.scheduledFor,
-        dueAt: args.dueAt,
-      },
-    );
+    this.emitAssistantEvent(args.text, "lifeops-reminder", {
+      ownerType: args.ownerType,
+      ownerId: args.ownerId,
+      subjectType: args.subjectType,
+      scheduledFor: args.scheduledFor,
+      dueAt: args.dueAt,
+    });
   }
 
-  private emitWorkflowRunNudge(
+  private async readRecentReminderConversation(args: {
+    subjectType: LifeOpsSubjectType;
+    limit?: number;
+  }): Promise<string[]> {
+    if (
+      args.subjectType !== "owner" ||
+      typeof this.runtime.getRoomsForParticipants !== "function" ||
+      typeof this.runtime.getMemoriesByRoomIds !== "function"
+    ) {
+      return [];
+    }
+
+    const ownerEntityId =
+      (await this.ownerRoutingEntityId()) ?? this.ownerEntityId();
+    const agentId = this.agentId();
+    try {
+      const roomIds = await this.runtime.getRoomsForParticipants([
+        ownerEntityId,
+        agentId,
+      ]);
+      if (!Array.isArray(roomIds) || roomIds.length === 0) {
+        return [];
+      }
+      const memories = await this.runtime.getMemoriesByRoomIds({
+        tableName: "messages",
+        roomIds,
+        limit: Math.max(6, (args.limit ?? 6) * 2),
+      });
+      if (!Array.isArray(memories) || memories.length === 0) {
+        return [];
+      }
+      const agentName =
+        typeof this.runtime.character?.name === "string" &&
+        this.runtime.character.name.trim().length > 0
+          ? this.runtime.character.name.trim()
+          : "Assistant";
+      return memories
+        .slice()
+        .sort(
+          (left, right) =>
+            Number(left.createdAt ?? 0) - Number(right.createdAt ?? 0),
+        )
+        .map((memory) =>
+          formatReminderConversationLine({
+            agentId,
+            agentName,
+            ownerEntityId,
+            memory,
+          }),
+        )
+        .filter((line): line is string => typeof line === "string")
+        .slice(-(args.limit ?? 6));
+    } catch {
+      return [];
+    }
+  }
+
+  private async renderReminderBody(args: {
+    title: string;
+    scheduledFor: string;
+    dueAt: string | null;
+    channel: LifeOpsReminderStep["channel"];
+    lifecycle: ReminderAttemptLifecycle;
+    urgency: LifeOpsReminderUrgency;
+    subjectType: LifeOpsSubjectType;
+    nearbyReminderTitles?: string[];
+  }): Promise<string> {
+    const fallback = buildReminderBody({
+      title: args.title,
+      scheduledFor: args.scheduledFor,
+      dueAt: args.dueAt,
+      channel: args.channel,
+      lifecycle: args.lifecycle,
+      nearbyReminderTitles: args.nearbyReminderTitles,
+    });
+    if (typeof this.runtime.useModel !== "function") {
+      return fallback;
+    }
+
+    const recentConversation = await this.readRecentReminderConversation({
+      subjectType: args.subjectType,
+      limit: 6,
+    });
+    const reminderAt = args.dueAt ?? args.scheduledFor;
+    const prompt = [
+      `Write a short reminder nudge in the voice of ${this.runtime.character?.name ?? "the assistant"}.`,
+      "This is a real follow-up or reminder delivery, not a system log.",
+      "",
+      "Character voice:",
+      buildReminderVoiceContext(this.runtime) || "No extra character context.",
+      "",
+      "Current reminder:",
+      `- title: ${args.title}`,
+      `- due: ${new Date(reminderAt).toLocaleString()}`,
+      `- channel: ${args.channel}`,
+      `- urgency: ${args.urgency}`,
+      `- lifecycle: ${args.lifecycle}`,
+      "",
+      "Recent conversation:",
+      recentConversation.length > 0
+        ? recentConversation.join("\n")
+        : "No recent conversation available.",
+      "",
+      "Other reminders around this time:",
+      formatNearbyReminderTitlesForPrompt(args.nearbyReminderTitles ?? []),
+      "",
+      "Rules:",
+      "- Return only the reminder text.",
+      "- Sound natural and in character.",
+      "- Do not start with 'Reminder' or 'Follow-up reminder'.",
+      "- Do not use ISO timestamps.",
+      "- Keep it concise: one or two short sentences.",
+      "- You may mention nearby reminders briefly if it helps.",
+      "- For escalation, sound a little firmer but still human.",
+      "- No markdown, bullets, quotes, labels, or emoji.",
+      "",
+      "Reminder text:",
+    ].join("\n");
+
+    try {
+      const response = await this.runtime.useModel(ModelType.TEXT_SMALL, {
+        prompt,
+      });
+      const text =
+        typeof response === "string"
+          ? normalizeGeneratedReminderBody(response)
+          : null;
+      return text ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async renderWorkflowRunBody(args: {
+    workflow: Pick<LifeOpsWorkflowDefinition, "title" | "subjectType">;
+    run: Pick<LifeOpsWorkflowRun, "status">;
+  }): Promise<string> {
+    const fallback =
+      args.run.status === "success"
+        ? `${args.workflow.title} just ran successfully.`
+        : `${args.workflow.title} ran but hit a problem.`;
+    if (
+      args.workflow.subjectType !== "owner" ||
+      typeof this.runtime.useModel !== "function"
+    ) {
+      return fallback;
+    }
+
+    const recentConversation = await this.readRecentReminderConversation({
+      subjectType: "owner",
+      limit: 6,
+    });
+    const prompt = [
+      `Write a short assistant update about the workflow "${args.workflow.title}".`,
+      "This is a user-facing status nudge, not a system log.",
+      "",
+      "Character voice:",
+      buildReminderVoiceContext(this.runtime) || "No extra character context.",
+      "",
+      "Workflow run:",
+      `- title: ${args.workflow.title}`,
+      `- status: ${args.run.status}`,
+      "",
+      "Recent conversation:",
+      recentConversation.length > 0
+        ? recentConversation.join("\n")
+        : "No recent conversation available.",
+      "",
+      "Rules:",
+      "- Return only the message text.",
+      "- Sound natural and in character.",
+      "- Do not start with 'Workflow' or 'Scheduled workflow'.",
+      "- Keep it concise: one short sentence, or two at most.",
+      "- For failures, sound calm and direct rather than robotic.",
+      "- No markdown, bullets, quotes, labels, or emoji.",
+      "",
+      "Message text:",
+    ].join("\n");
+
+    try {
+      const response = await this.runtime.useModel(ModelType.TEXT_SMALL, {
+        prompt,
+      });
+      const text =
+        typeof response === "string"
+          ? normalizeGeneratedWorkflowBody(response)
+          : null;
+      return text ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async emitWorkflowRunNudge(
     workflow: LifeOpsWorkflowDefinition,
     run: LifeOpsWorkflowRun,
-  ): void {
+  ): Promise<void> {
     if (workflow.subjectType !== "owner") {
       return;
     }
-    const message =
-      run.status === "success"
-        ? `Scheduled workflow "${workflow.title}" ran successfully.`
-        : `Scheduled workflow "${workflow.title}" ran and failed.`;
+    const message = await this.renderWorkflowRunBody({
+      workflow,
+      run,
+    });
     this.emitAssistantEvent(message, "lifeops-workflow", {
       workflowId: workflow.id,
       workflowTitle: workflow.title,
@@ -4827,6 +5640,131 @@ export class LifeOpsService {
       status: run.status,
       subjectType: workflow.subjectType,
     });
+  }
+
+  private withNativeAppleReminderId(
+    definition: LifeOpsTaskDefinition,
+    reminderId: string | null,
+  ): LifeOpsTaskDefinition {
+    const nativeMetadata = readNativeAppleReminderMetadata(definition.metadata);
+    if (!nativeMetadata) {
+      return definition;
+    }
+    return {
+      ...definition,
+      metadata: mergeMetadata(
+        definition.metadata,
+        buildNativeAppleReminderMetadata({
+          kind: nativeMetadata.kind,
+          source: nativeMetadata.source,
+          reminderId,
+        }),
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async syncNativeAppleReminderForDefinition(args: {
+    definition: LifeOpsTaskDefinition | null;
+    previousDefinition?: LifeOpsTaskDefinition | null;
+  }): Promise<LifeOpsTaskDefinition | null> {
+    const previousMetadata = args.previousDefinition
+      ? readNativeAppleReminderMetadata(args.previousDefinition.metadata)
+      : null;
+    const nextMetadata = args.definition
+      ? readNativeAppleReminderMetadata(args.definition.metadata)
+      : null;
+    const previousReminderId = previousMetadata?.reminderId ?? null;
+    if (
+      args.definition === null ||
+      nextMetadata === null ||
+      args.definition.subjectType !== "owner" ||
+      args.definition.domain !== "user_lifeops" ||
+      args.definition.cadence.kind !== "once"
+    ) {
+      if (previousReminderId) {
+        const deleteResult =
+          await deleteNativeAppleReminderLikeItem(previousReminderId);
+        if (deleteResult.ok === false) {
+          this.logLifeOpsWarn(
+            "native_apple_reminder_sync",
+            "[lifeops] Failed to delete a native Apple reminder.",
+            {
+              definitionId: args.previousDefinition?.id ?? null,
+              reminderId: previousReminderId,
+              skippedReason: deleteResult.skippedReason,
+              error: deleteResult.error,
+            },
+          );
+        }
+      }
+      if (args.definition && nextMetadata?.reminderId) {
+        return this.withNativeAppleReminderId(args.definition, null);
+      }
+      return args.definition;
+    }
+
+    const definition = args.definition;
+    const nativeMetadata = nextMetadata;
+    const cadence =
+      definition.cadence.kind === "once" ? definition.cadence : null;
+    if (!cadence) {
+      return definition;
+    }
+    const reminderId = nativeMetadata.reminderId ?? previousReminderId;
+    if (reminderId) {
+      const updateResult = await updateNativeAppleReminderLikeItem({
+        reminderId,
+        kind: nativeMetadata.kind,
+        title: definition.title,
+        dueAt: cadence.dueAt,
+        notes: definition.description,
+        originalIntent: definition.originalIntent,
+      });
+      if (updateResult.ok === true) {
+        return this.withNativeAppleReminderId(
+          definition,
+          updateResult.reminderId ?? reminderId,
+        );
+      }
+      this.logLifeOpsWarn(
+        "native_apple_reminder_sync",
+        "[lifeops] Failed to update a native Apple reminder.",
+        {
+          definitionId: definition.id,
+          kind: nativeMetadata.kind,
+          reminderId,
+          skippedReason: updateResult.skippedReason,
+          error: updateResult.error,
+        },
+      );
+      return this.withNativeAppleReminderId(definition, reminderId);
+    }
+
+    const createResult = await createNativeAppleReminderLikeItem({
+      kind: nativeMetadata.kind,
+      title: definition.title,
+      dueAt: cadence.dueAt,
+      notes: definition.description,
+      originalIntent: definition.originalIntent,
+    });
+    if (createResult.ok === false) {
+      this.logLifeOpsWarn(
+        "native_apple_reminder_sync",
+        "[lifeops] Failed to sync a native Apple reminder.",
+        {
+          definitionId: definition.id,
+          kind: nativeMetadata.kind,
+          skippedReason: createResult.skippedReason,
+          error: createResult.error,
+        },
+      );
+      return definition;
+    }
+    return this.withNativeAppleReminderId(
+      definition,
+      createResult.reminderId ?? null,
+    );
   }
 
   private readWorkflowSchedulerState(
@@ -4965,7 +5903,7 @@ export class LifeOpsService {
           },
         );
         runs.push(run);
-        this.emitWorkflowRunNudge(nextWorkflow, run);
+        await this.emitWorkflowRunNudge(nextWorkflow, run);
         schedulerState = {
           managedBy: "task_worker",
           nextDueAt: this.computeWorkflowNextDueAt(nextWorkflow, dueAt),
@@ -5001,8 +5939,9 @@ export class LifeOpsService {
     eventType:
       | "gmail_triage_synced"
       | "gmail_reply_drafted"
-      | "gmail_reply_sent",
-    ownerId: string,
+      | "gmail_reply_sent"
+      | "gmail_message_sent",
+    ownerId: string | null,
     reason: string,
     inputs: Record<string, unknown>,
     decision: Record<string, unknown>,
@@ -5012,8 +5951,11 @@ export class LifeOpsService {
         agentId: this.agentId(),
         eventType,
         ownerType:
-          eventType === "gmail_triage_synced" ? "connector" : "gmail_message",
-        ownerId,
+          eventType === "gmail_triage_synced" ||
+          eventType === "gmail_message_sent"
+            ? "connector"
+            : "gmail_message",
+        ownerId: ownerId ?? this.agentId(),
         reason,
         inputs,
         decision,
@@ -5121,11 +6063,15 @@ export class LifeOpsService {
     reason: string,
     inputs: Record<string, unknown>,
     decision: Record<string, unknown>,
+    eventType:
+      | "calendar_event_created"
+      | "calendar_event_updated"
+      | "calendar_event_deleted" = "calendar_event_created",
   ): Promise<void> {
     await this.repository.createAuditEvent(
       createLifeOpsAuditEvent({
         agentId: this.agentId(),
-        eventType: "calendar_event_created",
+        eventType,
         ownerType: "calendar_event",
         ownerId,
         reason,
@@ -5450,6 +6396,63 @@ export class LifeOpsService {
     return createdPlan;
   }
 
+  /** Max age for the cached adaptive window policy (30 minutes). */
+  private static readonly ADAPTIVE_POLICY_TTL_MS = 30 * 60 * 1000;
+
+  /**
+   * Read the activity profile from the proactive task metadata and return
+   * an adaptive window policy.  Result is cached for up to 30 minutes.
+   */
+  private async resolveAdaptiveWindowPolicy(
+    timezone: string,
+    now: Date,
+  ): Promise<ReturnType<typeof computeAdaptiveWindowPolicy> | null> {
+    const cached = this.adaptiveWindowPolicyCache;
+    if (
+      cached &&
+      now.getTime() - cached.computedAt < LifeOpsService.ADAPTIVE_POLICY_TTL_MS
+    ) {
+      return cached.policy;
+    }
+    try {
+      const tasks = await this.runtime.getTasks({
+        agentIds: [this.runtime.agentId],
+        tags: [...PROACTIVE_TASK_QUERY_TAGS],
+      });
+      const proactiveTask = tasks.find((task) => {
+        const metadata = isRecord(task.metadata) ? task.metadata : null;
+        return (
+          task.name === "PROACTIVE_AGENT" &&
+          isRecord(metadata?.proactiveAgent) &&
+          (metadata.proactiveAgent as Record<string, unknown>).kind ===
+            "runtime_runner"
+        );
+      });
+      const profile = proactiveTask
+        ? readProfileFromMetadata(
+            isRecord(proactiveTask.metadata)
+              ? (proactiveTask.metadata as Record<string, unknown>)
+              : null,
+          )
+        : null;
+      if (!profile) {
+        this.adaptiveWindowPolicyCache = null;
+        return null;
+      }
+      const policy = computeAdaptiveWindowPolicy(profile, timezone);
+      this.adaptiveWindowPolicyCache = { policy, computedAt: now.getTime() };
+      return policy;
+    } catch (error) {
+      this.logLifeOpsWarn(
+        "adaptive_window_policy",
+        "[lifeops] Failed to resolve adaptive window policy; using defaults.",
+        { error: lifeOpsErrorMessage(error) },
+      );
+      this.adaptiveWindowPolicyCache = null;
+      return null;
+    }
+  }
+
   private async refreshDefinitionOccurrences(
     definition: LifeOpsTaskDefinition,
     now = new Date(),
@@ -5459,8 +6462,22 @@ export class LifeOpsService {
         definition.agentId,
         definition.id,
       );
+
+    // If the definition still uses the default time windows, adapt them
+    // to the user's actual rhythm when an activity profile is available.
+    let effectiveDefinition = definition;
+    if (windowPolicyMatchesDefaults(definition.windowPolicy)) {
+      const adaptivePolicy = await this.resolveAdaptiveWindowPolicy(
+        definition.timezone,
+        now,
+      );
+      if (adaptivePolicy) {
+        effectiveDefinition = { ...definition, windowPolicy: adaptivePolicy };
+      }
+    }
+
     const materialized = materializeDefinitionOccurrences(
-      definition,
+      effectiveDefinition,
       existingOccurrences,
       { now },
     );
@@ -5647,6 +6664,8 @@ export class LifeOpsService {
         lastSeenPlatform:
           normalizeOptionalString(profile.lastSeenPlatform) ?? null,
         isCurrentlyActive: profile.isCurrentlyActive === true,
+        lastSeenAt:
+          typeof profile.lastSeenAt === "number" ? profile.lastSeenAt : null,
       };
     } catch (error) {
       this.logLifeOpsWarn(
@@ -5657,6 +6676,54 @@ export class LifeOpsService {
         },
       );
       return null;
+    }
+  }
+
+  /**
+   * Scan recent "delivered" attempts and upgrade to "delivered_read" when the
+   * owner was seen active after the reminder was sent. This gives escalation
+   * better signal about whether the owner is reachable.
+   */
+  private async scanReadReceipts(
+    attempts: LifeOpsReminderAttempt[],
+    activityProfile: ReminderActivityProfileSnapshot | null,
+    now: Date,
+  ): Promise<void> {
+    if (!activityProfile?.lastSeenAt) {
+      return;
+    }
+    const RECEIPT_SCAN_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const cutoff = now.getTime() - RECEIPT_SCAN_WINDOW_MS;
+    const candidates = attempts.filter((attempt) => {
+      if (attempt.outcome !== "delivered") {
+        return false;
+      }
+      const attemptedMs = attempt.attemptedAt
+        ? Date.parse(attempt.attemptedAt)
+        : 0;
+      return attemptedMs > cutoff;
+    });
+
+    for (const attempt of candidates) {
+      const attemptedMs = attempt.attemptedAt
+        ? Date.parse(attempt.attemptedAt)
+        : 0;
+      if (activityProfile.lastSeenAt > attemptedMs) {
+        try {
+          await this.repository.updateReminderAttemptOutcome(
+            attempt.id,
+            "delivered_read",
+            { readDetectedAt: now.toISOString() },
+          );
+          attempt.outcome = "delivered_read";
+        } catch (error) {
+          this.logLifeOpsWarn(
+            "read_receipt_scan",
+            `[lifeops] Failed to update read receipt for attempt ${attempt.id}`,
+            { error: lifeOpsErrorMessage(error) },
+          );
+        }
+      }
     }
   }
 
@@ -6030,6 +7097,7 @@ export class LifeOpsService {
     > | null;
     eventStartAt?: string | null;
     acknowledged: boolean;
+    nearbyReminderTitles?: string[];
   }): Promise<LifeOpsReminderAttempt | null> {
     if (!shouldDeliverReminderForIntensity(args.intensity, args.urgency)) {
       return null;
@@ -6105,7 +7173,9 @@ export class LifeOpsService {
       null;
     if (
       !nextChannel &&
-      lastEscalationAttempt?.outcome === "delivered" &&
+      (lastEscalationAttempt?.outcome === "delivered" ||
+        lastEscalationAttempt?.outcome === "delivered_read" ||
+        lastEscalationAttempt?.outcome === "delivered_unread") &&
       candidateChannels.includes(lastEscalationAttempt.channel)
     ) {
       nextChannel = lastEscalationAttempt.channel;
@@ -6157,6 +7227,7 @@ export class LifeOpsService {
           ? "previous_escalation_unacknowledged"
           : "plan_exhausted_without_acknowledgement",
       activityProfile: args.activityProfile,
+      nearbyReminderTitles: args.nearbyReminderTitles,
     });
 
     await this.markReminderEscalationStarted({
@@ -6365,15 +7436,20 @@ export class LifeOpsService {
     escalationIndex?: number;
     escalationReason?: string;
     activityProfile?: ReminderActivityProfileSnapshot | null;
+    nearbyReminderTitles?: string[];
   }): Promise<LifeOpsReminderAttempt> {
     const attemptedAt = args.attemptedAt;
     const attemptedAtDate = new Date(attemptedAt);
     const lifecycle = args.lifecycle ?? "plan";
-    const reminderBody = buildReminderBody({
+    const reminderBody = await this.renderReminderBody({
       title: args.title,
       scheduledFor: args.scheduledFor,
+      dueAt: args.dueAt,
       channel: args.channel,
       lifecycle,
+      urgency: args.urgency,
+      subjectType: args.subjectType,
+      nearbyReminderTitles: args.nearbyReminderTitles,
     });
     let outcome: LifeOpsReminderAttemptOutcome = "delivered";
     let connectorRef: string | null = null;
@@ -6511,30 +7587,47 @@ export class LifeOpsService {
           runtimeTarget.target.roomId ??
           runtimeTarget.target.entityId ??
           null;
+        const sendPayload = {
+          text: reminderBody,
+          source: runtimeTarget.source,
+          metadata: {
+            channelType: args.channel,
+            lifeopsReminder: true,
+            ownerType: args.ownerType,
+            ownerId: args.ownerId,
+            urgency: args.urgency,
+            scheduledFor: args.scheduledFor,
+            routeSource: runtimeTarget.source,
+            routeEndpoint:
+              runtimeTarget.target.channelId ??
+              runtimeTarget.target.roomId ??
+              runtimeTarget.target.entityId ??
+              null,
+            routeResolution: runtimeTarget.resolution,
+          },
+        };
         try {
-          await this.runtime.sendMessageToTarget(runtimeTarget.target, {
-            text: reminderBody,
-            source: runtimeTarget.source,
-            metadata: {
-              channelType: args.channel,
-              lifeopsReminder: true,
-              ownerType: args.ownerType,
-              ownerId: args.ownerId,
-              urgency: args.urgency,
-              scheduledFor: args.scheduledFor,
-              routeSource: runtimeTarget.source,
-              routeEndpoint:
-                runtimeTarget.target.channelId ??
-                runtimeTarget.target.roomId ??
-                runtimeTarget.target.entityId ??
-                null,
-              routeResolution: runtimeTarget.resolution,
-            },
-          });
-        } catch (error) {
-          outcome = "blocked_connector";
-          deliveryMetadata.error = lifeOpsErrorMessage(error);
-          deliveryMetadata.reason = "runtime_send_failed";
+          await this.runtime.sendMessageToTarget(
+            runtimeTarget.target,
+            sendPayload,
+          );
+        } catch (firstError) {
+          this.logLifeOpsWarn(
+            "reminder_dispatch",
+            `[lifeops] Reminder delivery failed for ${args.channel}, retrying in 2s`,
+            { error: lifeOpsErrorMessage(firstError) },
+          );
+          await new Promise((r) => setTimeout(r, 2_000));
+          try {
+            await this.runtime.sendMessageToTarget(
+              runtimeTarget.target,
+              sendPayload,
+            );
+          } catch (retryError) {
+            outcome = "blocked_connector";
+            deliveryMetadata.error = lifeOpsErrorMessage(retryError);
+            deliveryMetadata.reason = "runtime_send_failed";
+          }
         }
       } else {
         outcome = "blocked_connector";
@@ -6605,7 +7698,7 @@ export class LifeOpsService {
     }
     if (outcome === "delivered" && args.channel === "in_app") {
       this.emitInAppReminderNudge({
-        title: args.title,
+        text: reminderBody,
         ownerType: args.ownerType,
         ownerId: args.ownerId,
         subjectType: args.subjectType,
@@ -6669,6 +7762,140 @@ export class LifeOpsService {
         actionCount: session.actions.length,
       },
     );
+    return session;
+  }
+
+  private async requireBrowserCompanion(
+    companionId: string,
+    pairingToken: string,
+  ): Promise<LifeOpsBrowserCompanionStatus> {
+    const credential = await this.repository.getBrowserCompanionCredential(
+      this.agentId(),
+      requireNonEmptyString(companionId, "companionId"),
+    );
+    if (!credential?.pairingTokenHash) {
+      if (!credential) {
+        fail(401, "browser companion pairing is invalid");
+      }
+      const pendingPairingTokenHashes =
+        credential.pendingPairingTokenHashes ?? [];
+      const pairingTokenHash = hashBrowserCompanionPairingToken(pairingToken);
+      if (!pendingPairingTokenHashes.includes(pairingTokenHash)) {
+        fail(401, "browser companion pairing is invalid");
+      }
+      const nowIso = new Date().toISOString();
+      const remainingPendingPairingTokenHashes =
+        normalizePendingBrowserPairingTokenHashes(
+          pendingPairingTokenHashes.filter(
+            (candidate) => candidate !== pairingTokenHash,
+          ),
+          pairingTokenHash,
+        );
+      await this.repository.promoteBrowserCompanionPendingPairingToken(
+        this.agentId(),
+        credential.companion.id,
+        pairingTokenHash,
+        remainingPendingPairingTokenHashes,
+        nowIso,
+        nowIso,
+      );
+      return {
+        ...credential.companion,
+        pairedAt: nowIso,
+        updatedAt: nowIso,
+      };
+    }
+    const pairingTokenHash = hashBrowserCompanionPairingToken(pairingToken);
+    if (credential.pairingTokenHash === pairingTokenHash) {
+      return credential.companion;
+    }
+    const pendingPairingTokenHashes =
+      credential.pendingPairingTokenHashes ?? [];
+    if (!pendingPairingTokenHashes.includes(pairingTokenHash)) {
+      fail(401, "browser companion pairing is invalid");
+    }
+    const nowIso = new Date().toISOString();
+    const remainingPendingPairingTokenHashes =
+      normalizePendingBrowserPairingTokenHashes(
+        pendingPairingTokenHashes.filter(
+          (candidate) => candidate !== pairingTokenHash,
+        ),
+        pairingTokenHash,
+      );
+    await this.repository.promoteBrowserCompanionPendingPairingToken(
+      this.agentId(),
+      credential.companion.id,
+      pairingTokenHash,
+      remainingPendingPairingTokenHashes,
+      nowIso,
+      nowIso,
+    );
+    return {
+      ...credential.companion,
+      pairedAt: nowIso,
+      updatedAt: nowIso,
+    };
+  }
+
+  private async claimQueuedBrowserSession(
+    companion: LifeOpsBrowserCompanionStatus,
+  ): Promise<LifeOpsBrowserSession | null> {
+    const claimable = (await this.listBrowserSessions())
+      .filter(
+        (session) =>
+          session.status === "queued" &&
+          browserSessionMatchesCompanion(session, companion),
+      )
+      .sort((left, right) => {
+        const leftMs = Date.parse(left.createdAt);
+        const rightMs = Date.parse(right.createdAt);
+        if (
+          Number.isFinite(leftMs) &&
+          Number.isFinite(rightMs) &&
+          leftMs !== rightMs
+        ) {
+          return leftMs - rightMs;
+        }
+        return left.createdAt.localeCompare(right.createdAt);
+      })[0];
+    if (!claimable) {
+      return null;
+    }
+    const nowIso = new Date().toISOString();
+    const nextSession: LifeOpsBrowserSession = {
+      ...claimable,
+      status: "running",
+      metadata: mergeMetadata(claimable.metadata, {
+        claimedAt: nowIso,
+        claimedByCompanionId: companion.id,
+      }),
+      updatedAt: nowIso,
+    };
+    await this.repository.updateBrowserSession(nextSession);
+    await this.recordBrowserAudit(
+      "browser_session_updated",
+      nextSession.id,
+      "browser session claimed by companion",
+      {
+        companionId: companion.id,
+        browser: companion.browser,
+        profileId: companion.profileId,
+      },
+      {
+        status: nextSession.status,
+      },
+    );
+    return nextSession;
+  }
+
+  private async requireBrowserSessionForCompanion(
+    companion: LifeOpsBrowserCompanionStatus,
+    sessionId: string,
+  ): Promise<LifeOpsBrowserSession> {
+    const session = await this.getBrowserSession(sessionId);
+    if (!browserSessionMatchesCompanion(session, companion)) {
+      fail(403, "browser session does not belong to this browser companion");
+    }
     return session;
   }
 
@@ -6739,7 +7966,7 @@ export class LifeOpsService {
       request.goalId ?? null,
       ownership,
     );
-    const definition = createLifeOpsTaskDefinition({
+    let definition = createLifeOpsTaskDefinition({
       agentId,
       ...ownership,
       kind,
@@ -6773,6 +8000,11 @@ export class LifeOpsService {
     }
     await this.syncGoalLink(definition);
     await this.refreshDefinitionOccurrences(definition);
+    definition =
+      (await this.syncNativeAppleReminderForDefinition({
+        definition,
+      })) ?? definition;
+    await this.repository.updateDefinition(definition);
     await this.recordAudit(
       "definition_created",
       "definition",
@@ -6802,6 +8034,87 @@ export class LifeOpsService {
         new Date(),
       ),
     };
+  }
+
+  async checkAndOfferSeeding(): Promise<{
+    needsSeeding: boolean;
+    availableTemplates: RoutineSeedTemplate[];
+  }> {
+    const existing = await this.repository.listActiveDefinitions(
+      this.agentId(),
+    );
+    if (existing.length > 0) {
+      return { needsSeeding: false, availableTemplates: [] };
+    }
+
+    // Check if seeding was already offered via audit trail
+    const audits = await this.repository.listAuditEvents(
+      this.agentId(),
+      "definition",
+      `seeding:${this.agentId()}`,
+    );
+    const seedingOffered = audits.some(
+      (event) => event.eventType === "seeding_offered",
+    );
+    if (seedingOffered) {
+      return { needsSeeding: false, availableTemplates: [] };
+    }
+
+    return { needsSeeding: true, availableTemplates: ROUTINE_SEED_TEMPLATES };
+  }
+
+  async markSeedingOffered(): Promise<void> {
+    await this.recordAudit(
+      "seeding_offered",
+      "definition",
+      `seeding:${this.agentId()}`,
+      "seed routines offered",
+      {},
+      {
+        offeredAt: new Date().toISOString(),
+      },
+    );
+  }
+
+  async applySeedRoutines(
+    keys: string[],
+    timezone?: string,
+  ): Promise<string[]> {
+    const effectiveTimezone = timezone
+      ? normalizeValidTimeZone(timezone, "timezone")
+      : resolveDefaultTimeZone();
+    const templates = ROUTINE_SEED_TEMPLATES.filter((t) =>
+      keys.includes(t.key),
+    );
+    if (templates.length === 0) {
+      fail(400, "no valid seed template keys provided");
+    }
+
+    const createdIds: string[] = [];
+    for (const template of templates) {
+      const result = await this.createDefinition({
+        ...template.request,
+        timezone: effectiveTimezone,
+        source: "seed",
+      });
+      createdIds.push(result.definition.id);
+    }
+
+    // Record that seeding was offered so we don't re-offer
+    await this.recordAudit(
+      "seeding_offered",
+      "definition",
+      `seeding:${this.agentId()}`,
+      "seed routines applied",
+      { keys },
+      {
+        appliedKeys: keys,
+        timezone: effectiveTimezone,
+        createdIds,
+      },
+    );
+
+    return createdIds;
   }
 
   async updateDefinition(
@@ -6835,7 +8148,7 @@ export class LifeOpsService {
             "status",
             LIFEOPS_DEFINITION_STATUSES,
           );
-    const nextDefinition: LifeOpsTaskDefinition = {
+    let nextDefinition: LifeOpsTaskDefinition = {
       ...current.definition,
       ...ownership,
       title:
@@ -6897,6 +8210,11 @@ export class LifeOpsService {
     if (nextDefinition.status === "active") {
       await this.refreshDefinitionOccurrences(nextDefinition);
     }
+    nextDefinition =
+      (await this.syncNativeAppleReminderForDefinition({
+        definition: nextDefinition,
+        previousDefinition: current.definition,
+      })) ?? nextDefinition;
     await this.repository.updateDefinition(nextDefinition);
     await this.recordAudit(
       "definition_updated",
@@ -6937,6 +8255,10 @@ export class LifeOpsService {
     if (!definition) {
       fail(404, "life-ops definition not found");
     }
+    await this.syncNativeAppleReminderForDefinition({
+      definition: null,
+      previousDefinition: definition,
+    });
     await this.repository.deleteDefinition(this.agentId(), definitionId);
     await this.recordAudit(
       "definition_deleted",
@@ -8028,6 +9350,21 @@ export class LifeOpsService {
           normalizeOptionalBoolean(request.allowVoice, "allowVoice") ?? false,
       },
     });
+
+    // Register SMS/voice in the escalation channel list when the user
+    // consents so the escalation service can reach them without manual
+    // setup.
+    const allowSms =
+      normalizeOptionalBoolean(request.allowSms, "allowSms") ?? false;
+    const allowVoice =
+      normalizeOptionalBoolean(request.allowVoice, "allowVoice") ?? false;
+    if (allowSms) {
+      registerEscalationChannel("sms");
+    }
+    if (allowVoice) {
+      registerEscalationChannel("voice");
+    }
+
     return {
       phoneNumber,
       policies: [smsPolicy, voicePolicy],
@@ -8148,7 +9485,12 @@ export class LifeOpsService {
       ) => `${planId}:${stepIndex}:${scheduledFor}`;
       const deliveredAttempts = new Set(
         existingAttempts
-          .filter((attempt) => attempt.outcome === "delivered")
+          .filter(
+            (attempt) =>
+              attempt.outcome === "delivered" ||
+              attempt.outcome === "delivered_read" ||
+              attempt.outcome === "delivered_unread",
+          )
           .map((attempt) =>
             attemptKey(attempt.planId, attempt.stepIndex, attempt.scheduledFor),
           ),
@@ -8221,6 +9563,13 @@ export class LifeOpsService {
           quietHours: plan.quietHours,
           acknowledged,
           attemptedAt: now.toISOString(),
+          nearbyReminderTitles: collectNearbyReminderTitles({
+            currentOwnerId: reminder.ownerId,
+            currentAnchorAt: occurrence.dueAt,
+            occurrences: occurrenceViews,
+            events: calendarEvents,
+            limit: 3,
+          }),
         });
         dueAttempts.push(attempt);
         if (attempt.outcome === "delivered") {
@@ -8281,6 +9630,13 @@ export class LifeOpsService {
           quietHours: plan.quietHours,
           acknowledged,
           attemptedAt: now.toISOString(),
+          nearbyReminderTitles: collectNearbyReminderTitles({
+            currentOwnerId: reminder.ownerId,
+            currentAnchorAt: reminder.dueAt,
+            occurrences: occurrenceViews,
+            events: calendarEvents,
+            limit: 3,
+          }),
         });
         dueAttempts.push(attempt);
         if (attempt.outcome === "delivered") {
@@ -8293,6 +9649,14 @@ export class LifeOpsService {
         ...dueAttempts,
       ];
       const activityProfile = await this.readReminderActivityProfileSnapshot();
+
+      // Scan recent "delivered" attempts and upgrade to "delivered_read" when
+      // the owner was active after delivery. This improves escalation decisions.
+      await this.scanReadReceipts(
+        reminderAttemptsForEscalation,
+        activityProfile,
+        now,
+      );
 
       for (const occurrence of occurrenceViews) {
         if (dueAttempts.length >= limit) break;
@@ -8325,6 +9689,13 @@ export class LifeOpsService {
           activityProfile,
           occurrence,
           acknowledged,
+          nearbyReminderTitles: collectNearbyReminderTitles({
+            currentOwnerId: occurrence.id,
+            currentAnchorAt: occurrence.dueAt,
+            occurrences: occurrenceViews,
+            events: calendarEvents,
+            limit: 3,
+          }),
         });
         if (!attempt) continue;
         dueAttempts.push(attempt);
@@ -8356,6 +9727,13 @@ export class LifeOpsService {
           activityProfile,
           eventStartAt: event.startAt,
           acknowledged: Boolean(event.metadata.reminderAcknowledgedAt),
+          nearbyReminderTitles: collectNearbyReminderTitles({
+            currentOwnerId: event.id,
+            currentAnchorAt: event.startAt,
+            occurrences: occurrenceViews,
+            events: calendarEvents,
+            limit: 3,
+          }),
         });
         if (!attempt) continue;
         dueAttempts.push(attempt);
@@ -9316,6 +10694,120 @@ export class LifeOpsService {
     };
   }
 
+  async createBrowserCompanionPairing(
+    request: CreateLifeOpsBrowserCompanionPairingRequest,
+  ): Promise<LifeOpsBrowserCompanionPairingResponse> {
+    const browser = normalizeEnumValue(
+      request.browser,
+      "browser",
+      LIFEOPS_BROWSER_KINDS,
+    );
+    const profileId = requireNonEmptyString(request.profileId, "profileId");
+    const currentCompanion = await this.repository.getBrowserCompanionByProfile(
+      this.agentId(),
+      browser,
+      profileId,
+    );
+    const profileLabel =
+      normalizeOptionalString(request.profileLabel) ??
+      currentCompanion?.profileLabel ??
+      profileId;
+    const label =
+      normalizeOptionalString(request.label) ??
+      currentCompanion?.label ??
+      `LifeOps Browser ${browser} ${profileLabel}`;
+    const companion = this.buildBrowserCompanion(
+      {
+        browser,
+        profileId,
+        profileLabel,
+        label,
+        extensionVersion: request.extensionVersion ?? null,
+        connectionState: currentCompanion?.connectionState ?? "disconnected",
+        permissions:
+          currentCompanion?.permissions ?? DEFAULT_BROWSER_PERMISSION_STATE,
+        lastSeenAt: currentCompanion?.lastSeenAt ?? null,
+        metadata: request.metadata ?? currentCompanion?.metadata ?? {},
+      },
+      currentCompanion,
+    );
+    await this.repository.upsertBrowserCompanion(companion);
+    const pairingToken = `lobr_${crypto.randomBytes(24).toString("base64url")}`;
+    const pairingTokenHash = hashBrowserCompanionPairingToken(pairingToken);
+    const nowIso = new Date().toISOString();
+    const credential = await this.repository.getBrowserCompanionCredential(
+      this.agentId(),
+      companion.id,
+    );
+    if (!credential?.pairingTokenHash) {
+      await this.repository.updateBrowserCompanionPairingToken(
+        this.agentId(),
+        companion.id,
+        pairingTokenHash,
+        nowIso,
+        nowIso,
+      );
+    } else {
+      const pendingPairingTokenHashes =
+        normalizePendingBrowserPairingTokenHashes(
+          [pairingTokenHash, ...(credential.pendingPairingTokenHashes ?? [])],
+          credential.pairingTokenHash,
+        );
+      await this.repository.updateBrowserCompanionPendingPairingTokenHashes(
+        this.agentId(),
+        companion.id,
+        pendingPairingTokenHashes,
+        nowIso,
+      );
+    }
+    return {
+      companion: {
+        ...companion,
+        pairedAt: credential?.pairingTokenHash ? companion.pairedAt : nowIso,
+        updatedAt: nowIso,
+      },
+      pairingToken,
+    };
+  }
+
+  async syncBrowserCompanion(
+    companionId: string,
+    pairingToken: string,
+    request: SyncLifeOpsBrowserStateRequest,
+  ): Promise<LifeOpsBrowserCompanionSyncResponse> {
+    const companion = await this.requireBrowserCompanion(
+      companionId,
+      pairingToken,
+    );
+    const companionInput = requireRecord(request.companion, "companion");
+    const browser = normalizeEnumValue(
+      companionInput.browser,
+      "companion.browser",
+      LIFEOPS_BROWSER_KINDS,
+    );
+    const profileId = requireNonEmptyString(
+      companionInput.profileId,
+      "companion.profileId",
+    );
+    if (browser !== companion.browser || profileId !== companion.profileId) {
+      fail(403, "browser companion payload does not match the paired profile");
+    }
+    const state = await this.syncBrowserState(request);
+    const settings = await this.getBrowserSettings();
+    const session =
+      settings.enabled &&
+      settings.trackingMode !== "off" &&
+      !this.isBrowserPaused(settings) &&
+      settings.allowBrowserControl
+        ? await this.claimQueuedBrowserSession(state.companion)
+        : null;
+    return {
+      ...state,
+      settings,
+      session,
+    };
+  }
+
   async listBrowserSessions(): Promise<LifeOpsBrowserSession[]> {
     return this.repository.listBrowserSessions(this.agentId());
   }
@@ -9438,6 +10930,74 @@ export class LifeOpsService {
       },
     );
     return nextSession;
+  }
+
+  async updateBrowserSessionProgressFromCompanion(
+    companionId: string,
+    pairingToken: string,
+    sessionId: string,
+    request: UpdateLifeOpsBrowserSessionProgressRequest,
+  ): Promise<LifeOpsBrowserSession> {
+    const companion = await this.requireBrowserCompanion(
+      companionId,
+      pairingToken,
+    );
+    const session = await this.requireBrowserSessionForCompanion(
+      companion,
+      sessionId,
+    );
+    if (
+      session.status !== "queued" &&
+      session.status !== "running" &&
+      session.status !== "awaiting_confirmation"
+    ) {
+      fail(
+        409,
+        `browser session cannot update progress from status ${session.status}`,
+      );
+    }
+    const nextSession: LifeOpsBrowserSession = {
+      ...session,
+      status: "running",
+      currentActionIndex:
+        request.currentActionIndex === undefined
+          ? session.currentActionIndex
+          : normalizeBrowserSessionActionIndex(
+              request.currentActionIndex,
+              session.actions.length,
+            ),
+      result:
+        request.result === undefined
+          ? session.result
+          : {
+              ...session.result,
+              ...requireRecord(request.result, "result"),
+            },
+      metadata:
+        request.metadata === undefined
+          ? session.metadata
+          : mergeMetadata(
+              session.metadata,
+              requireRecord(request.metadata, "metadata"),
+            ),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.repository.updateBrowserSession(nextSession);
+    return nextSession;
+  }
+
+  async completeBrowserSessionFromCompanion(
+    companionId: string,
+    pairingToken: string,
+    sessionId: string,
+    request: CompleteLifeOpsBrowserSessionRequest,
+  ): Promise<LifeOpsBrowserSession> {
+    const companion = await this.requireBrowserCompanion(
+      companionId,
+      pairingToken,
+    );
+    await this.requireBrowserSessionForCompanion(companion, sessionId);
+    return this.completeBrowserSession(sessionId, request);
   }
 
   async getXConnectorStatus(
@@ -9973,6 +11533,14 @@ export class LifeOpsService {
         },
         now,
       );
+      if (search.messages.length > 1) {
+        fail(
+          409,
+          `Multiple Gmail messages matched ${JSON.stringify(
+            query,
+          )}. Provide a messageId or narrow the query.`,
+        );
+      }
       selectedMessage = search.messages[0] ?? null;
       if (!selectedMessage) {
         fail(404, `No Gmail message matched ${JSON.stringify(query)}.`);
@@ -10226,13 +11794,14 @@ export class LifeOpsService {
         request.includeQuotedOriginal,
         "includeQuotedOriginal",
       ) ?? false;
-    const drafts = buildGmailReplyDrafts({
+    const drafts = await this.renderGmailReplyDrafts({
       messages: selection.messages,
       tone,
       intent,
       includeQuotedOriginal,
       senderName,
       sendAllowed: hasGoogleGmailSendCapability(selection.grant),
+      subjectType: selection.grant.side === "owner" ? "owner" : "agent",
     });
     await this.recordGmailAudit(
       "gmail_reply_drafted",
@@ -10257,6 +11826,119 @@ export class LifeOpsService {
       syncedAt: selection.syncedAt,
       summary: summarizeGmailBatchReplyDrafts(drafts),
     };
+  }
+
+  private async renderGmailReplyDraft(args: {
+    message: LifeOpsGmailMessageSummary;
+    tone: "brief" | "neutral" | "warm";
+    intent?: string;
+    includeQuotedOriginal: boolean;
+    senderName: string;
+    sendAllowed: boolean;
+    subjectType: LifeOpsSubjectType;
+  }): Promise<LifeOpsGmailReplyDraft> {
+    const fallbackBody = buildFallbackGmailReplyDraftBody({
+      message: args.message,
+      tone: args.tone,
+      intent: args.intent,
+      includeQuotedOriginal: args.includeQuotedOriginal,
+      senderName: args.senderName,
+    });
+
+    let bodyText = fallbackBody;
+    if (typeof this.runtime.useModel === "function") {
+      const recentConversation = await this.readRecentReminderConversation({
+        subjectType: args.subjectType,
+        limit: 6,
+      });
+      const prompt = [
+        `Write a plain-text email reply draft in the voice of ${this.runtime.character?.name ?? "the assistant"}.`,
+        "This is a send-ready email reply, not a chat response.",
+        "",
+        "Character voice:",
+        buildReminderVoiceContext(this.runtime) ||
+          "No extra character context.",
+        "",
+        "Recent conversation:",
+        recentConversation.length > 0
+          ? recentConversation.join("\n")
+          : "No recent conversation available.",
+        "",
+        "Original email:",
+        `- from: ${args.message.from}`,
+        `- fromEmail: ${args.message.fromEmail ?? "unknown"}`,
+        `- subject: ${args.message.subject}`,
+        `- snippet: ${args.message.snippet || "No snippet available."}`,
+        `- receivedAt: ${args.message.receivedAt}`,
+        "",
+        "Reply instructions:",
+        `- tone: ${args.tone}`,
+        `- requested intent: ${args.intent ?? "No explicit user wording was provided. Write a short, safe acknowledgment reply that fits the email."}`,
+        `- include quoted original: ${args.includeQuotedOriginal ? "yes" : "no"}`,
+        `- sign off as: ${args.senderName}`,
+        "",
+        "Rules:",
+        "- Return only the email body text.",
+        "- Sound natural and in character, but keep it appropriate for email.",
+        "- Preserve the user's requested wording and intent when it is provided.",
+        "- Write in the user's requested language, or the source email's language when that is clear, unless the user asked to translate.",
+        "- Do not invent facts, promises, dates, attachments, or commitments that are not in the context.",
+        "- Keep it concise unless the user's wording clearly asks for more detail.",
+        "- Include a greeting and a sign-off.",
+        "- Do not include a subject line.",
+        args.includeQuotedOriginal
+          ? "- Include a short quoted context block near the end using only the provided snippet."
+          : "- Do not quote the original email.",
+        "",
+        "Email body:",
+      ].join("\n");
+
+      try {
+        const response = await this.runtime.useModel(ModelType.TEXT_LARGE, {
+          prompt,
+        });
+        const generated =
+          typeof response === "string"
+            ? normalizeGeneratedGmailReplyDraftBody(response)
+            : null;
+        bodyText = generated ?? fallbackBody;
+      } catch {
+        bodyText = fallbackBody;
+      }
+    }
+
+    return buildGmailReplyDraft({
+      message: args.message,
+      senderName: args.senderName,
+      sendAllowed: args.sendAllowed,
+      bodyText,
+    });
+  }
+
+  private async renderGmailReplyDrafts(args: {
+    messages: LifeOpsGmailMessageSummary[];
+    tone: "brief" | "neutral" | "warm";
+    intent?: string;
+    includeQuotedOriginal: boolean;
+    senderName: string;
+    sendAllowed: boolean;
+    subjectType: LifeOpsSubjectType;
+  }): Promise<LifeOpsGmailReplyDraft[]> {
+    const drafts: LifeOpsGmailReplyDraft[] = [];
+    for (const message of args.messages) {
+      drafts.push(
+        await this.renderGmailReplyDraft({
+          message,
+          tone: args.tone,
+          intent: args.intent,
+          includeQuotedOriginal: args.includeQuotedOriginal,
+          senderName: args.senderName,
+          sendAllowed: args.sendAllowed,
+          subjectType: args.subjectType,
+        }),
+      );
+    }
+    return drafts;
   }
 
   async createCalendarEvent(
@@ -10355,13 +12037,268 @@ export class LifeOpsService {
       : this.withGoogleGrantOperation(grant, createEvent);
   }
 
+  async updateCalendarEvent(
+    requestUrl: URL,
+    request: {
+      mode?: LifeOpsConnectorMode | null;
+      side?: LifeOpsConnectorSide | null;
+      calendarId?: string | null;
+      eventId: string;
+      title?: string;
+      description?: string;
+      location?: string;
+      startAt?: string;
+      endAt?: string;
+      timeZone?: string;
+      attendees?: CreateLifeOpsCalendarEventAttendee[] | null;
+    },
+  ): Promise<LifeOpsCalendarEvent> {
+    const mode = normalizeOptionalConnectorMode(request.mode, "mode");
+    const side = normalizeOptionalConnectorSide(request.side, "side");
+    const calendarId = normalizeCalendarId(request.calendarId);
+    const externalEventId = requireNonEmptyString(request.eventId, "eventId");
+
+    const grant = await this.requireGoogleCalendarWriteGrant(
+      requestUrl,
+      mode,
+      side,
+    );
+    const updateEvent = async () => {
+      const normalizedAttendees = request.attendees
+        ? normalizeCalendarAttendees(request.attendees)
+        : undefined;
+      const materializedUpdated =
+        resolveGoogleExecutionTarget(grant) === "cloud"
+          ? (
+              await this.googleManagedClient.updateCalendarEvent({
+                side: grant.side,
+                calendarId,
+                eventId: externalEventId,
+                title: request.title,
+                description: request.description,
+                location: request.location,
+                startAt: request.startAt,
+                endAt: request.endAt,
+                timeZone: request.timeZone,
+                attendees: normalizedAttendees,
+              })
+            ).event
+          : await (async () => {
+              const accessToken = (
+                await ensureFreshGoogleAccessToken(
+                  grant.tokenRef ??
+                    fail(409, "Google Calendar token reference is missing."),
+                )
+              ).accessToken;
+
+              // Google's PATCH semantics: if you send `start.dateTime` you must
+              // also send `end.dateTime`, otherwise the API rejects the call as
+              // "Bad Request" because the event would have inconsistent bounds.
+              // When the caller only supplies one bound or omits the timezone,
+              // load the current event so we can preserve both the existing
+              // timezone and duration instead of guessing.
+              const ONE_HOUR_MS = 60 * 60 * 1000;
+              const needsExistingEventContext =
+                Boolean(request.startAt || request.endAt) &&
+                (!request.timeZone || !request.startAt || !request.endAt);
+              const existingEvent = needsExistingEventContext
+                ? await fetchGoogleCalendarEvent({
+                    accessToken,
+                    calendarId: calendarId ?? undefined,
+                    eventId: externalEventId,
+                  })
+                : null;
+              const normalizedTimeZone = normalizeCalendarTimeZone(
+                request.timeZone ?? existingEvent?.timezone ?? undefined,
+              );
+              let normalizedStartAt = normalizeCalendarDateTimeInTimeZone(
+                request.startAt,
+                "startAt",
+                normalizedTimeZone,
+              );
+              let normalizedEndAt = normalizeCalendarDateTimeInTimeZone(
+                request.endAt,
+                "endAt",
+                normalizedTimeZone,
+              );
+              const existingDurationMs =
+                existingEvent &&
+                Number.isFinite(Date.parse(existingEvent.startAt)) &&
+                Number.isFinite(Date.parse(existingEvent.endAt))
+                  ? Date.parse(existingEvent.endAt) -
+                    Date.parse(existingEvent.startAt)
+                  : Number.NaN;
+              const fallbackDurationMs =
+                Number.isFinite(existingDurationMs) && existingDurationMs > 0
+                  ? existingDurationMs
+                  : ONE_HOUR_MS;
+              if (normalizedStartAt && !normalizedEndAt) {
+                normalizedEndAt = new Date(
+                  new Date(normalizedStartAt).getTime() + fallbackDurationMs,
+                ).toISOString();
+              } else if (normalizedEndAt && !normalizedStartAt) {
+                normalizedStartAt = new Date(
+                  new Date(normalizedEndAt).getTime() - fallbackDurationMs,
+                ).toISOString();
+              }
+
+              return updateGoogleCalendarEvent({
+                accessToken,
+                calendarId: calendarId ?? undefined,
+                eventId: externalEventId,
+                title: request.title,
+                description: request.description,
+                location: request.location,
+                startAt: normalizedStartAt,
+                endAt: normalizedEndAt,
+                timeZone: normalizedTimeZone,
+                attendees: normalizedAttendees,
+              });
+            })();
+      const syncedAt = new Date().toISOString();
+      const event: LifeOpsCalendarEvent = {
+        id: createCalendarEventId(
+          this.agentId(),
+          "google",
+          grant.side,
+          materializedUpdated.calendarId,
+          materializedUpdated.externalId,
+        ),
+        agentId: this.agentId(),
+        provider: "google",
+        side: grant.side,
+        ...materializedUpdated,
+        syncedAt,
+        updatedAt: syncedAt,
+      };
+      await this.repository.upsertCalendarEvent(event, grant.side);
+      await this.syncCalendarReminderPlans([event]);
+      await this.clearGoogleGrantAuthFailure(grant);
+      await this.recordCalendarEventAudit(
+        event.id,
+        "calendar event updated",
+        {
+          calendarId: calendarId ?? "primary",
+          mode: grant.mode,
+          patched: Object.fromEntries(
+            Object.entries({
+              title: request.title,
+              description: request.description,
+              location: request.location,
+              startAt: request.startAt,
+              endAt: request.endAt,
+              timeZone: request.timeZone,
+            }).filter(([, value]) => value !== undefined),
+          ),
+        },
+        {
+          externalId: event.externalId,
+          htmlLink: event.htmlLink,
+        },
+        "calendar_event_updated",
+      );
+      return event;
+    };
+
+    return resolveGoogleExecutionTarget(grant) === "cloud"
+      ? this.runManagedGoogleOperation(grant, updateEvent)
+      : this.withGoogleGrantOperation(grant, updateEvent);
+  }
+
+  async deleteCalendarEvent(
+    requestUrl: URL,
+    request: {
+      mode?: LifeOpsConnectorMode | null;
+      side?: LifeOpsConnectorSide | null;
+      calendarId?: string | null;
+      eventId: string;
+    },
+  ): Promise<void> {
+    const mode = normalizeOptionalConnectorMode(request.mode, "mode");
+    const side = normalizeOptionalConnectorSide(request.side, "side");
+    const calendarId = normalizeCalendarId(request.calendarId);
+    const externalEventId = requireNonEmptyString(request.eventId, "eventId");
+
+    const grant = await this.requireGoogleCalendarWriteGrant(
+      requestUrl,
+      mode,
+      side,
+    );
+    const deleteEvent = async () => {
+      if (resolveGoogleExecutionTarget(grant) === "cloud") {
+        await this.googleManagedClient.deleteCalendarEvent({
+          side: grant.side,
+          calendarId,
+          eventId: externalEventId,
+        });
+      } else {
+        const accessToken = (
+          await ensureFreshGoogleAccessToken(
+            grant.tokenRef ??
+              fail(409, "Google Calendar token reference is missing."),
+          )
+        ).accessToken;
+        await deleteGoogleCalendarEvent({
+          accessToken,
+          calendarId: calendarId ?? undefined,
+          eventId: externalEventId,
+        });
+      }
+      // Best-effort: drop the local cached row so subsequent feed reads
+      // don't show a phantom event. Ignore failures here — the source of
+      // truth (Google) has already accepted the delete.
+      try {
+        await this.repository.deleteCalendarEventByExternalId(
+          this.agentId(),
+          "google",
+          calendarId ?? "primary",
+          externalEventId,
+          grant.side,
+        );
+      } catch {
+        // intentionally swallowed: local cache mirror, not authoritative
+      }
+      await this.clearGoogleGrantAuthFailure(grant);
+      await this.recordCalendarEventAudit(
+        externalEventId,
+        "calendar event deleted",
+        {
+          calendarId: calendarId ?? "primary",
+          mode: grant.mode,
+        },
+        {
+          externalId: externalEventId,
+        },
+        "calendar_event_deleted",
+      );
+    };
+
+    return resolveGoogleExecutionTarget(grant) === "cloud"
+      ? this.runManagedGoogleOperation(grant, deleteEvent)
+      : this.withGoogleGrantOperation(grant, deleteEvent);
+  }
+
   async getNextCalendarEventContext(
     requestUrl: URL,
     request: GetLifeOpsCalendarFeedRequest = {},
     now = new Date(),
   ): Promise<LifeOpsNextCalendarEventContext> {
     const mode = normalizeOptionalConnectorMode(request.mode, "mode");
-    const feed = await this.getCalendarFeed(requestUrl, request, now);
+    const timeZone = normalizeCalendarTimeZone(request.timeZone);
+    const feed = await this.getCalendarFeed(
+      requestUrl,
+      {
+        ...request,
+        timeZone,
+        ...resolveNextCalendarEventWindow({
+          now,
+          timeZone,
+          requestedTimeMin: request.timeMin,
+          requestedTimeMax: request.timeMax,
+        }),
+      },
+      now,
+    );
     const nextEvent =
       feed.events.find((event) => Date.parse(event.endAt) > now.getTime()) ??
       null;
@@ -10514,13 +12451,14 @@ export class LifeOpsService {
       normalizeOptionalString(grant.identity.name) ??
       normalizeOptionalString(grant.identity.email)?.split("@")[0] ??
       "Milady";
-    const draft = buildGmailReplyDraft({
+    const draft = await this.renderGmailReplyDraft({
       message,
       tone,
       intent,
       includeQuotedOriginal,
       senderName,
       sendAllowed: hasGoogleGmailSendCapability(grant),
+      subjectType: grant.side === "owner" ? "owner" : "agent",
     });
     await this.recordGmailAudit(
       "gmail_reply_drafted",
@@ -10545,7 +12483,7 @@ export class LifeOpsService {
     cc?: string[];
     subject?: string;
     bodyText: string;
-  }): Promise<void> {
+  }): Promise<string | null> {
     const to =
       normalizeOptionalStringArray(args.to, "to") ??
       [args.message.replyTo ?? args.message.fromEmail ?? ""].filter(
@@ -10571,6 +12509,7 @@ export class LifeOpsService {
       .join(" ")
       .trim();
 
+    let sentMessageId: string | null = null;
     const sendReply = async () => {
       if (resolveGoogleExecutionTarget(args.grant) === "cloud") {
         await this.googleManagedClient.sendGmailReply({
@@ -10584,7 +12523,7 @@ export class LifeOpsService {
         });
         return;
       }
-      await sendGoogleGmailReply({
+      const result = await sendGoogleGmailReply({
         accessToken: (
           await ensureFreshGoogleAccessToken(
             args.grant.tokenRef ??
@@ -10598,10 +12537,12 @@ export class LifeOpsService {
         inReplyTo: messageIdHeader,
         references: references.length > 0 ? references : null,
       });
+      sentMessageId = result.messageId;
     };
     await (resolveGoogleExecutionTarget(args.grant) === "cloud"
       ? this.runManagedGoogleOperation(args.grant, sendReply)
       : this.withGoogleGrantOperation(args.grant, sendReply));
+    return sentMessageId;
   }
 
   async sendGmailReply(
@@ -10672,7 +12613,7 @@ export class LifeOpsService {
     if (!message) {
       fail(404, "life-ops Gmail message not found");
     }
-    await this.sendGmailReplyWithGrant({
+    const sentMessageId = await this.sendGmailReplyWithGrant({
       grant,
       message,
       to: request.to,
@@ -10686,6 +12627,7 @@ export class LifeOpsService {
       "gmail reply sent",
       {
         messageId: message.id,
+        sentMessageId,
         to: request.to ?? null,
         cc: request.cc ?? null,
         confirmSend,
@@ -10693,6 +12635,85 @@ export class LifeOpsService {
       {
         subject: request.subject ?? message.subject,
         sent: true,
+        sentMessageId,
+      },
+    );
+    return { ok: true };
+  }
+
+  async sendGmailMessage(
+    requestUrl: URL,
+    request: SendLifeOpsGmailMessageRequest,
+  ): Promise<{ ok: true }> {
+    const mode = normalizeOptionalConnectorMode(request.mode, "mode");
+    const side = normalizeOptionalConnectorSide(request.side, "side");
+    const confirmSend =
+      normalizeOptionalBoolean(request.confirmSend, "confirmSend") ?? false;
+    if (!confirmSend) {
+      fail(409, "Gmail send requires explicit confirmation.");
+    }
+    const to = normalizeOptionalStringArray(request.to, "to") ?? [];
+    if (to.length === 0) {
+      fail(400, "to must include at least one recipient.");
+    }
+    const cc = normalizeOptionalStringArray(request.cc, "cc") ?? [];
+    const bcc = normalizeOptionalStringArray(request.bcc, "bcc") ?? [];
+    const subject = requireNonEmptyString(request.subject, "subject");
+    const bodyText = normalizeGmailReplyBody(request.bodyText);
+
+    const grant = await this.requireGoogleGmailSendGrant(
+      requestUrl,
+      mode,
+      side,
+    );
+    let sentMessageId: string | null = null;
+    const sendMessage = async () => {
+      if (resolveGoogleExecutionTarget(grant) === "cloud") {
+        await this.googleManagedClient.sendGmailMessage({
+          side: grant.side,
+          to,
+          cc,
+          bcc,
+          subject,
+          bodyText,
+        });
+        return;
+      }
+      const result = await sendGoogleGmailMessage({
+        accessToken: (
+          await ensureFreshGoogleAccessToken(
+            grant.tokenRef ??
+              fail(409, "Google Gmail token reference is missing."),
+          )
+        ).accessToken,
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyText,
+      });
+      sentMessageId = result.messageId;
+    };
+
+    await (resolveGoogleExecutionTarget(grant) === "cloud"
+      ? this.runManagedGoogleOperation(grant, sendMessage)
+      : this.withGoogleGrantOperation(grant, sendMessage));
+
+    await this.recordGmailAudit(
+      "gmail_message_sent",
+      null,
+      "gmail compose-and-send completed",
+      {
+        to,
+        cc: cc.length > 0 ? cc : null,
+        bcc: bcc.length > 0 ? bcc : null,
+        confirmSend,
+        sentMessageId,
+      },
+      {
+        subject,
+        sent: true,
+        sentMessageId,
       },
     );
     return { ok: true };

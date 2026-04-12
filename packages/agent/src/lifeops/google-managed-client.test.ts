@@ -4,8 +4,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GoogleManagedClient,
-  resolveManagedGoogleCloudConfig,
   type ManagedGoogleClientError,
+  resolveManagedGoogleCloudConfig,
 } from "./google-managed-client";
 
 describe("GoogleManagedClient", () => {
@@ -158,12 +158,15 @@ describe("GoogleManagedClient", () => {
 
   it("calls the managed Gmail search endpoint with the encoded query", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ messages: [], syncedAt: "2026-04-10T00:00:00.000Z" }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
+      new Response(
+        JSON.stringify({ messages: [], syncedAt: "2026-04-10T00:00:00.000Z" }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
         },
-      }),
+      ),
     );
 
     const client = new GoogleManagedClient({
@@ -186,6 +189,251 @@ describe("GoogleManagedClient", () => {
         ),
       }),
       expect.any(Object),
+    );
+  });
+
+  it("calls the managed Gmail message-send endpoint", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const client = new GoogleManagedClient({
+      configured: true,
+      apiKey: "test-key",
+      apiBaseUrl: "https://cloud.example/api/v1",
+      siteUrl: "https://cloud.example",
+    });
+
+    await client.sendGmailMessage({
+      side: "owner",
+      to: ["founder@example.com"],
+      cc: ["ops@example.com"],
+      bcc: ["archive@example.com"],
+      subject: "Project sync",
+      bodyText: "Reviewing it now.",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: "https://cloud.example/api/v1/milady/google/gmail/message-send",
+      }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          side: "owner",
+          to: ["founder@example.com"],
+          cc: ["ops@example.com"],
+          bcc: ["archive@example.com"],
+          subject: "Project sync",
+          bodyText: "Reviewing it now.",
+        }),
+      }),
+    );
+  });
+
+  it("starts managed Google auth through the generic cloud OAuth route", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+          provider: { id: "google", name: "Google" },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    const client = new GoogleManagedClient({
+      configured: true,
+      apiKey: "test-key",
+      apiBaseUrl: "https://cloud.example/api/v1",
+      siteUrl: "https://cloud.example",
+    });
+
+    const result = await client.startConnector({
+      side: "agent",
+      capabilities: ["google.calendar.read", "google.gmail.send"],
+      redirectUrl: "https://milady.example/callback",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: "https://cloud.example/api/v1/oauth/google/initiate",
+      }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          redirectUrl: "https://milady.example/callback",
+          scopes: [
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/gmail.send",
+          ],
+          connectionRole: "agent",
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      provider: "google",
+      side: "agent",
+      mode: "cloud_managed",
+      requestedCapabilities: [
+        "google.basic_identity",
+        "google.calendar.read",
+        "google.gmail.send",
+      ],
+      redirectUri: "https://milady.example/callback",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+    });
+  });
+
+  it("normalizes managed calendar create requests when a timezone is supplied with UTC instants", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ event: {} }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const client = new GoogleManagedClient({
+      configured: true,
+      apiKey: "test-key",
+      apiBaseUrl: "https://cloud.example/api/v1",
+      siteUrl: "https://cloud.example",
+    });
+
+    await client.createCalendarEvent({
+      side: "owner",
+      title: "Coffee",
+      startAt: "2026-04-12T16:00:00.000Z",
+      endAt: "2026-04-12T17:00:00.000Z",
+      timeZone: "America/Los_Angeles",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(body.startAt).toBe("2026-04-12T09:00:00-07:00");
+    expect(body.endAt).toBe("2026-04-12T10:00:00-07:00");
+    expect(body.timeZone).toBe("America/Los_Angeles");
+  });
+
+  it("leaves managed calendar create requests alone when the datetime is already local", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ event: {} }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const client = new GoogleManagedClient({
+      configured: true,
+      apiKey: "test-key",
+      apiBaseUrl: "https://cloud.example/api/v1",
+      siteUrl: "https://cloud.example",
+    });
+
+    await client.createCalendarEvent({
+      side: "owner",
+      title: "Coffee",
+      startAt: "2026-04-12T09:00:00",
+      endAt: "2026-04-12T10:00:00",
+      timeZone: "America/Los_Angeles",
+    });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(body.startAt).toBe("2026-04-12T09:00:00");
+    expect(body.endAt).toBe("2026-04-12T10:00:00");
+    expect(body.timeZone).toBe("America/Los_Angeles");
+  });
+
+  it("calls the managed calendar update endpoint and normalizes UTC instants when a timezone is supplied", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ event: {} }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const client = new GoogleManagedClient({
+      configured: true,
+      apiKey: "test-key",
+      apiBaseUrl: "https://cloud.example/api/v1",
+      siteUrl: "https://cloud.example",
+    });
+
+    await client.updateCalendarEvent({
+      side: "owner",
+      calendarId: "primary",
+      eventId: "event-1",
+      startAt: "2026-04-12T16:00:00.000Z",
+      endAt: "2026-04-12T17:00:00.000Z",
+      timeZone: "America/Los_Angeles",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: "https://cloud.example/api/v1/milady/google/calendar/events/event-1",
+      }),
+      expect.objectContaining({
+        method: "PATCH",
+      }),
+    );
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(body).toEqual({
+      side: "owner",
+      calendarId: "primary",
+      startAt: "2026-04-12T09:00:00-07:00",
+      endAt: "2026-04-12T10:00:00-07:00",
+      timeZone: "America/Los_Angeles",
+    });
+  });
+
+  it("calls the managed calendar delete endpoint with side and calendar query params", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const client = new GoogleManagedClient({
+      configured: true,
+      apiKey: "test-key",
+      apiBaseUrl: "https://cloud.example/api/v1",
+      siteUrl: "https://cloud.example",
+    });
+
+    await client.deleteCalendarEvent({
+      side: "agent",
+      calendarId: "team",
+      eventId: "event-1",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: "https://cloud.example/api/v1/milady/google/calendar/events/event-1?side=agent&calendarId=team",
+      }),
+      expect.objectContaining({
+        method: "DELETE",
+      }),
     );
   });
 });

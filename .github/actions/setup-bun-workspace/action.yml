@@ -13,7 +13,7 @@ inputs:
   install-command:
     description: "Dependency install command"
     required: false
-    default: "bun install --ignore-scripts"
+    default: "bun install --frozen-lockfile --ignore-scripts"
   install-native-deps:
     description: "Whether to install native apt dependencies"
     required: false
@@ -51,7 +51,7 @@ runs:
       if: ${{ inputs.install-native-deps == 'true' }}
       shell: bash
       run: |
-        # Blacksmith runners can intermittently fail reaching Ubuntu mirrors over IPv6.
+        # Some CI runners intermittently fail reaching Ubuntu mirrors over IPv6.
         # Force IPv4 and retry apt commands to make CI setup resilient.
         APT_ARGS=(-o Acquire::ForceIPv4=true -o Acquire::Retries=5 -o Acquire::http::Timeout=30)
         for attempt in 1 2 3; do
@@ -87,6 +87,7 @@ runs:
     - name: Disable repo-local eliza workspace
       if: ${{ inputs.disable-local-eliza-workspace == 'true' }}
       shell: bash
+      # Jobs that rewrite the workspace graph under MILADY_SKIP_LOCAL_UPSTREAMS=1 must also override install-command to --no-frozen-lockfile because this step regenerates bun.lock for the rewritten workspace shape.
       run: node scripts/disable-local-eliza-workspace.mjs
 
     - name: Install dependencies

@@ -42,6 +42,12 @@ import {
   toText,
 } from "./sql.js";
 
+type BrowserCompanionCredential = {
+  companion: LifeOpsBrowserCompanionStatus;
+  pairingTokenHash: string | null;
+  pendingPairingTokenHashes: string[];
+};
+
 const schemaReady = new WeakSet<object>();
 const schemaInitializing = new WeakMap<object, Promise<void>>();
 const LIFEOPS_SCHEMA_RETRY_DELAY_MS = 150;
@@ -728,6 +734,23 @@ function parseBrowserCompanion(
   };
 }
 
+function parseBrowserCompanionCredential(
+  row: Record<string, unknown>,
+): BrowserCompanionCredential {
+  return {
+    companion: parseBrowserCompanion(row),
+    pairingTokenHash: row.pairing_token_hash
+      ? toText(row.pairing_token_hash)
+      : null,
+    pendingPairingTokenHashes: parseJsonArray(
+      row.pending_pairing_token_hashes_json,
+    ).filter(
+      (candidate): candidate is string =>
+        typeof candidate === "string" && candidate.length > 0,
+    ),
+  };
+}
+
 function parseBrowserTabSummary(
   row: Record<string, unknown>,
 ): LifeOpsBrowserTabSummary {
@@ -854,6 +877,46 @@ function parseGmailSyncState(
     mailbox: toText(row.mailbox),
     maxResults: toNumber(row.max_results, 0),
     syncedAt: toText(row.synced_at),
+    updatedAt: toText(row.updated_at),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Escalation state row — used by EscalationService for write-through cache
+// ---------------------------------------------------------------------------
+
+export interface LifeOpsEscalationStateRow {
+  id: string;
+  agentId: string;
+  reason: string;
+  text: string;
+  currentStep: number;
+  channelsSent: string[];
+  startedAt: string;
+  lastSentAt: string;
+  resolved: boolean;
+  resolvedAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function parseEscalationStateRow(
+  row: Record<string, unknown>,
+): LifeOpsEscalationStateRow {
+  return {
+    id: toText(row.id),
+    agentId: toText(row.agent_id),
+    reason: toText(row.reason),
+    text: toText(row.text),
+    currentStep: toNumber(row.current_step, 0),
+    channelsSent: parseJsonArray<string>(row.channels_sent_json),
+    startedAt: toText(row.started_at),
+    lastSentAt: toText(row.last_sent_at),
+    resolved: toBoolean(row.resolved),
+    resolvedAt: row.resolved_at ? toText(row.resolved_at) : null,
+    metadata: parseJsonRecord(row.metadata_json),
+    createdAt: toText(row.created_at),
     updatedAt: toText(row.updated_at),
   };
 }
@@ -1050,6 +1113,8 @@ async function runLifeOpsSchemaSetup(
       permissions_json TEXT NOT NULL DEFAULT '{}',
       last_seen_at TEXT,
       paired_at TEXT,
+      pairing_token_hash TEXT,
+      pending_pairing_token_hashes_json TEXT NOT NULL DEFAULT '[]',
       metadata_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -1272,6 +1337,21 @@ async function runLifeOpsSchemaSetup(
       metadata_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS life_escalation_states (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      text TEXT NOT NULL,
+      current_step INTEGER NOT NULL DEFAULT 0,
+      channels_sent_json TEXT NOT NULL DEFAULT '[]',
+      started_at TEXT NOT NULL,
+      last_sent_at TEXT NOT NULL,
+      resolved BOOLEAN NOT NULL DEFAULT FALSE,
+      resolved_at TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
   ];
 
   /** Applied after legacy ownership columns are added — old DBs may lack domain/subject_* until ALTERs below. */
@@ -1322,6 +1402,8 @@ async function runLifeOpsSchemaSetup(
       ON life_channel_policies(agent_id, channel_type)`,
     `CREATE INDEX IF NOT EXISTS idx_life_website_access_grants_group
       ON life_website_access_grants(agent_id, group_key, revoked_at, expires_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_life_escalation_states_agent_resolved
+      ON life_escalation_states(agent_id, resolved)`,
   ] as const;
 
   for (const statement of statements) {
@@ -1390,6 +1472,24 @@ async function runLifeOpsSchemaSetup(
     await executeRawSql(
       runtime,
       `ALTER TABLE life_browser_sessions ADD COLUMN ${column.name} ${column.definition}`,
+    );
+  }
+
+  const browserCompanionColumns = [
+    { name: "pairing_token_hash", definition: "TEXT" },
+    {
+      name: "pending_pairing_token_hashes_json",
+      definition: "TEXT NOT NULL DEFAULT '[]'",
+    },
+  ] as const;
+  const existingBrowserCompanionColumns = new Set(
+    await listTableColumns(runtime, "life_browser_companions"),
+  );
+  for (const column of browserCompanionColumns) {
+    if (existingBrowserCompanionColumns.has(column.name)) continue;
+    await executeRawSql(
+      runtime,
+      `ALTER TABLE life_browser_companions ADD COLUMN ${column.name} ${column.definition}`,
     );
   }
 
@@ -2852,6 +2952,26 @@ export class LifeOpsRepository {
     );
   }
 
+  async deleteCalendarEventByExternalId(
+    agentId: string,
+    provider: LifeOpsConnectorGrant["provider"],
+    calendarId: string,
+    externalEventId: string,
+    side?: LifeOpsConnectorSide,
+  ): Promise<void> {
+    await this.ensureReady();
+    const sideClause = side ? `AND side = ${sqlQuote(side)}` : "";
+    await executeRawSql(
+      this.runtime,
+      `DELETE FROM life_calendar_events
+        WHERE agent_id = ${sqlQuote(agentId)}
+          AND provider = ${sqlQuote(provider)}
+          AND calendar_id = ${sqlQuote(calendarId)}
+          AND external_event_id = ${sqlQuote(externalEventId)}
+          ${sideClause}`,
+    );
+  }
+
   async pruneCalendarEventsInWindow(
     agentId: string,
     provider: LifeOpsConnectorGrant["provider"],
@@ -2875,7 +2995,7 @@ export class LifeOpsRepository {
           AND provider = ${sqlQuote(provider)}
           AND side = ${sqlQuote(side)}
           AND calendar_id = ${sqlQuote(calendarId)}
-          AND end_at >= ${sqlQuote(timeMin)}
+          AND end_at > ${sqlQuote(timeMin)}
           AND start_at < ${sqlQuote(timeMax)}
           ${keepClause}`,
     );
@@ -2889,7 +3009,7 @@ export class LifeOpsRepository {
     side?: LifeOpsConnectorSide,
   ): Promise<LifeOpsCalendarEvent[]> {
     await this.ensureReady();
-    const timeMinClause = timeMin ? `AND end_at >= ${sqlQuote(timeMin)}` : "";
+    const timeMinClause = timeMin ? `AND end_at > ${sqlQuote(timeMin)}` : "";
     const timeMaxClause = timeMax ? `AND start_at < ${sqlQuote(timeMax)}` : "";
     const sideClause = side ? `AND side = ${sqlQuote(side)}` : "";
     const rows = await executeRawSql(
@@ -3403,6 +3523,30 @@ export class LifeOpsRepository {
     return rows.map(parseReminderAttempt);
   }
 
+  async updateReminderAttemptOutcome(
+    id: string,
+    outcome: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.ensureReady();
+    if (metadata && Object.keys(metadata).length > 0) {
+      await executeRawSql(
+        this.runtime,
+        `UPDATE life_reminder_attempts
+            SET outcome = ${sqlQuote(outcome)},
+                delivery_metadata_json = delivery_metadata_json::jsonb || ${sqlJson(metadata)}::jsonb
+          WHERE id = ${sqlQuote(id)}`,
+      );
+    } else {
+      await executeRawSql(
+        this.runtime,
+        `UPDATE life_reminder_attempts
+            SET outcome = ${sqlQuote(outcome)}
+          WHERE id = ${sqlQuote(id)}`,
+      );
+    }
+  }
+
   async createBrowserSession(session: LifeOpsBrowserSession): Promise<void> {
     await this.ensureReady();
     await executeRawSql(
@@ -3579,6 +3723,23 @@ export class LifeOpsRepository {
     return row ? parseBrowserCompanion(row) : null;
   }
 
+  async getBrowserCompanionCredential(
+    agentId: string,
+    companionId: string,
+  ): Promise<BrowserCompanionCredential | null> {
+    await this.ensureReady();
+    const rows = await executeRawSql(
+      this.runtime,
+      `SELECT *
+         FROM life_browser_companions
+        WHERE agent_id = ${sqlQuote(agentId)}
+          AND id = ${sqlQuote(companionId)}
+        LIMIT 1`,
+    );
+    const row = rows[0];
+    return row ? parseBrowserCompanionCredential(row) : null;
+  }
+
   async upsertBrowserCompanion(
     companion: LifeOpsBrowserCompanionStatus,
   ): Promise<void> {
@@ -3615,6 +3776,64 @@ export class LifeOpsRepository {
         paired_at = COALESCE(life_browser_companions.paired_at, excluded.paired_at),
         metadata_json = excluded.metadata_json,
         updated_at = excluded.updated_at`,
+    );
+  }
+
+  async updateBrowserCompanionPairingToken(
+    agentId: string,
+    companionId: string,
+    pairingTokenHash: string,
+    pairedAt: string,
+    updatedAt: string,
+  ): Promise<void> {
+    await this.ensureReady();
+    await executeRawSql(
+      this.runtime,
+      `UPDATE life_browser_companions
+          SET pairing_token_hash = ${sqlQuote(pairingTokenHash)},
+              pending_pairing_token_hashes_json = '[]',
+              paired_at = ${sqlQuote(pairedAt)},
+              updated_at = ${sqlQuote(updatedAt)}
+        WHERE agent_id = ${sqlQuote(agentId)}
+          AND id = ${sqlQuote(companionId)}`,
+    );
+  }
+
+  async updateBrowserCompanionPendingPairingTokenHashes(
+    agentId: string,
+    companionId: string,
+    pendingPairingTokenHashes: string[],
+    updatedAt: string,
+  ): Promise<void> {
+    await this.ensureReady();
+    await executeRawSql(
+      this.runtime,
+      `UPDATE life_browser_companions
+          SET pending_pairing_token_hashes_json = ${sqlJson(pendingPairingTokenHashes)},
+              updated_at = ${sqlQuote(updatedAt)}
+        WHERE agent_id = ${sqlQuote(agentId)}
+          AND id = ${sqlQuote(companionId)}`,
+    );
+  }
+
+  async promoteBrowserCompanionPendingPairingToken(
+    agentId: string,
+    companionId: string,
+    pairingTokenHash: string,
+    pendingPairingTokenHashes: string[],
+    pairedAt: string,
+    updatedAt: string,
+  ): Promise<void> {
+    await this.ensureReady();
+    await executeRawSql(
+      this.runtime,
+      `UPDATE life_browser_companions
+          SET pairing_token_hash = ${sqlQuote(pairingTokenHash)},
+              pending_pairing_token_hashes_json = ${sqlJson(pendingPairingTokenHashes)},
+              paired_at = ${sqlQuote(pairedAt)},
+              updated_at = ${sqlQuote(updatedAt)}
+        WHERE agent_id = ${sqlQuote(agentId)}
+          AND id = ${sqlQuote(companionId)}`,
     );
   }
 
@@ -3802,6 +4021,115 @@ export class LifeOpsRepository {
       `DELETE FROM life_browser_sessions
         WHERE agent_id = ${sqlQuote(agentId)}
           AND id = ${sqlQuote(sessionId)}`,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Escalation state persistence
+  // ---------------------------------------------------------------------------
+
+  async upsertEscalationState(state: {
+    id: string;
+    agentId: string;
+    reason: string;
+    text: string;
+    currentStep: number;
+    channelsSent: string[];
+    startedAt: string;
+    lastSentAt: string;
+    resolved: boolean;
+    resolvedAt?: string | null;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    await this.ensureReady();
+    const now = isoNow();
+    await executeRawSql(
+      this.runtime,
+      `INSERT INTO life_escalation_states (
+        id, agent_id, reason, text, current_step,
+        channels_sent_json, started_at, last_sent_at,
+        resolved, resolved_at, metadata_json,
+        created_at, updated_at
+      ) VALUES (
+        ${sqlQuote(state.id)},
+        ${sqlQuote(state.agentId)},
+        ${sqlQuote(state.reason)},
+        ${sqlQuote(state.text)},
+        ${sqlInteger(state.currentStep)},
+        ${sqlJson(state.channelsSent)},
+        ${sqlQuote(state.startedAt)},
+        ${sqlQuote(state.lastSentAt)},
+        ${sqlBoolean(state.resolved)},
+        ${sqlText(state.resolvedAt)},
+        ${sqlJson(state.metadata ?? {})},
+        ${sqlQuote(now)},
+        ${sqlQuote(now)}
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        reason = excluded.reason,
+        text = excluded.text,
+        current_step = excluded.current_step,
+        channels_sent_json = excluded.channels_sent_json,
+        last_sent_at = excluded.last_sent_at,
+        resolved = excluded.resolved,
+        resolved_at = excluded.resolved_at,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at`,
+    );
+  }
+
+  async getActiveEscalationState(
+    agentId: string,
+  ): Promise<LifeOpsEscalationStateRow | null> {
+    await this.ensureReady();
+    const rows = await executeRawSql(
+      this.runtime,
+      `SELECT *
+         FROM life_escalation_states
+        WHERE agent_id = ${sqlQuote(agentId)}
+          AND resolved = FALSE
+        ORDER BY started_at DESC
+        LIMIT 1`,
+    );
+    const row = rows[0];
+    return row ? parseEscalationStateRow(row) : null;
+  }
+
+  async resolveEscalationState(id: string, resolvedAt: string): Promise<void> {
+    await this.ensureReady();
+    const now = isoNow();
+    await executeRawSql(
+      this.runtime,
+      `UPDATE life_escalation_states
+         SET resolved = TRUE,
+             resolved_at = ${sqlQuote(resolvedAt)},
+             updated_at = ${sqlQuote(now)}
+       WHERE id = ${sqlQuote(id)}`,
+    );
+  }
+
+  async listRecentEscalationStates(
+    agentId: string,
+    limit = 10,
+  ): Promise<LifeOpsEscalationStateRow[]> {
+    await this.ensureReady();
+    const rows = await executeRawSql(
+      this.runtime,
+      `SELECT *
+         FROM life_escalation_states
+        WHERE agent_id = ${sqlQuote(agentId)}
+        ORDER BY started_at DESC
+        LIMIT ${sqlInteger(limit)}`,
+    );
+    return rows.map(parseEscalationStateRow);
+  }
+
+  async deleteAllEscalationStates(agentId: string): Promise<void> {
+    await this.ensureReady();
+    await executeRawSql(
+      this.runtime,
+      `DELETE FROM life_escalation_states
+        WHERE agent_id = ${sqlQuote(agentId)}`,
     );
   }
 }

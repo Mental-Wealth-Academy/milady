@@ -5,11 +5,13 @@ import type {
   IAgentRuntime,
   Memory,
   Room,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
 import { formatSpeakerLabel } from "../providers/conversation-utils.js";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey } from "./context-signal.js";
 
 type ReadChannelParams = {
   source?: string;
@@ -107,7 +109,10 @@ export const readChannelAction: Action = {
     "Default: recent messages. Supports date ranges and message limits. " +
     "Results include line numbers for easy reference when copying to scratchpad.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "read_channel");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {

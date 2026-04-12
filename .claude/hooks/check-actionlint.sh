@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 # PostToolUse hook: runs actionlint on edited GitHub Actions workflows.
-# Blocking-with-acknowledgment on findings — exits with code 2 when actionlint
-# reports issues, which in the Claude Code hook system requires the agent to
-# see and acknowledge the stderr output before continuing. Workflow syntax
-# errors must not ship silently, so this is intentional.
+# Blocking-with-acknowledgment on real errors — exits with code 2 when
+# actionlint reports workflow-schema issues, which in the Claude Code hook
+# system requires the agent to see and acknowledge the stderr output before
+# continuing. Workflow syntax errors must not ship silently, so this is
+# intentional.
+#
+# We suppress only a short allowlist of pre-existing shellcheck style/info
+# nits (SC2086, SC2129, SC2162) so unrelated workflow edits do not block on
+# those specific noisy findings. Other shellcheck-backed actionlint findings
+# still surface and block as real review items.
 #
 # Triggered on: Edit | Write | MultiEdit
-# Scope filter: only runs when the touched file is under .github/workflows/ or .github/actions/.
+# Scope filter: only runs when the touched file is a GitHub Actions workflow
+# under `.github/workflows/`. Composite actions (`.github/actions/*/action.yml`)
+# are explicitly skipped — actionlint parses files it's given as workflows,
+# and composite actions use a different top-level schema (`runs` / `description` /
+# `inputs` instead of `jobs` / `on`), so every composite action would trip a
+# handful of "unexpected key" errors. If we ever need to lint composite
+# actions, that needs a separate tool or a different actionlint invocation.
 # Gracefully skips if actionlint is not installed.
 
 set -u
@@ -24,8 +36,7 @@ except Exception:
 fi
 
 case "$file_path" in
-  */.github/workflows/*.yml|*/.github/workflows/*.yaml|\
-  */.github/actions/*.yml|*/.github/actions/*.yaml)
+  */.github/workflows/*.yml|*/.github/workflows/*.yaml)
     ;;
   *)
     exit 0
@@ -46,10 +57,13 @@ fi
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 config="$repo_root/.github/actionlint.yaml"
 
+# Suppress only a narrow set of known style-only shellcheck findings. Any
+# other non-empty output is treated as a real actionlint error worth blocking.
+shellcheck_ignore='shellcheck reported issue.*SC(2086|2129|2162)\b'
 if [ -f "$config" ]; then
-  output="$(actionlint -config-file "$config" "$file_path" 2>&1 || true)"
+  output="$(actionlint -config-file "$config" -ignore "$shellcheck_ignore" "$file_path" 2>&1 || true)"
 else
-  output="$(actionlint "$file_path" 2>&1 || true)"
+  output="$(actionlint -ignore "$shellcheck_ignore" "$file_path" 2>&1 || true)"
 fi
 
 if [ -n "$output" ]; then

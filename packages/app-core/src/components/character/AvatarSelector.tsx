@@ -167,7 +167,7 @@ export function AvatarSelector({
             variant="ghost"
             className={`${avatarButtonClass} ${
               selected === i
-                ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--card)] scale-105"
+                ? "ring-2 ring-accent ring-offset-2 ring-offset-card scale-105"
                 : "opacity-60 hover:opacity-100 hover:scale-105"
             } ${loading ? "cursor-wait pointer-events-none" : ""} p-0`}
             onClick={() => !loading && onSelect(i)}
@@ -201,10 +201,10 @@ export function AvatarSelector({
               variant="outline"
               className={`${uploadButtonClass} ${
                 dragOver
-                  ? "border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)] scale-105 border-solid"
+                  ? "border-accent bg-accent/20 text-accent scale-105 border-solid"
                   : selected === 0
-                    ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground)] ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--card)] scale-105 border-solid"
-                    : "border-[var(--border)] text-[var(--muted)] opacity-60 hover:opacity-100 hover:border-[var(--accent)] hover:scale-105 border-dashed"
+                    ? "border-accent bg-accent text-accent-fg ring-2 ring-accent ring-offset-2 ring-offset-card scale-105 border-solid"
+                    : "border-border text-muted opacity-60 hover:opacity-100 hover:border-accent hover:scale-105 border-dashed"
               }`}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={handleDragOver}
@@ -232,7 +232,7 @@ export function AvatarSelector({
                 )}
               </svg>
               {dragOver && (
-                <span className="text-[10px] mt-1 font-medium">
+                <span className="text-2xs mt-1 font-medium">
                   {t("avatarselector.dropVrm")}
                 </span>
               )}

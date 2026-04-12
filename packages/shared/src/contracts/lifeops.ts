@@ -228,9 +228,12 @@ export const LIFEOPS_AUDIT_EVENT_TYPES = [
   "goal_deleted",
   "goal_reviewed",
   "calendar_event_created",
+  "calendar_event_updated",
+  "calendar_event_deleted",
   "gmail_triage_synced",
   "gmail_reply_drafted",
   "gmail_reply_sent",
+  "gmail_message_sent",
   "reminder_due",
   "reminder_delivered",
   "reminder_blocked",
@@ -244,6 +247,7 @@ export const LIFEOPS_AUDIT_EVENT_TYPES = [
   "browser_session_created",
   "browser_session_updated",
   "x_post_sent",
+  "seeding_offered",
 ] as const;
 export type LifeOpsAuditEventType = (typeof LIFEOPS_AUDIT_EVENT_TYPES)[number];
 
@@ -737,6 +741,75 @@ export interface SyncLifeOpsBrowserStateRequest {
   }>;
 }
 
+export interface CreateLifeOpsBrowserCompanionPairingRequest {
+  browser: LifeOpsBrowserKind;
+  profileId: string;
+  profileLabel?: string | null;
+  label?: string | null;
+  extensionVersion?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LifeOpsBrowserCompanionPairingResponse {
+  companion: LifeOpsBrowserCompanionStatus;
+  pairingToken: string;
+}
+
+export interface UpdateLifeOpsBrowserSessionProgressRequest {
+  currentActionIndex?: number;
+  result?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LifeOpsBrowserCompanionSyncResponse {
+  companion: LifeOpsBrowserCompanionStatus;
+  tabs: LifeOpsBrowserTabSummary[];
+  currentPage: LifeOpsBrowserPageContext | null;
+  settings: LifeOpsBrowserSettings;
+  session: LifeOpsBrowserSession | null;
+}
+
+export interface LifeOpsBrowserCompanionPackageStatus {
+  extensionPath: string | null;
+  chromeBuildPath: string | null;
+  chromePackagePath: string | null;
+  safariWebExtensionPath: string | null;
+  safariAppPath: string | null;
+  safariPackagePath: string | null;
+  releaseManifest: LifeOpsBrowserCompanionReleaseManifest | null;
+}
+
+export interface LifeOpsBrowserCompanionReleaseAsset {
+  fileName: string;
+  downloadUrl: string | null;
+}
+
+export interface LifeOpsBrowserCompanionReleaseTarget {
+  installKind:
+    | "chrome_web_store"
+    | "apple_app_store"
+    | "github_release"
+    | "local_download";
+  installUrl: string | null;
+  storeListingUrl: string | null;
+  asset: LifeOpsBrowserCompanionReleaseAsset;
+}
+
+export interface LifeOpsBrowserCompanionReleaseManifest {
+  schema: "lifeops_browser_release_v2";
+  releaseTag: string;
+  releaseVersion: string;
+  repository: string | null;
+  releasePageUrl: string | null;
+  chromeVersion: string;
+  chromeVersionName: string;
+  safariMarketingVersion: string;
+  safariBuildVersion: string;
+  chrome: LifeOpsBrowserCompanionReleaseTarget;
+  safari: LifeOpsBrowserCompanionReleaseTarget;
+  generatedAt: string;
+}
+
 export interface LifeOpsWorkflowActionBase {
   id?: string;
   resultKey?: string;
@@ -784,6 +857,8 @@ export interface LifeOpsWorkflowActionPlan {
 
 export const LIFEOPS_REMINDER_ATTEMPT_OUTCOMES = [
   "delivered",
+  "delivered_read",
+  "delivered_unread",
   "blocked_policy",
   "blocked_quiet_hours",
   "blocked_urgency",
@@ -1184,6 +1259,17 @@ export interface SendLifeOpsGmailReplyRequest {
   subject?: string;
   to?: string[];
   cc?: string[];
+  confirmSend?: boolean;
+}
+
+export interface SendLifeOpsGmailMessageRequest {
+  side?: LifeOpsConnectorSide;
+  mode?: LifeOpsConnectorMode;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  bodyText: string;
   confirmSend?: boolean;
 }
 

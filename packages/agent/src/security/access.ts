@@ -1,10 +1,22 @@
 import type { IAgentRuntime, Memory } from "@elizaos/core";
-import * as roles from "@elizaos/core/roles";
+import * as roles from "../runtime/roles.js";
+
+/** Role names matching the elizaOS role hierarchy. */
+export type RequiredRole = "OWNER" | "ADMIN" | "USER" | "GUEST";
+
+const ROLE_RANK: Record<RequiredRole, number> = {
+  GUEST: 0,
+  USER: 1,
+  ADMIN: 2,
+  OWNER: 3,
+};
 
 type AccessContext = {
   runtime: IAgentRuntime & { agentId: string };
   message: Memory & { entityId: string };
 };
+
+type RoleContextResolution = "present" | "missing" | "error";
 
 function getAccessContext(
   runtime: IAgentRuntime | undefined,
@@ -37,12 +49,47 @@ export function isAgentSelf(
   return context.message.entityId === context.runtime.agentId;
 }
 
+async function resolveRoleContextState(
+  runtime: IAgentRuntime,
+  message: Memory,
+): Promise<RoleContextResolution> {
+  const getRoom = (
+    runtime as unknown as {
+      getRoom?: (roomId: string) => Promise<{ worldId?: string } | null>;
+    }
+  ).getRoom;
+  if (typeof getRoom !== "function") {
+    return "missing";
+  }
+
+  try {
+    const room = await getRoom(message.roomId);
+    if (!room?.worldId) {
+      return "missing";
+    }
+
+    const getWorld = (
+      runtime as unknown as {
+        getWorld?: (worldId: string) => Promise<unknown>;
+      }
+    ).getWorld;
+    if (typeof getWorld !== "function") {
+      return "missing";
+    }
+
+    const world = await getWorld(room.worldId);
+    return world ? "present" : "missing";
+  } catch {
+    return "error";
+  }
+}
+
 async function isCanonicalOwner(
   runtime: IAgentRuntime,
   message: Memory,
 ): Promise<boolean> {
   const resolveOwner = (
-    roles as {
+    roles as unknown as {
       resolveCanonicalOwnerIdForMessage?: (
         runtime: IAgentRuntime,
         message: Memory,
@@ -79,7 +126,7 @@ export async function hasOwnerAccess(
   }
 
   const checkRole = (
-    roles as {
+    roles as unknown as {
       checkSenderRole?: (
         runtime: IAgentRuntime,
         message: Memory,
@@ -116,7 +163,7 @@ export async function hasAdminAccess(
   }
 
   const checkRole = (
-    roles as {
+    roles as unknown as {
       checkSenderRole?: (
         runtime: IAgentRuntime,
         message: Memory,
@@ -153,7 +200,7 @@ export async function hasPrivateAccess(
   }
 
   const checkPrivateAccess = (
-    roles as {
+    roles as unknown as {
       checkSenderPrivateAccess?: (
         runtime: IAgentRuntime,
         message: Memory,
@@ -167,6 +214,67 @@ export async function hasPrivateAccess(
   try {
     const access = await checkPrivateAccess(context.runtime, context.message);
     return access?.hasPrivateAccess === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check whether the sender has at least the given role in the elizaOS
+ * role hierarchy (OWNER > ADMIN > USER > GUEST).
+ *
+ * Follows the same lenient pattern as plugin-role-gating: when there is
+ * no world context (e.g. local API calls), the check falls through and
+ * allows the action so local-only usage isn't blocked.
+ */
+export async function hasRoleAccess(
+  runtime: IAgentRuntime | undefined,
+  message: Memory | undefined,
+  requiredRole: RequiredRole,
+): Promise<boolean> {
+  if (requiredRole === "GUEST") {
+    return true;
+  }
+
+  const context = getAccessContext(runtime, message);
+  if (!context) {
+    return true;
+  }
+
+  if (isAgentSelf(context.runtime, context.message)) {
+    return true;
+  }
+
+  if (await isCanonicalOwner(context.runtime, context.message)) {
+    return true;
+  }
+
+  const checkRole = (
+    roles as unknown as {
+      checkSenderRole?: (
+        runtime: IAgentRuntime,
+        message: Memory,
+      ) => Promise<{ role?: string } | null>;
+    }
+  ).checkSenderRole;
+  if (typeof checkRole !== "function") {
+    return false;
+  }
+
+  try {
+    const result = await checkRole(context.runtime, context.message);
+    if (!result) {
+      const contextState = await resolveRoleContextState(
+        context.runtime,
+        context.message,
+      );
+      // No world context — allow through (same lenient fallback as plugin-role-gating)
+      return contextState === "missing";
+    }
+
+    const senderRank = ROLE_RANK[result.role as RequiredRole] ?? 0;
+    const requiredRank = ROLE_RANK[requiredRole] ?? 0;
+    return senderRank >= requiredRank;
   } catch {
     return false;
   }

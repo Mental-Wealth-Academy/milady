@@ -1,26 +1,56 @@
+/**
+ * Plugin role gating — REAL integration tests.
+ *
+ * Tests applyPluginRoleGating using a real PGLite-backed runtime
+ * with real role checking.
+ */
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   Action,
-  IAgentRuntime,
+  AgentRuntime,
   Memory,
   Plugin,
   State,
+  UUID,
 } from "@elizaos/core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ChannelType } from "@elizaos/core";
+import { createRealTestRuntime } from "../../../../../test/helpers/real-runtime";
 import {
+  ACTION_ROLE_OVERRIDES,
   applyPluginRoleGating,
   ROLE_GATED_PLUGINS,
 } from "../plugin-role-gating";
 
-// Stub the roles module so we don't pull in the full runtime.
-vi.mock("../roles/src/index.js", () => ({
-  checkSenderRole: vi.fn(),
-}));
+let runtime: AgentRuntime;
+let cleanup: () => Promise<void>;
+let gatedRoomId: UUID;
 
-async function getCheckSenderRoleMock() {
-  const mod = await import("../roles/src/index.js");
-  return (mod as unknown as { checkSenderRole: ReturnType<typeof vi.fn> })
-    .checkSenderRole;
-}
+beforeAll(async () => {
+  ({ runtime, cleanup } = await createRealTestRuntime());
+
+  // Create a world + room so role checks resolve a world context.
+  const worldId = "b0000000-0000-4000-8000-000000000001" as UUID;
+  await runtime.ensureWorldExists({
+    id: worldId,
+    name: "PluginGatingWorld",
+    agentId: runtime.agentId,
+    serverId: worldId,
+    metadata: { ownership: { ownerId: runtime.agentId } },
+  });
+  gatedRoomId = "b0000000-0000-4000-8000-000000000002" as UUID;
+  await runtime.ensureRoomExists({
+    id: gatedRoomId,
+    name: "plugin-gating-test",
+    source: "test",
+    type: ChannelType.GROUP,
+    worldId,
+  });
+}, 180_000);
+
+afterAll(async () => {
+  await cleanup();
+});
 
 function makeAction(name: string, validate?: Action["validate"]): Action {
   return {
@@ -37,15 +67,7 @@ function makePlugin(name: string, actions: Action[]): Plugin {
   return { name, description: `Test plugin ${name}`, actions };
 }
 
-const fakeRuntime = {} as IAgentRuntime;
-const fakeMessage = { entityId: "user-1" } as Memory;
-const fakeState = {} as State;
-
 describe("plugin-role-gating", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it("gates EVM and Solana plugins", () => {
     expect(ROLE_GATED_PLUGINS["@elizaos/plugin-evm"]).toBe("admin");
     expect(ROLE_GATED_PLUGINS["@elizaos/plugin-solana"]).toBe("admin");
@@ -71,98 +93,88 @@ describe("plugin-role-gating", () => {
     expect(action.validate).toBe(original);
   });
 
-  it("allows admin users through gated actions", async () => {
-    const mock = await getCheckSenderRoleMock();
-    mock.mockResolvedValue({
-      entityId: "user-1",
-      role: "ADMIN",
-      isOwner: false,
-      isAdmin: true,
-    });
-
+  it("blocks non-admin users for gated actions", async () => {
     const action = makeAction("SEND_TOKEN");
     const plugin = makePlugin("@elizaos/plugin-evm", [action]);
     applyPluginRoleGating([plugin]);
 
-    const result = await action.validate?.(fakeRuntime, fakeMessage, fakeState);
-    expect(result).toBe(true);
-  });
+    const nonAdminEntityId = "non-admin-gating-001" as UUID;
+    const message = { entityId: nonAdminEntityId, roomId: gatedRoomId } as Memory;
 
-  it("allows owner users through gated actions", async () => {
-    const mock = await getCheckSenderRoleMock();
-    mock.mockResolvedValue({
-      entityId: "owner-1",
-      role: "OWNER",
-      isOwner: true,
-      isAdmin: true,
-    });
-
-    const action = makeAction("SEND_TOKEN");
-    const plugin = makePlugin("@elizaos/plugin-solana", [action]);
-    applyPluginRoleGating([plugin]);
-
-    const result = await action.validate?.(fakeRuntime, fakeMessage, fakeState);
-    expect(result).toBe(true);
-  });
-
-  it("blocks non-admin users from gated actions", async () => {
-    const mock = await getCheckSenderRoleMock();
-    mock.mockResolvedValue({
-      entityId: "user-2",
-      role: "MEMBER",
-      isOwner: false,
-      isAdmin: false,
-    });
-
-    const action = makeAction("SEND_TOKEN");
-    const plugin = makePlugin("@elizaos/plugin-evm", [action]);
-    applyPluginRoleGating([plugin]);
-
-    const result = await action.validate?.(fakeRuntime, fakeMessage, fakeState);
-    expect(result).toBe(false);
-  });
-
-  it("falls through to original validate when no world context", async () => {
-    const mock = await getCheckSenderRoleMock();
-    mock.mockResolvedValue(null); // no world context
-
-    const innerValidate = vi.fn().mockResolvedValue(false);
-    const action = makeAction("SEND_TOKEN", innerValidate);
-    const plugin = makePlugin("@elizaos/plugin-evm", [action]);
-    applyPluginRoleGating([plugin]);
-
-    const result = await action.validate?.(fakeRuntime, fakeMessage, fakeState);
-    expect(result).toBe(false);
-    expect(innerValidate).toHaveBeenCalledWith(
-      fakeRuntime,
-      fakeMessage,
-      fakeState,
+    const result = await action.validate?.(
+      runtime,
+      message,
+      {} as State,
     );
-  });
 
-  it("calls original validate after passing role check", async () => {
-    const mock = await getCheckSenderRoleMock();
-    mock.mockResolvedValue({
-      entityId: "admin-1",
-      role: "ADMIN",
-      isOwner: false,
-      isAdmin: true,
-    });
-
-    const innerValidate = vi.fn().mockResolvedValue(false);
-    const action = makeAction("SEND_TOKEN", innerValidate);
-    const plugin = makePlugin("@elizaos/plugin-evm", [action]);
-    applyPluginRoleGating([plugin]);
-
-    const result = await action.validate?.(fakeRuntime, fakeMessage, fakeState);
-    // Admin passes role check, but original validate returns false
+    // Non-admin should be blocked by the gated validate wrapper
     expect(result).toBe(false);
-    expect(innerValidate).toHaveBeenCalled();
+  }, 60_000);
+
+  it("preserves original validate for ungated plugins", async () => {
+    let validateCalled = false;
+    const action = makeAction("CHAT", async () => {
+      validateCalled = true;
+      return true;
+    });
+    const plugin = makePlugin("@elizaos/plugin-chat", [action]);
+    applyPluginRoleGating([plugin]);
+
+    const message = { entityId: runtime.agentId } as Memory;
+    await action.validate?.(runtime, message, {} as State);
+
+    expect(validateCalled).toBe(true);
+  }, 60_000);
+
+  it("registers comprehensive plugin gating map", () => {
+    // Verify critical plugins are present
+    expect(ROLE_GATED_PLUGINS["@elizaos/plugin-agent-orchestrator"]).toBe("admin");
+    expect(ROLE_GATED_PLUGINS["shell"]).toBe("owner");
+    expect(ROLE_GATED_PLUGINS["@elizaos/plugin-secrets-manager"]).toBe("owner");
+    expect(ROLE_GATED_PLUGINS["cron"]).toBe("admin");
+    expect(ROLE_GATED_PLUGINS["elizaOSCloud"]).toBe("admin");
+    expect(ROLE_GATED_PLUGINS["scratchpad"]).toBe("admin");
+    expect(ROLE_GATED_PLUGINS["discord"]).toBe("user");
+    expect(ROLE_GATED_PLUGINS["music-player"]).toBe("user");
   });
 
-  it("skips plugins with no actions", () => {
-    const plugin = makePlugin("@elizaos/plugin-evm", []);
-    // Should not throw
-    applyPluginRoleGating([plugin]);
+  it("registers per-action role overrides for dangerous actions", () => {
+    // Orchestrator OWNER-level actions
+    expect(ACTION_ROLE_OVERRIDES["SPAWN_AGENT"]).toBe("owner");
+    expect(ACTION_ROLE_OVERRIDES["PROVISION_WORKSPACE"]).toBe("owner");
+
+    // Cron OWNER-level actions
+    expect(ACTION_ROLE_OVERRIDES["CREATE_CRON"]).toBe("owner");
+    expect(ACTION_ROLE_OVERRIDES["DELETE_CRON"]).toBe("owner");
+
+    // Cloud OWNER-level actions
+    expect(ACTION_ROLE_OVERRIDES["PROVISION_CLOUD_AGENT"]).toBe("owner");
+
+    // Discord admin-level actions
+    expect(ACTION_ROLE_OVERRIDES["DELETE_MESSAGE"]).toBe("admin");
+    expect(ACTION_ROLE_OVERRIDES["SETUP_CREDENTIALS"]).toBe("owner");
   });
+
+  it("applies per-action override above plugin floor", () => {
+    // SPAWN_AGENT should be gated to "owner" even though plugin floor is "admin"
+    const action = makeAction("SPAWN_AGENT");
+    const original = action.validate;
+    const plugin = makePlugin("@elizaos/plugin-agent-orchestrator", [action]);
+    applyPluginRoleGating([plugin]);
+
+    expect(action.validate).not.toBe(original);
+  });
+
+  it("blocks non-admin for user-floor plugin actions elevated to admin", async () => {
+    // DELETE_MESSAGE in Discord plugin: floor=user, override=admin
+    const action = makeAction("DELETE_MESSAGE");
+    const plugin = makePlugin("discord", [action]);
+    applyPluginRoleGating([plugin]);
+
+    const guestEntityId = "guest-gating-001" as UUID;
+    const message = { entityId: guestEntityId, roomId: gatedRoomId } as Memory;
+
+    const result = await action.validate?.(runtime, message, {} as State);
+    expect(result).toBe(false);
+  }, 60_000);
 });

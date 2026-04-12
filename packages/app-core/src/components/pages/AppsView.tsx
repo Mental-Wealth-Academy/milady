@@ -2,17 +2,27 @@
  * Apps View — browse and launch agent games/experiences.
  *
  * Fetches apps from the registry API and shows them as cards.
+ * Clicking a card immediately launches the app (no detail pane).
  */
 
 import { PagePanel } from "@miladyai/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type AppRunSummary, client, type RegistryAppInfo } from "../../api";
+import { getAppSlugFromPath } from "../../navigation";
 
 import { useApp } from "../../state";
 import { openExternalUrl } from "../../utils";
-import { AppDetailPane } from "../apps/AppDetailPane";
 import { AppsCatalogGrid } from "../apps/AppsCatalogGrid";
-import { filterAppsForCatalog, shouldShowAppInAppsView } from "../apps/helpers";
+import {
+  filterAppsForCatalog,
+  findAppBySlug,
+  getAppSlug,
+  shouldShowAppInAppsView,
+} from "../apps/helpers";
+import {
+  getInternalToolApps,
+  getInternalToolAppTargetTab,
+} from "../apps/internal-tool-apps";
 import {
   getAllOverlayApps,
   isOverlayApp,
@@ -31,6 +41,7 @@ export function AppsView() {
     activeGameRunId,
     activeGameViewerUrl,
     appsSubTab,
+    favoriteApps,
     setState,
     setActionNotice,
     t,
@@ -40,14 +51,15 @@ export function AppsView() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showActiveOnly, setShowActiveOnly] = useState(false);
-  const [selectedAppName, setSelectedAppName] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [busyApp, setBusyApp] = useState<string | null>(null);
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
+  const slugAutoLaunchDone = useRef(false);
+
   const activeAppNames = useMemo(
     () => new Set(appRuns.map((run) => run.appName)),
     [appRuns],
   );
+  const favoriteAppNames = useMemo(() => new Set(favoriteApps), [favoriteApps]);
   const activeGameRun = useMemo(
     () => appRuns.find((run) => run.runId === activeGameRunId) ?? null,
     [activeGameRunId, appRuns],
@@ -59,17 +71,20 @@ export function AppsView() {
     currentGameViewerUrl.length > 0 &&
     activeGameRun?.viewerAttachment === "attached";
 
-  const selectedApp = useMemo(
-    () => apps.find((app) => app.name === selectedAppName) ?? null,
-    [apps, selectedAppName],
-  );
+  /** Push or replace the browser URL to reflect the active app (or browse). */
+  const pushAppsUrl = useCallback((slug?: string) => {
+    try {
+      const path = slug ? `/apps/${slug}` : "/apps";
+      if (window.location.protocol === "file:") {
+        window.location.hash = path;
+      } else {
+        window.history.replaceState(null, "", path);
+      }
+    } catch {
+      /* ignore — sandboxed iframe or SSR */
+    }
+  }, []);
 
-  const selectedAppHasActiveViewer =
-    !!selectedApp &&
-    hasCurrentGame &&
-    activeGameRun?.appName === selectedApp.name;
-  const selectedAppIsActive =
-    !!selectedApp && activeAppNames.has(selectedApp.name);
   const sortedRuns = useMemo(
     () => [...appRuns].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [appRuns],
@@ -108,28 +123,42 @@ export function AppsView() {
   const loadApps = useCallback(async () => {
     setLoading(true);
     setError(null);
+    void refreshRuns().catch((err: unknown) => {
+      console.warn("[AppsView] Failed to list app runs:", err);
+    });
     try {
-      const [serverApps] = await Promise.all([
-        client.listApps(),
-        refreshRuns().catch((err: unknown) => {
-          console.warn("[AppsView] Failed to list app runs:", err);
-          return [];
-        }),
-      ]);
+      const serverAppsResult = await client
+        .listApps()
+        .then((apps) => ({
+          status: "fulfilled" as const,
+          value: apps,
+        }))
+        .catch((reason) => ({
+          status: "rejected" as const,
+          reason,
+        }));
+      const serverApps =
+        serverAppsResult.status === "fulfilled" ? serverAppsResult.value : [];
+      if (serverAppsResult.status === "rejected") {
+        console.warn(
+          "[AppsView] Failed to list apps:",
+          serverAppsResult.reason,
+        );
+      }
+      const internalToolApps = getInternalToolApps();
       // Inject registered overlay apps (e.g. companion) if not already from server
       const overlayDescriptors = getAllOverlayApps()
         .filter((oa) => !serverApps.some((a) => a.name === oa.name))
         .map(overlayAppToRegistryInfo);
-      const list = [...overlayDescriptors, ...serverApps];
+      const list = [
+        ...internalToolApps,
+        ...overlayDescriptors,
+        ...serverApps,
+      ].filter(
+        (app, index, items) =>
+          items.findIndex((candidate) => candidate.name === app.name) === index,
+      );
       setApps(list);
-      setSelectedAppName((current) => {
-        if (!current) return null;
-        return list.some(
-          (app) => app.name === current && shouldShowAppInAppsView(app),
-        )
-          ? current
-          : null;
-      });
     } catch (err) {
       setError(
         t("appsview.LoadError", {
@@ -142,9 +171,40 @@ export function AppsView() {
     }
   }, [refreshRuns, t]);
 
+  const refreshApps = useCallback(async () => {
+    try {
+      await client.refreshRegistry();
+    } catch (err) {
+      console.warn("[AppsView] Failed to refresh registry:", err);
+    }
+    await loadApps();
+  }, [loadApps]);
+
   useEffect(() => {
     void loadApps();
   }, [loadApps]);
+
+  // Auto-launch from URL slug on first load (e.g. /apps/babylon after refresh)
+  useEffect(() => {
+    if (slugAutoLaunchDone.current || apps.length === 0) return;
+    slugAutoLaunchDone.current = true;
+
+    // Skip if a game run is already restored from sessionStorage
+    if (activeGameRunId) return;
+
+    const slug = getAppSlugFromPath(
+      window.location.protocol === "file:"
+        ? window.location.hash.replace(/^#/, "") || "/"
+        : window.location.pathname,
+    );
+    if (!slug) return;
+
+    const app = findAppBySlug(apps, slug);
+    if (app) {
+      void handleLaunch(app);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time on first apps load
+  }, [apps]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,12 +250,18 @@ export function AppsView() {
 
   const handleLaunch = useCallback(
     async (app: RegistryAppInfo) => {
+      const internalToolTab = getInternalToolAppTargetTab(app.name);
+      if (internalToolTab) {
+        setState("tab", internalToolTab);
+        return;
+      }
+
       // Overlay apps (e.g. companion) are local-only — launch without server round-trip
       if (isOverlayApp(app.name)) {
         setState("activeOverlayApp", app.name);
+        pushAppsUrl(getAppSlug(app.name));
         return;
       }
-      setBusyApp(app.name);
       try {
         const result = await client.launchApp(app.name);
         const primaryLaunchDiagnostic =
@@ -229,12 +295,14 @@ export function AppsView() {
           }
           setState("tab", "apps");
           setState("appsSubTab", "games");
+          pushAppsUrl(getAppSlug(app.name));
           return;
         }
 
         if (primaryRun) {
           setSelectedRunId(primaryRun.runId);
           setState("appsSubTab", "running");
+          pushAppsUrl(getAppSlug(app.name));
         }
 
         if (primaryLaunchDiagnostic) {
@@ -282,28 +350,17 @@ export function AppsView() {
           "error",
           4000,
         );
-      } finally {
-        setBusyApp(null);
       }
     },
-    [mergeRun, setActionNotice, setState, t],
+    [mergeRun, pushAppsUrl, setActionNotice, setState, t],
   );
 
   const handleOpenCurrentGame = useCallback(() => {
-    if (!hasActiveRun) return;
+    if (!hasActiveRun || !activeGameRun) return;
     setState("tab", "apps");
     setState("appsSubTab", "games");
-  }, [hasActiveRun, setState]);
-
-  const handleOpenCurrentGameInNewTab = useCallback(async () => {
-    if (!hasCurrentGame) return;
-    try {
-      await openExternalUrl(currentGameViewerUrl);
-      setActionNotice(t("appsview.CurrentGameOpened"), "success", 2600);
-    } catch {
-      setActionNotice(t("appsview.PopupBlocked"), "error", 4200);
-    }
-  }, [currentGameViewerUrl, hasCurrentGame, setActionNotice, t]);
+    pushAppsUrl(getAppSlug(activeGameRun.appName));
+  }, [activeGameRun, hasActiveRun, pushAppsUrl, setState]);
 
   const handleOpenRun = useCallback(
     async (run: AppRunSummary) => {
@@ -360,6 +417,7 @@ export function AppsView() {
         setState("activeGameRunId", nextRun.runId);
         setState("tab", "apps");
         setState("appsSubTab", "games");
+        pushAppsUrl(getAppSlug(nextRun.appName));
         if (nextRun.viewer?.postMessageAuth && !nextRun.viewer.authMessage) {
           setActionNotice(
             t("appsview.IframeAuthMissing", {
@@ -384,7 +442,7 @@ export function AppsView() {
         setBusyRunId(null);
       }
     },
-    [mergeRun, setActionNotice, setState, t],
+    [mergeRun, pushAppsUrl, setActionNotice, setState, t],
   );
 
   const handleDetachRun = useCallback(
@@ -402,6 +460,7 @@ export function AppsView() {
         if (activeGameRunId === run.runId) {
           setState("activeGameRunId", "");
           setState("appsSubTab", "running");
+          pushAppsUrl();
         }
         setActionNotice(result.message, "success", 2200);
       } catch (err) {
@@ -417,7 +476,7 @@ export function AppsView() {
         setBusyRunId(null);
       }
     },
-    [activeGameRunId, mergeRun, setActionNotice, setState, t],
+    [activeGameRunId, mergeRun, pushAppsUrl, setActionNotice, setState, t],
   );
 
   const handleStopRun = useCallback(
@@ -429,6 +488,7 @@ export function AppsView() {
         if (activeGameRunId === run.runId) {
           setState("activeGameRunId", "");
           setState("appsSubTab", nextRuns.length > 0 ? "running" : "browse");
+          pushAppsUrl();
         }
         setActionNotice(
           result.message,
@@ -448,7 +508,7 @@ export function AppsView() {
         setBusyRunId(null);
       }
     },
-    [activeGameRunId, removeRun, setActionNotice, setState, t],
+    [activeGameRunId, pushAppsUrl, removeRun, setActionNotice, setState, t],
   );
 
   const visibleApps = useMemo(() => {
@@ -459,13 +519,16 @@ export function AppsView() {
     });
   }, [activeAppNames, apps, searchQuery, showActiveOnly]);
 
-  const handleSelectApp = useCallback((appName: string) => {
-    setSelectedAppName(appName);
-  }, []);
-
-  const handleBackToCatalog = useCallback(() => {
-    setSelectedAppName(null);
-  }, []);
+  const handleToggleFavorite = useCallback(
+    (appName: string) => {
+      const current = favoriteApps;
+      const next = current.includes(appName)
+        ? current.filter((name) => name !== appName)
+        : [...current, appName];
+      setState("favoriteApps", next);
+    },
+    [favoriteApps, setState],
+  );
 
   return (
     <div className="device-layout mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 lg:px-6">
@@ -476,21 +539,21 @@ export function AppsView() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+            className={`rounded-full border px-3 py-1.5 text-xs-tight font-medium transition-colors ${
               appsSubTab === "browse"
                 ? "border-accent/35 bg-accent/10 text-accent"
                 : "border-border/35 bg-card/72 text-muted-strong hover:border-accent/20 hover:text-txt"
             }`}
             onClick={() => {
               setState("appsSubTab", "browse");
-              setSelectedAppName(null);
+              pushAppsUrl();
             }}
           >
             Browse
           </button>
           <button
             type="button"
-            className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+            className={`rounded-full border px-3 py-1.5 text-xs-tight font-medium transition-colors ${
               appsSubTab === "running"
                 ? "border-accent/35 bg-accent/10 text-accent"
                 : "border-border/35 bg-card/72 text-muted-strong hover:border-accent/20 hover:text-txt"
@@ -502,7 +565,7 @@ export function AppsView() {
           {hasActiveRun ? (
             <button
               type="button"
-              className="rounded-full border border-ok/35 bg-ok/10 px-3 py-1.5 text-[11px] font-medium text-ok transition-colors hover:bg-ok/15"
+              className="rounded-full border border-ok/35 bg-ok/10 px-3 py-1.5 text-xs-tight font-medium text-ok transition-colors hover:bg-ok/15"
               onClick={handleOpenCurrentGame}
             >
               {hasCurrentGame ? "Live viewer" : "Active run"}
@@ -523,30 +586,20 @@ export function AppsView() {
             onStopRun={(run) => void handleStopRun(run)}
           />
         </PagePanel>
-      ) : selectedApp ? (
-        <AppDetailPane
-          app={selectedApp}
-          busy={busyApp === selectedApp.name}
-          hasActiveViewer={selectedAppHasActiveViewer}
-          isActive={selectedAppIsActive}
-          onBack={handleBackToCatalog}
-          onLaunch={() => void handleLaunch(selectedApp)}
-          onOpenCurrentGame={handleOpenCurrentGame}
-          onOpenCurrentGameInNewTab={() => void handleOpenCurrentGameInNewTab()}
-        />
       ) : (
         <AppsCatalogGrid
           activeAppNames={activeAppNames}
           error={error}
+          favoriteAppNames={favoriteAppNames}
           loading={loading}
           searchQuery={searchQuery}
           showActiveOnly={showActiveOnly}
           visibleApps={visibleApps}
           onLaunch={(app) => void handleLaunch(app)}
-          onRefresh={() => void loadApps()}
+          onRefresh={() => void refreshApps()}
           onSearchQueryChange={setSearchQuery}
-          onSelectApp={handleSelectApp}
           onToggleActiveOnly={() => setShowActiveOnly((current) => !current)}
+          onToggleFavorite={handleToggleFavorite}
         />
       )}
     </div>

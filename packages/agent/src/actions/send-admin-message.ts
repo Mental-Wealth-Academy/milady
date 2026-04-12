@@ -3,11 +3,13 @@ import type {
   HandlerOptions,
   IAgentRuntime,
   Memory,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger, stringToUuid } from "@elizaos/core";
-import { resolveCanonicalOwnerIdForMessage } from "@elizaos/core/roles";
+import { resolveCanonicalOwnerIdForMessage } from "../runtime/roles.js";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey } from "./context-signal.js";
 
 type SendAdminMessageParams = {
   text?: string;
@@ -49,8 +51,13 @@ export const sendAdminMessageAction: Action = {
   description:
     "Send a message to the owner/admin via their Milady app. Use when you need to notify, alert, or communicate with the owner.",
 
-  validate: async (runtime, message) => {
-    return hasAdminAccess(runtime, message);
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(
+      message,
+      state,
+      "send_admin_message",
+    );
   },
 
   handler: async (runtime, message, _state, options) => {

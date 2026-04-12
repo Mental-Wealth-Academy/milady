@@ -3,10 +3,12 @@ import type {
   HandlerOptions,
   IAgentRuntime,
   Memory,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey } from "./context-signal.js";
 import type {
   RelationshipsGraphService,
   RelationshipsPersonDetail,
@@ -160,7 +162,10 @@ export const searchEntityAction: Action = {
     "Returns matching contacts with their cross-platform identities. " +
     "Results include line numbers for copying to scratchpad.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "search_entity");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {
@@ -304,7 +309,10 @@ export const readEntityAction: Action = {
     "Look up by entity ID (from SEARCH_ENTITY results) or by name. " +
     "Full output can be saved to scratchpad.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "search_entity");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {

@@ -1,7 +1,6 @@
 /**
  * BlueBubbles API client for interacting with the BlueBubbles server
  */
-import { logger } from "@elizaos/core";
 import { API_ENDPOINTS } from "./constants";
 import type {
 	BlueBubblesChat,
@@ -53,16 +52,14 @@ export class BlueBubblesClient {
 	 * Probes the BlueBubbles server to check connectivity and capabilities
 	 */
 	async probe(timeoutMs = 5000): Promise<BlueBubblesProbeResult> {
-		try {
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+		try {
 			const info = await this.request<{ data: BlueBubblesServerInfo }>(
 				API_ENDPOINTS.SERVER_INFO,
 				{ signal: controller.signal },
 			);
-
-			clearTimeout(timeoutId);
 
 			return {
 				ok: true,
@@ -74,11 +71,12 @@ export class BlueBubblesClient {
 		} catch (error) {
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
-			logger.error(`BlueBubbles probe failed: ${errorMessage}`);
 			return {
 				ok: false,
 				error: errorMessage,
 			};
+		} finally {
+			clearTimeout(timeoutId);
 		}
 	}
 
@@ -219,7 +217,15 @@ export class BlueBubblesClient {
 	 */
 	async listChats(limit = 100, offset = 0): Promise<BlueBubblesChat[]> {
 		const response = await this.request<{ data: BlueBubblesChat[] }>(
-			`${API_ENDPOINTS.CHATS}?limit=${limit}&offset=${offset}&with=lastMessage,participants`,
+			API_ENDPOINTS.CHAT_QUERY,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					limit,
+					offset,
+					with: ["lastMessage", "participants"],
+				}),
+			},
 		);
 		return response.data;
 	}
@@ -340,13 +346,14 @@ export class BlueBubblesClient {
 		message?: string,
 	): Promise<BlueBubblesChat> {
 		const response = await this.request<{ data: BlueBubblesChat }>(
-			API_ENDPOINTS.CHATS,
+			API_ENDPOINTS.CREATE_CHAT,
 			{
 				method: "POST",
 				body: JSON.stringify({
-					participants,
+					addresses: participants,
 					name,
 					message,
+					service: "iMessage",
 				}),
 			},
 		);
@@ -386,7 +393,7 @@ export class BlueBubblesClient {
 		await this.request(
 			`${API_ENDPOINTS.CHAT_INFO}/${encodeURIComponent(chatGuid)}`,
 			{
-				method: "PATCH",
+				method: "PUT",
 				body: JSON.stringify({ displayName: newName }),
 			},
 		);

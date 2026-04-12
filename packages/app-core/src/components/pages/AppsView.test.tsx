@@ -22,6 +22,7 @@ interface AppsContextStub {
   activeGameDisplayName: string;
   activeGameViewerUrl: string;
   appsSubTab: "browse" | "running" | "games";
+  favoriteApps: string[];
   setState: (key: string, value: unknown) => void;
   setActionNotice: (
     text: string,
@@ -34,6 +35,7 @@ const { mockClientFns, mockUseApp } = vi.hoisted(() => ({
   mockClientFns: {
     getCodingAgentStatus: vi.fn(async () => null),
     listApps: vi.fn(),
+    refreshRegistry: vi.fn(),
     listInstalledApps: vi.fn(),
     listAppRuns: vi.fn(),
     launchApp: vi.fn(),
@@ -61,6 +63,24 @@ const { mockClientFns, mockUseApp } = vi.hoisted(() => ({
     sendAppRunMessage: vi.fn(),
   },
   mockUseApp: vi.fn(),
+}));
+
+const {
+  mockGetInternalToolAppCatalogOrder,
+  mockGetInternalToolAppTargetTab,
+  mockInternalToolApps,
+  mockIsInternalToolApp,
+} = vi.hoisted(() => ({
+  mockGetInternalToolAppCatalogOrder: vi.fn((name: string) =>
+    name === "@miladyai/app-plugin-viewer" ? 0 : Number.MAX_SAFE_INTEGER,
+  ),
+  mockGetInternalToolAppTargetTab: vi.fn((name: string) =>
+    name === "@miladyai/app-plugin-viewer" ? "plugins" : null,
+  ),
+  mockInternalToolApps: vi.fn(() => []),
+  mockIsInternalToolApp: vi.fn(
+    (name: string) => name === "@miladyai/app-plugin-viewer",
+  ),
 }));
 
 const mockGoogleConnector = {
@@ -104,6 +124,14 @@ vi.mock("@miladyai/app-core/api", () => ({
 }));
 vi.mock("../../hooks", () => ({
   useGoogleLifeOpsConnector: vi.fn(() => mockGoogleConnector),
+}));
+vi.mock("../apps/internal-tool-apps", () => ({
+  getInternalToolAppCatalogOrder: (name: string) =>
+    mockGetInternalToolAppCatalogOrder(name),
+  getInternalToolAppTargetTab: (name: string) =>
+    mockGetInternalToolAppTargetTab(name),
+  getInternalToolApps: () => mockInternalToolApps(),
+  isInternalToolApp: (name: string) => mockIsInternalToolApp(name),
 }));
 vi.mock("@miladyai/app-core/state", () => ({
   useApp: () => mockUseApp(),
@@ -221,6 +249,7 @@ function createAppsContext(
     activeGameDisplayName: "",
     activeGameViewerUrl: "",
     appsSubTab: "browse",
+    favoriteApps: [],
     setState: vi.fn<AppsContextStub["setState"]>(),
     setActionNotice: vi.fn<AppsContextStub["setActionNotice"]>(),
     ...overrides,
@@ -288,6 +317,7 @@ describe("AppsView", () => {
       undefined,
     );
     mockClientFns.listApps.mockReset();
+    mockClientFns.refreshRegistry.mockReset();
     mockClientFns.listInstalledApps.mockReset();
     mockClientFns.listAppRuns.mockReset();
     mockClientFns.launchApp.mockReset();
@@ -396,8 +426,25 @@ describe("AppsView", () => {
       success: true,
       message: "sent",
     });
+    mockGetInternalToolAppCatalogOrder
+      .mockReset()
+      .mockImplementation((name: string) =>
+        name === "@miladyai/app-plugin-viewer" ? 0 : Number.MAX_SAFE_INTEGER,
+      );
+    mockGetInternalToolAppTargetTab
+      .mockReset()
+      .mockImplementation((name: string) =>
+        name === "@miladyai/app-plugin-viewer" ? "plugins" : null,
+      );
+    mockInternalToolApps.mockReset().mockReturnValue([]);
+    mockIsInternalToolApp
+      .mockReset()
+      .mockImplementation(
+        (name: string) => name === "@miladyai/app-plugin-viewer",
+      );
     mockClientFns.listInstalledApps.mockResolvedValue([]);
     mockClientFns.listAppRuns.mockResolvedValue([]);
+    mockClientFns.refreshRegistry.mockResolvedValue(undefined);
     originalMatchMedia = window.matchMedia;
   });
 
@@ -533,49 +580,58 @@ describe("AppsView", () => {
         false,
       ),
     ).toBe(true);
+    expect(
+      shouldShowAppInAppsView(
+        createApp("@miladyai/app-plugin-viewer", "Plugin Viewer", "Tool app", {
+          category: "utility",
+        }),
+        false,
+      ),
+    ).toBe(true);
   });
 
-  it("renders the Defense detail extension with live status and scripts", async () => {
-    const run = createRunSummary({
-      runId: "run-defense",
-      appName: "@elizaos/app-defense-of-the-agents",
-      displayName: "Defense of the Agents",
-      pluginName: "@elizaos/app-defense-of-the-agents",
-      launchType: "url",
-      launchUrl: "https://www.defenseoftheagents.com",
-      session: {
-        sessionId: "defense-session",
-        appName: "@elizaos/app-defense-of-the-agents",
-        mode: "spectate-and-steer",
-        status: "running",
-        displayName: "Defense of the Agents",
-        canSendCommands: true,
-        controls: ["pause"],
-        summary: "Holding mid lane with autoplay enabled.",
-        suggestedPrompts: ["Hold top lane next push"],
-        telemetry: {
-          heroClass: "mage",
-          heroLane: "mid",
-          heroLevel: 7,
-          heroHp: 380,
-          heroMaxHp: 500,
-          autoPlay: true,
-          strategyVersion: 4,
-          bestStrategyVersion: 5,
-          recentActivity: [
-            {
-              ts: 1_712_345_678_000,
-              action: "reinforce",
-              detail: "Shifted pressure back to mid lane.",
-            },
-          ],
-        },
-      },
-      summary: "Holding mid lane with autoplay enabled.",
+  it("launches the LifeOps app into its owned tab without a server round-trip", async () => {
+    const ctx = createAppsContext();
+    mockUseApp.mockReturnValue({
+      ...ctx,
+      uiLanguage: "en",
+      t: tStub,
     });
-    const ctx = createAppsContext({
-      appRuns: [run],
+    mockGetInternalToolAppCatalogOrder.mockImplementation((name: string) =>
+      name === "@miladyai/app-lifeops" ? 0 : Number.MAX_SAFE_INTEGER,
+    );
+    mockGetInternalToolAppTargetTab.mockImplementation((name: string) =>
+      name === "@miladyai/app-lifeops" ? "lifeops" : null,
+    );
+    mockIsInternalToolApp.mockImplementation(
+      (name: string) => name === "@miladyai/app-lifeops",
+    );
+    mockInternalToolApps.mockReturnValue([
+      createApp("@miladyai/app-lifeops", "LifeOps", "Tool app", {
+        category: "utility",
+        launchType: "local",
+        launchUrl: null,
+      }),
+    ]);
+    mockClientFns.listApps.mockResolvedValue([]);
+
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(React.createElement(AppsView));
     });
+    await flush();
+
+    await act(async () => {
+      findButtonByTitle(tree.root, "LifeOps").props.onClick();
+    });
+    await flush();
+
+    expect(ctx.setState).toHaveBeenCalledWith("tab", "lifeops");
+    expect(mockClientFns.launchApp).not.toHaveBeenCalled();
+  });
+
+  it("launches Defense of the Agents directly from the catalog card", async () => {
+    const ctx = createAppsContext();
     mockUseApp.mockReturnValue({
       ...ctx,
       uiLanguage: "en",
@@ -595,7 +651,9 @@ describe("AppsView", () => {
         },
       ),
     ]);
-    mockClientFns.listAppRuns.mockResolvedValue([run]);
+    mockClientFns.launchApp.mockResolvedValue(
+      createLaunchResult({ displayName: "Defense of the Agents" }),
+    );
 
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -604,19 +662,13 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      findButtonByTitle(
-        tree.root,
-        "Open Defense of the Agents",
-      ).props.onClick();
+      findButtonByTitle(tree.root, "Defense of the Agents").props.onClick();
     });
     await flush();
 
-    expect(textOf(tree.root)).toContain("Live Operator Surface");
-    expect(textOf(tree.root)).toContain("Autoplay Script");
-    expect(textOf(tree.root)).toContain(
-      "Holding mid lane with autoplay enabled.",
+    expect(mockClientFns.launchApp).toHaveBeenCalledWith(
+      "@elizaos/app-defense-of-the-agents",
     );
-    expect(textOf(tree.root)).toContain("Shifted pressure back to mid lane.");
   });
 
   it("loads apps and launches iframe viewer flow", async () => {
@@ -682,17 +734,12 @@ describe("AppsView", () => {
     });
     await flush();
 
+    const appCard = findButtonByTitle(tree.root, "Hyperscape");
     await act(async () => {
-      findButtonByTitle(tree.root, "Open Hyperscape").props.onClick();
+      appCard.props.onClick();
     });
     await flush();
 
-    const launchButton = findButtonByText(tree.root, "appsview.Launch");
-    await act(async () => {
-      await launchButton.props.onClick();
-    });
-
-    expect(mockClientFns.launchApp).toHaveBeenCalledWith(app.name);
     expect(ctx.setState).toHaveBeenCalledWith(
       "appRuns",
       expect.arrayContaining([
@@ -716,7 +763,7 @@ describe("AppsView", () => {
     ).toBe(false);
   });
 
-  it("uses the compact app detail flow on small screens", async () => {
+  it("launches app directly when clicking a card on small screens", async () => {
     const ctx = createAppsContext();
     mockUseApp.mockReturnValue({
       ...ctx,
@@ -746,6 +793,21 @@ describe("AppsView", () => {
       },
     });
     mockClientFns.listApps.mockResolvedValue([app]);
+    mockClientFns.launchApp.mockResolvedValue(
+      createLaunchResult({
+        displayName: app.displayName,
+        run: createRunSummary({
+          runId: "run-2004scape",
+          appName: app.name,
+          displayName: app.displayName!,
+          pluginName: app.name,
+          viewer: {
+            url: "http://localhost:5175",
+            sandbox: "allow-scripts allow-same-origin",
+          },
+        }),
+      }),
+    );
 
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -753,26 +815,14 @@ describe("AppsView", () => {
     });
     await flush();
 
-    expect(
-      tree.root.findAll(
-        (node) => node.props["data-testid"] === "apps-detail-panel",
-      ).length,
-    ).toBe(0);
-
-    const appCard = findButtonByTitle(tree.root, "Open 2004scape");
+    const appCard = findButtonByTitle(tree.root, "2004scape");
 
     await act(async () => {
       appCard.props.onClick();
     });
     await flush();
 
-    expect(
-      tree.root.findAll(
-        (node) => node.props["data-testid"] === "apps-detail-panel",
-      ).length,
-    ).toBeGreaterThanOrEqual(1);
-    expect(textOf(tree.root)).toContain("appsview.Back");
-    expect(textOf(tree.root)).toContain("2004scape operator surface");
+    expect(mockClientFns.launchApp).toHaveBeenCalledWith(app.name);
   });
 
   it("prefers a run that needs recovery when the running tab opens", async () => {
@@ -857,6 +907,69 @@ describe("AppsView", () => {
     expect(textOf(tree.root)).toContain("Command bridge is unavailable");
   });
 
+  it("keeps the Babylon running surface alive when Babylon metrics are sparse", async () => {
+    const app = createApp("@elizaos/app-babylon", "Babylon", "Market");
+    const run = createRunSummary({
+      runId: "run-babylon",
+      appName: app.name,
+      displayName: app.displayName,
+      pluginName: app.name,
+      status: "running",
+      summary: "Babylon is coordinating the team before the next buy.",
+      viewerAttachment: "detached",
+      session: {
+        sessionId: "run-babylon-session",
+        appName: app.name,
+        mode: "spectate-and-steer",
+        status: "running",
+        displayName: app.displayName,
+        canSendCommands: true,
+        controls: ["pause", "resume"],
+        summary: "Babylon is coordinating the team before the next buy.",
+        goalLabel: "Keep the desk aligned before buying.",
+        suggestedPrompts: ["Check the team inventory"],
+      },
+    });
+    const ctx = createAppsContext({
+      appRuns: [run],
+      appsSubTab: "running",
+    });
+    mockUseApp.mockReturnValue({
+      ...ctx,
+      uiLanguage: "en",
+      t: tStub,
+    });
+    mockClientFns.listApps.mockResolvedValue([app]);
+    mockClientFns.listAppRuns.mockResolvedValue([run]);
+    mockClientFns.getBabylonAgentStatus.mockResolvedValue({} as never);
+    mockClientFns.getBabylonAgentSummary.mockResolvedValue({} as never);
+    mockClientFns.getBabylonAgentGoals.mockResolvedValue({} as never);
+    mockClientFns.getBabylonAgentRecentTrades.mockResolvedValue({} as never);
+    mockClientFns.getBabylonPredictionMarkets.mockResolvedValue({} as never);
+    mockClientFns.getBabylonTeamDashboard.mockResolvedValue({} as never);
+    mockClientFns.getBabylonTeamConversations.mockResolvedValue({} as never);
+    mockClientFns.getBabylonAgentChat.mockResolvedValue({} as never);
+    mockClientFns.getBabylonAgentWallet.mockResolvedValue({} as never);
+    mockClientFns.getBabylonAgentTradingBalance.mockResolvedValue({} as never);
+
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(React.createElement(AppsView));
+    });
+    await flush();
+    await flush();
+
+    expect(textOf(tree.root)).toContain("Running now");
+    expect(textOf(tree.root)).toContain("Babylon");
+    expect(textOf(tree.root)).toContain("Waiting for wallet");
+    expect(
+      tree.root.findAll(
+        (node) =>
+          node.props["data-testid"] === "babylon-running-operator-surface",
+      ).length,
+    ).toBe(1);
+  });
+
   it("shows auth warning when postMessage auth payload is missing", async () => {
     const ctx = createAppsContext();
     mockUseApp.mockReturnValue({
@@ -900,13 +1013,9 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      findButtonByTitle(tree.root, "Open Hyperscape").props.onClick();
+      findButtonByTitle(tree.root, "Hyperscape").props.onClick();
     });
     await flush();
-
-    await act(async () => {
-      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
-    });
 
     expect(ctx.setActionNotice).toHaveBeenCalledWith(
       expect.stringContaining("requires iframe auth"),
@@ -956,13 +1065,9 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      findButtonByTitle(tree.root, "Open Babylon").props.onClick();
+      findButtonByTitle(tree.root, "Babylon").props.onClick();
     });
     await flush();
-
-    await act(async () => {
-      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
-    });
 
     expect(popupSpy).toHaveBeenCalledWith(
       "https://example.com/babylon",
@@ -1013,23 +1118,24 @@ describe("AppsView", () => {
     });
     await flush();
 
+    // First click launches — popup blocked path
     await act(async () => {
-      findButtonByTitle(tree.root, "Open Babylon").props.onClick();
+      findButtonByTitle(tree.root, "Babylon").props.onClick();
     });
     await flush();
 
-    await act(async () => {
-      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
-    });
     expect(ctx.setActionNotice).toHaveBeenCalledWith(
       "Babylon opened in a new tab.",
       "success",
       2600,
     );
 
+    // Second click triggers network error
     await act(async () => {
-      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
+      findButtonByTitle(tree.root, "Babylon").props.onClick();
     });
+    await flush();
+
     expect(ctx.setActionNotice).toHaveBeenCalledWith(
       "Failed to launch Babylon: network down",
       "error",
@@ -1070,13 +1176,9 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      findButtonByTitle(tree.root, "Open Babylon").props.onClick();
+      findButtonByTitle(tree.root, "Babylon").props.onClick();
     });
     await flush();
-
-    await act(async () => {
-      await findButtonByText(tree.root, "appsview.Launch").props.onClick();
-    });
 
     expect(request).toHaveBeenCalledWith({
       url: "https://example.com/babylon",
@@ -1126,13 +1228,12 @@ describe("AppsView", () => {
     const root = tree?.root;
     expect(
       root.findAll(
-        (node) =>
-          node.type === "button" && node.props.title === "Open Hyperscape",
+        (node) => node.type === "button" && node.props.title === "Hyperscape",
       ).length,
     ).toBe(1);
     expect(
       root.findAll(
-        (node) => node.type === "button" && node.props.title === "Open Babylon",
+        (node) => node.type === "button" && node.props.title === "Babylon",
       ).length,
     ).toBe(1);
     const searchInput = root.findByType("input");
@@ -1141,23 +1242,109 @@ describe("AppsView", () => {
     });
     expect(
       root.findAll(
-        (node) =>
-          node.type === "button" && node.props.title === "Open Hyperscape",
+        (node) => node.type === "button" && node.props.title === "Hyperscape",
       ).length,
     ).toBe(1);
     expect(
       root.findAll(
-        (node) => node.type === "button" && node.props.title === "Open Babylon",
+        (node) => node.type === "button" && node.props.title === "Babylon",
       ).length,
     ).toBe(0);
 
     await act(async () => {
       await findButtonByText(root, "common.refresh").props.onClick();
     });
+    expect(mockClientFns.refreshRegistry).toHaveBeenCalledTimes(1);
     expect(mockClientFns.listApps).toHaveBeenCalledTimes(2);
   });
 
-  it("renders the registered Hyperscape host surface without legacy API calls", async () => {
+  it("renders the catalog even when app run refresh is still pending", async () => {
+    const ctx = createAppsContext();
+    mockUseApp.mockReturnValue({
+      ...ctx,
+      uiLanguage: "en",
+      t: tStub,
+    });
+    const app = createApp("@elizaos/app-babylon", "Babylon", "Wallet");
+    mockClientFns.listApps.mockResolvedValue([app]);
+    mockClientFns.listAppRuns.mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(React.createElement(AppsView));
+    });
+    await flush();
+
+    expect(
+      tree.root.findAll(
+        (node) => node.type === "button" && node.props.title === "Babylon",
+      ).length,
+    ).toBe(1);
+  });
+
+  it("renders the browse catalog in named sections", async () => {
+    const ctx = createAppsContext();
+    mockUseApp.mockReturnValue({
+      ...ctx,
+      uiLanguage: "en",
+      t: tStub,
+    });
+    mockGetInternalToolAppCatalogOrder.mockImplementation((name: string) =>
+      name === "@miladyai/app-lifeops" ? 0 : Number.MAX_SAFE_INTEGER,
+    );
+    mockGetInternalToolAppTargetTab.mockImplementation((name: string) =>
+      name === "@miladyai/app-lifeops" ? "lifeops" : null,
+    );
+    mockIsInternalToolApp.mockImplementation(
+      (name: string) => name === "@miladyai/app-lifeops",
+    );
+    mockInternalToolApps.mockReturnValue([
+      createApp("@miladyai/app-lifeops", "LifeOps", "Tasks and calendar", {
+        category: "utility",
+        launchType: "local",
+        launchUrl: null,
+      }),
+    ]);
+    mockClientFns.listApps.mockResolvedValue([
+      createApp("@hyperscape/plugin-hyperscape", "Hyperscape", "Arena world", {
+        category: "game",
+      }),
+      createApp("@elizaos/app-babylon", "Babylon", "Market watch", {
+        category: "platform",
+      }),
+      createApp("@miladyai/app-vincent", "Vincent", "Sales dashboard", {
+        category: "utility",
+      }),
+      createApp("@miladyai/app-companion", "Companion", "Chat with Milady", {
+        category: "world",
+      }),
+    ]);
+
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<AppsView />);
+    });
+    await flush();
+
+    expect(textOf(tree.root)).toContain("Games");
+    expect(textOf(tree.root)).toContain("Finance");
+    expect(textOf(tree.root)).toContain("Life Management");
+    expect(textOf(tree.root)).toContain("Companions");
+    expect(
+      tree.root.findAll(
+        (node) => node.props["data-testid"] === "apps-section-games",
+      ).length,
+    ).toBe(1);
+    expect(
+      tree.root.findAll(
+        (node) => node.props["data-testid"] === "apps-section-lifeManagement",
+      ).length,
+    ).toBe(1);
+  });
+
+  it("launches Hyperscape directly without legacy API calls", async () => {
     const ctx = createAppsContext();
     mockUseApp.mockReturnValue({
       ...ctx,
@@ -1173,6 +1360,9 @@ describe("AppsView", () => {
       },
     );
     mockClientFns.listApps.mockResolvedValue([app]);
+    mockClientFns.launchApp.mockResolvedValue(
+      createLaunchResult({ displayName: app.displayName }),
+    );
 
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -1181,21 +1371,15 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      findButtonByTitle(tree?.root, "Open Hyperscape").props.onClick();
+      findButtonByTitle(tree?.root, "Hyperscape").props.onClick();
     });
     await flush();
 
-    expect(
-      tree?.root.findAll((node) => text(node).includes("appsview.Back")).length,
-    ).toBeGreaterThanOrEqual(1);
-    expect(
-      tree?.root.findAll((node) => text(node) === "Hyperscape").length,
-    ).toBeGreaterThan(0);
-    expect(textOf(tree.root)).toContain("Hyperscape host surface");
+    expect(mockClientFns.launchApp).toHaveBeenCalledWith(app.name);
     expect(mockClientFns.listHyperscapeEmbeddedAgents).not.toHaveBeenCalled();
   });
 
-  it("opens the selected app detail view after choosing a launcher tile", async () => {
+  it("launches app directly when clicking a card tile", async () => {
     const ctx = createAppsContext();
     mockUseApp.mockReturnValue({
       ...ctx,
@@ -1216,41 +1400,17 @@ describe("AppsView", () => {
         pluginName: app.name,
       }),
     ]);
-
-    let tree!: TestRenderer.ReactTestRenderer;
-    await act(async () => {
-      tree = TestRenderer.create(React.createElement(AppsView));
-    });
-    await flush();
-
-    await act(async () => {
-      findButtonByTitle(tree?.root, "Open Hyperscape").props.onClick();
-    });
-    await flush();
-
-    expect(
-      tree.root.findAll(
-        (node) => node.props["data-testid"] === "apps-detail-panel",
-      ).length,
-    ).toBeGreaterThanOrEqual(1);
-    expect(textOf(tree.root)).toContain("Hyperscape");
-    expect(textOf(tree.root)).toContain("appsview.Launch");
-  });
-
-  it("opens app details and can return to the app list", async () => {
-    const ctx = createAppsContext();
-    mockUseApp.mockReturnValue({
-      ...ctx,
-      uiLanguage: "en",
-      t: tStub,
-    });
-    const appOne = createApp(
-      "@hyperscape/plugin-hyperscape",
-      "Hyperscape",
-      "Arena",
+    mockClientFns.launchApp.mockResolvedValue(
+      createLaunchResult({
+        displayName: app.displayName,
+        run: createRunSummary({
+          runId: "run-hyperscape",
+          appName: app.name,
+          displayName: app.displayName!,
+          pluginName: app.name,
+        }),
+      }),
     );
-    const appTwo = createApp("@elizaos/app-babylon", "Babylon", "Wallet");
-    mockClientFns.listApps.mockResolvedValue([appOne, appTwo]);
 
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -1259,33 +1419,10 @@ describe("AppsView", () => {
     await flush();
 
     await act(async () => {
-      findButtonByTitle(tree?.root, "Open Babylon").props.onClick();
+      findButtonByTitle(tree?.root, "Hyperscape").props.onClick();
     });
-    expect(
-      tree?.root.findAll((node) => text(node).includes("appsview.Back")).length,
-    ).toBeGreaterThanOrEqual(1);
-    expect(
-      tree?.root.findAll((node) => text(node) === "Babylon").length,
-    ).toBeGreaterThan(0);
+    await flush();
 
-    await act(async () => {
-      findButtonContainingText(tree?.root, "appsview.Back").props.onClick();
-    });
-    expect(
-      tree.root.findAll(
-        (node) => node.props["data-testid"] === "apps-detail-panel",
-      ).length,
-    ).toBe(0);
-    expect(
-      tree?.root.findAll(
-        (node) =>
-          node.type === "button" && node.props.title === "Open Hyperscape",
-      ).length,
-    ).toBe(1);
-    expect(
-      tree?.root.findAll(
-        (node) => node.type === "button" && node.props.title === "Open Babylon",
-      ).length,
-    ).toBe(1);
+    expect(mockClientFns.launchApp).toHaveBeenCalledWith(app.name);
   });
 });

@@ -24,14 +24,25 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: blacksmith-4vcpu-ubuntu-2404
+            runner: ubuntu-24.04
           # arm64 builds can be enabled when arm runners are available
           # - arch: arm64
-          #   runner: blacksmith-4vcpu-ubuntu-2404-arm
+          #   runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Snap build runs `bun install` inside the snapcraft
+          # sandbox, which requires every `workspace:*` dependency
+          # under `plugins/plugin-*/typescript` to be present. Without
+          # submodules, those directories are empty and `bun install`
+          # fails with "Workspace dependency @elizaos/plugin-... not
+          # found" for every plugin submodule.
+          submodules: false
+
+      - name: Initialize tracked workspace submodules
+        run: node scripts/init-submodules.mjs
 
       - name: Prepare snapcraft.yaml
         run: |

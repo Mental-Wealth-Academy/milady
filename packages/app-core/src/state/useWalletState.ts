@@ -32,6 +32,12 @@ import {
 } from "../api";
 import type { PromptOptions } from "@miladyai/ui";
 import { confirmDesktopAction } from "../utils";
+import {
+  loadBrowserEnabled,
+  loadWalletEnabled,
+  saveBrowserEnabled,
+  saveWalletEnabled,
+} from "./persistence";
 import type { InventoryChainFilters } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -60,6 +66,19 @@ export function useWalletState({
   agentName,
   characterName,
 }: WalletStateParams) {
+  // ── Feature toggles ────────────────────────────────────────────────
+  const [walletEnabled, setWalletEnabledRaw] = useState(loadWalletEnabled);
+  const setWalletEnabled = useCallback((v: boolean) => {
+    setWalletEnabledRaw(v);
+    saveWalletEnabled(v);
+  }, []);
+
+  const [browserEnabled, setBrowserEnabledRaw] = useState(loadBrowserEnabled);
+  const setBrowserEnabled = useCallback((v: boolean) => {
+    setBrowserEnabledRaw(v);
+    saveBrowserEnabled(v);
+  }, []);
+
   // ── Wallet / Inventory ─────────────────────────────────────────────
   const [walletAddresses, setWalletAddresses] =
     useState<WalletAddresses | null>(null);
@@ -355,6 +374,8 @@ export function useWalletState({
 
   return {
     state: {
+      browserEnabled,
+      walletEnabled,
       walletAddresses,
       walletConfig,
       walletBalances,
@@ -383,6 +404,8 @@ export function useWalletState({
       whitelistLoading,
     },
     // Raw setters needed by AppContext for UI binding
+    setBrowserEnabled,
+    setWalletEnabled,
     setWalletAddresses,
     setInventoryView,
     setInventorySort,

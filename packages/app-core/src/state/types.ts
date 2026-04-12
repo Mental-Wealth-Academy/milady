@@ -95,7 +95,11 @@ export interface NavigationEventsApi {
   scheduleAfterTabCommit: (fn: () => void) => void;
 }
 
-export type OnboardingStep = "identity" | "providers";
+export type OnboardingStep =
+  | "deployment"
+  | "identity"
+  | "providers"
+  | "features";
 
 export interface OnboardingStepMeta {
   id: OnboardingStep;
@@ -103,8 +107,13 @@ export interface OnboardingStepMeta {
   subtitle: string;
 }
 
-/** 2-step onboarding flow — server selection is on the splash page, permissions are lazy. */
+/** 4-step onboarding flow — deployment absorbs the old splash page, features enables connectors. */
 export const ONBOARDING_STEPS: OnboardingStepMeta[] = [
+  {
+    id: "deployment",
+    name: "onboarding.stepName.deployment",
+    subtitle: "onboarding.stepSub.deployment",
+  },
   {
     id: "identity",
     name: "onboarding.stepName.identity",
@@ -115,11 +124,21 @@ export const ONBOARDING_STEPS: OnboardingStepMeta[] = [
     name: "onboarding.stepName.providers",
     subtitle: "onboarding.stepSub.providers",
   },
+  {
+    id: "features",
+    name: "onboarding.stepName.features",
+    subtitle: "onboarding.stepSub.features",
+  },
 ];
 
 export type OnboardingMode = "basic" | "advanced" | "elizacloudonly";
 
-export type FlaminaGuideTopic = "provider" | "rpc" | "permissions" | "voice";
+export type FlaminaGuideTopic =
+  | "provider"
+  | "rpc"
+  | "permissions"
+  | "voice"
+  | "features";
 
 export interface OnboardingNextOptions {
   allowPermissionBypass?: boolean;
@@ -246,6 +265,8 @@ export interface AppState {
   uiShellMode: UiShellMode;
   uiLanguage: UiLanguage;
   uiTheme: UiTheme;
+  /** Active visual theme ID (e.g. "bsc-gold", "neon-cyber") */
+  themeId: string;
   ownerName: string | null;
   /** VRM quality vs GPU use: always full quality, battery-aware (default), or always efficient. */
   companionVrmPowerMode: CompanionVrmPowerMode;
@@ -363,7 +384,11 @@ export interface AppState {
   logSourceFilter: string;
   logLoadError: string | null;
 
+  // Capabilities (feature toggles)
+  browserEnabled: boolean;
+
   // Wallet / Inventory
+  walletEnabled: boolean;
   walletAddresses: WalletAddresses | null;
   walletConfig: WalletConfigStatus | null;
   walletBalances: WalletBalancesResponse | null;
@@ -437,6 +462,9 @@ export interface AppState {
   elizaCloudLoginBusy: boolean;
   elizaCloudLoginError: string | null;
   elizaCloudDisconnecting: boolean;
+
+  // Multi-agent profiles
+  activeAgentProfile: import("./agent-profiles").AgentProfile | null;
 
   // Updates
   updateStatus: UpdateStatus | null;
@@ -543,6 +571,15 @@ export interface AppState {
   onboardingRpcKeys: Record<string, string>;
   onboardingAvatar: number;
 
+  // Onboarding feature toggles (features step)
+  onboardingFeatureTelegram: boolean;
+  onboardingFeatureDiscord: boolean;
+  onboardingFeaturePhone: boolean;
+  onboardingFeatureCrypto: boolean;
+  onboardingFeatureBrowser: boolean;
+  /** Which feature is currently mid-OAuth flow, or null. */
+  onboardingFeatureOAuthPending: string | null;
+
   // Command palette
   commandPaletteOpen: boolean;
   commandQuery: string;
@@ -613,6 +650,9 @@ export interface AppState {
   pluginsSubTab: "features" | "connectors" | "plugins";
   databaseSubTab: "tables" | "media" | "vectors";
 
+  // Favorite apps
+  favoriteApps: string[];
+
   // Config text
   configRaw: Record<string, unknown>;
   configText: string;
@@ -634,6 +674,7 @@ export interface AppActions {
   navigation: NavigationEventsApi;
   setUiLanguage: (language: UiLanguage) => void;
   setUiTheme: (theme: UiTheme) => void;
+  setThemeId: (themeId: string) => void;
   setCompanionVrmPowerMode: (mode: CompanionVrmPowerMode) => void;
   setCompanionAnimateWhenHidden: (enabled: boolean) => void;
   setCompanionHalfFramerateMode: (mode: CompanionHalfFramerateMode) => void;
@@ -798,7 +839,7 @@ export interface AppActions {
   handleOnboardingBack: () => void;
   /** Jump to an earlier step in the active track (sidebar); backward-only. */
   handleOnboardingJumpToStep: (step: OnboardingStep) => void;
-  /** Set onboarding step and sync Flamina guide (e.g. welcome → connection). */
+  /** Set onboarding step and sync Flamina guide (e.g. deployment → providers). */
   goToOnboardingStep: (step: OnboardingStep) => void;
   handleOnboardingRemoteConnect: () => Promise<void>;
   handleOnboardingUseLocalBackend: () => void;
@@ -806,6 +847,9 @@ export interface AppActions {
   // Cloud
   handleCloudLogin: () => Promise<void>;
   handleCloudDisconnect: () => Promise<void>;
+
+  // Multi-agent
+  switchAgentProfile: (profileId: string) => void;
   handleCloudOnboardingFinish: () => Promise<void>;
 
   // Vincent

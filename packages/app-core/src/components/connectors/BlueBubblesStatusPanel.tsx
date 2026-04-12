@@ -1,5 +1,5 @@
 import { Button, PagePanel } from "@miladyai/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { client } from "../../api";
 import { useApp } from "../../state";
 
@@ -54,8 +54,7 @@ export function BlueBubblesStatusPanel() {
       void refresh();
     });
   }, [refresh]);
-
-  const webhookTarget = useMemo(() => resolveWebhookTarget(status), [status]);
+  const webhookTarget = resolveWebhookTarget(status);
 
   return (
     <PagePanel.Notice
@@ -65,7 +64,7 @@ export function BlueBubblesStatusPanel() {
         <Button
           variant="outline"
           size="sm"
-          className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+          className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
           onClick={() => {
             void refresh();
           }}
@@ -99,7 +98,7 @@ export function BlueBubblesStatusPanel() {
                 defaultValue: "Webhook target",
               })}
             </div>
-            <code className="block break-all rounded-lg border border-border/40 bg-bg/70 px-3 py-2 text-[11px] text-muted-strong">
+            <code className="block break-all rounded-lg border border-border/40 bg-bg/70 px-3 py-2 text-xs-tight text-muted-strong">
               {webhookTarget}
             </code>
           </div>

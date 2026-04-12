@@ -29,6 +29,10 @@ const DESKTOP_CLIENT_ID_KEYS = [
   "MILADY_GOOGLE_OAUTH_DESKTOP_CLIENT_ID",
   "ELIZA_GOOGLE_OAUTH_DESKTOP_CLIENT_ID",
 ] as const;
+const DESKTOP_CLIENT_SECRET_KEYS = [
+  "MILADY_GOOGLE_OAUTH_DESKTOP_CLIENT_SECRET",
+  "ELIZA_GOOGLE_OAUTH_DESKTOP_CLIENT_SECRET",
+] as const;
 const WEB_CLIENT_ID_KEYS = [
   "MILADY_GOOGLE_OAUTH_WEB_CLIENT_ID",
   "ELIZA_GOOGLE_OAUTH_WEB_CLIENT_ID",
@@ -188,6 +192,8 @@ export function resolveGoogleOAuthConfig(
 
   if (mode === "local") {
     const clientId = readEnvOverride(env, DESKTOP_CLIENT_ID_KEYS) ?? null;
+    const clientSecret =
+      readEnvOverride(env, DESKTOP_CLIENT_SECRET_KEYS) ?? null;
     const port =
       requestUrl.port || (requestUrl.protocol === "https:" ? "443" : "80");
     return {
@@ -196,7 +202,7 @@ export function resolveGoogleOAuthConfig(
       availableModes,
       configured: clientId !== null,
       clientId,
-      clientSecret: null,
+      clientSecret,
       redirectUri: `http://127.0.0.1:${port}/api/lifeops/connectors/google/callback`,
     };
   }
@@ -660,6 +666,16 @@ export async function completeGoogleConnectorOAuth(args: {
   };
 }
 
+/**
+ * In-flight refresh promises keyed by tokenRef. Deduplicates concurrent
+ * callers so only one token exchange runs per tokenRef at a time — prevents
+ * the race where parallel refreshes overwrite each other's tokens on disk.
+ */
+const inflightRefreshes = new Map<
+  string,
+  Promise<StoredGoogleConnectorToken>
+>();
+
 export async function ensureFreshGoogleAccessToken(
   tokenRef: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -678,10 +694,30 @@ export async function ensureFreshGoogleAccessToken(
     );
   }
 
+  // Deduplicate concurrent refreshes for the same tokenRef
+  const existing = inflightRefreshes.get(tokenRef);
+  if (existing) {
+    return existing;
+  }
+
+  const refreshPromise = refreshGoogleAccessTokenImpl(tokenRef, stored, env);
+  inflightRefreshes.set(tokenRef, refreshPromise);
+  try {
+    return await refreshPromise;
+  } finally {
+    inflightRefreshes.delete(tokenRef);
+  }
+}
+
+async function refreshGoogleAccessTokenImpl(
+  tokenRef: string,
+  stored: StoredGoogleConnectorToken,
+  env: NodeJS.ProcessEnv,
+): Promise<StoredGoogleConnectorToken> {
   const params = new URLSearchParams({
     client_id: stored.clientId,
     grant_type: "refresh_token",
-    refresh_token: stored.refreshToken,
+    refresh_token: stored.refreshToken!,
   });
   if (stored.mode === "remote") {
     const clientSecret = readEnvOverride(env, WEB_CLIENT_SECRET_KEYS);
@@ -692,6 +728,11 @@ export async function ensureFreshGoogleAccessToken(
       );
     }
     params.set("client_secret", clientSecret);
+  } else if (stored.mode === "local") {
+    const clientSecret = readEnvOverride(env, DESKTOP_CLIENT_SECRET_KEYS);
+    if (clientSecret) {
+      params.set("client_secret", clientSecret);
+    }
   }
 
   const token = await exchangeGoogleToken(params);

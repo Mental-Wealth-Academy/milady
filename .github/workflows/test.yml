@@ -22,7 +22,7 @@ env:
 jobs:
   regression-matrix:
     name: Regression Matrix Contract
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -42,7 +42,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -53,7 +53,7 @@ jobs:
 
       # WHY setup-node before bun install: optional deps like @discordjs/opus fall back to node-gyp; Node 22 + colocated cache avoids nodejs.org header download. Engines require >=22.
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -61,7 +61,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
           skip-avatar-clone: "true"
           no-vision-deps: "true"
 
@@ -87,7 +87,7 @@ jobs:
 
   db-check:
     name: Database Security Check
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -97,7 +97,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -105,7 +105,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
           skip-avatar-clone: "true"
           no-vision-deps: "true"
 
@@ -123,8 +123,8 @@ jobs:
         run: bun run db:check
 
   e2e-tests:
-    name: E2E Tests (Vitest)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    name: Integration + E2E Tests (Vitest)
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -134,7 +134,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -142,11 +142,13 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install
-          run-postinstall: "false"
+          install-command: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: bun run build
+
+      - name: Run integration tests
+        run: bun run test:integration
 
       - name: Run E2E tests
         run: bun run test:e2e
@@ -198,7 +200,7 @@ jobs:
         shell: bash
         run: |
           for i in 1 2 3; do
-            bun install --ignore-scripts && exit 0
+            bun install --frozen-lockfile --ignore-scripts && exit 0
             rm -rf node_modules
             echo "Attempt $i failed, retrying in $((i * 15))s..."
             sleep $((i * 15))
@@ -443,9 +445,9 @@ jobs:
       - name: Build iOS website blocker app
         run: bun run test:selfcontrol:mobile:ios
 
-  app-startup-e2e:
-    name: App Startup E2E (Onboarding)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  app-startup-integration:
+    name: App Startup Integration (Onboarding)
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -453,9 +455,8 @@ jobs:
         with:
           submodules: false
 
-      # WHY useblacksmith: colocated cache avoids nodejs.org download timeouts on Blacksmith runners.
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -479,11 +480,11 @@ jobs:
         run: bun run test:startup:contract
 
       - name: Run app startup/onboarding tests
-        run: bun run test:startup:e2e
+        run: bun run test:startup:integration
 
   desktop-contract:
     name: Electrobun Desktop Contract
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -492,7 +493,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -547,7 +548,7 @@ jobs:
 
   cloud-live-e2e:
     name: Cloud Live E2E (Eliza Cloud)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Check cloud secrets
@@ -588,7 +589,7 @@ jobs:
 
   validation-e2e:
     name: End-to-End Validation (Issue #6)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -600,7 +601,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: bun run build
@@ -613,8 +614,8 @@ jobs:
   test-status:
     name: All Tests Passed
     if: always()
-    needs: [regression-matrix, unit-tests, db-check, e2e-tests, website-blocker-cross-platform, website-blocker-startup-smoke, website-blocker-desktop-smoke, website-blocker-mobile-android, website-blocker-mobile-ios, app-startup-e2e, desktop-contract, cloud-live-e2e, validation-e2e]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [regression-matrix, unit-tests, db-check, e2e-tests, website-blocker-cross-platform, website-blocker-startup-smoke, website-blocker-desktop-smoke, website-blocker-mobile-android, website-blocker-mobile-ios, app-startup-integration, desktop-contract, cloud-live-e2e, validation-e2e]
+    runs-on: ubuntu-24.04
     steps:
       - name: Check test results
         shell: bash
@@ -631,7 +632,7 @@ jobs:
           echo "website-blocker-desktop-smoke:  ${{ needs.website-blocker-desktop-smoke.result }}"
           echo "website-blocker-mobile-android: ${{ needs.website-blocker-mobile-android.result }}"
           echo "website-blocker-mobile-ios:     ${{ needs.website-blocker-mobile-ios.result }}"
-          echo "app-startup-e2e:    ${{ needs.app-startup-e2e.result }}"
+          echo "app-startup-integration: ${{ needs.app-startup-integration.result }}"
           echo "desktop-contract:   ${{ needs.desktop-contract.result }}"
           echo "cloud-live-e2e:     ${{ needs.cloud-live-e2e.result }}"
           echo "validation-e2e:     ${{ needs.validation-e2e.result }}"
@@ -647,7 +648,7 @@ jobs:
             "website-blocker-desktop-smoke:${{ needs.website-blocker-desktop-smoke.result }}" \
             "website-blocker-mobile-android:${{ needs.website-blocker-mobile-android.result }}" \
             "website-blocker-mobile-ios:${{ needs.website-blocker-mobile-ios.result }}" \
-            "app-startup-e2e:${{ needs.app-startup-e2e.result }}" \
+            "app-startup-integration:${{ needs.app-startup-integration.result }}" \
             "desktop-contract:${{ needs.desktop-contract.result }}" \
             "cloud-live-e2e:${{ needs.cloud-live-e2e.result }}" \
             "validation-e2e:${{ needs.validation-e2e.result }}"; do

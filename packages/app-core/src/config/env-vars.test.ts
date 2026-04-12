@@ -243,6 +243,54 @@ describe("collectConnectorEnvVars", () => {
     });
   });
 
+  it("maps BlueBubbles auto-start settings to plugin env keys", () => {
+    const result = collectConnectorEnvVars({
+      connectors: {
+        bluebubbles: {
+          serverUrl: "http://localhost:1234",
+          password: "secret",
+          autoStartCommand: "open",
+          autoStartArgs: ["-a", "BlueBubbles"],
+          autoStartCwd: "/Applications",
+          autoStartWaitMs: 12000,
+        },
+      },
+    } as ElizaConfig);
+
+    expect(result).toEqual({
+      BLUEBUBBLES_SERVER_URL: "http://localhost:1234",
+      BLUEBUBBLES_PASSWORD: "secret",
+      BLUEBUBBLES_AUTOSTART_COMMAND: "open",
+      BLUEBUBBLES_AUTOSTART_ARGS: "-a,BlueBubbles",
+      BLUEBUBBLES_AUTOSTART_CWD: "/Applications",
+      BLUEBUBBLES_AUTOSTART_WAIT_MS: "12000",
+    });
+  });
+
+  it("maps imessage connector runtime settings to plugin env keys", () => {
+    const result = collectConnectorEnvVars({
+      connectors: {
+        imessage: {
+          cliPath: "/usr/local/bin/imsg",
+          dbPath: "~/Library/Messages/chat.db",
+          dmPolicy: "pairing",
+          groupPolicy: "allowlist",
+          allowFrom: ["+15551234567", "friend@example.com"],
+          pollIntervalMs: 2500,
+        },
+      },
+    } as ElizaConfig);
+
+    expect(result).toEqual({
+      IMESSAGE_CLI_PATH: "/usr/local/bin/imsg",
+      IMESSAGE_DB_PATH: "~/Library/Messages/chat.db",
+      IMESSAGE_DM_POLICY: "pairing",
+      IMESSAGE_GROUP_POLICY: "allowlist",
+      IMESSAGE_ALLOW_FROM: "+15551234567,friend@example.com",
+      IMESSAGE_POLL_INTERVAL_MS: "2500",
+    });
+  });
+
   it("maps WhatsApp connector auth and policy settings to runtime env keys", () => {
     const result = collectConnectorEnvVars({
       connectors: {

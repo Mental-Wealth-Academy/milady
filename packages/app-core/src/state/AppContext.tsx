@@ -129,12 +129,24 @@ import {
   type UiShellMode,
   type UiTheme,
 } from "./internal";
+import {
+  getActiveProfile,
+  loadAgentProfileRegistry,
+  setActiveProfileId,
+} from "./agent-profiles";
+import {
+  createPersistedActiveServer,
+  loadFavoriteApps,
+  saveFavoriteApps,
+  savePersistedActiveServer,
+} from "./persistence";
 import { detectExistingOnboardingConnection } from "./onboarding-bootstrap";
 import { deriveUiShellModeForTab } from "./shell-routing";
 import { TranslationProvider, useTranslation } from "./TranslationContext";
 import type { InventoryChainFilters } from "./types";
 import { useChatState } from "./useChatState";
 import { useLifecycleState } from "./useLifecycleState";
+import type { RuntimeTarget } from "./startup-coordinator";
 import { useStartupCoordinator } from "./useStartupCoordinator";
 import { useTriggersState } from "./useTriggersState";
 import { usePairingState } from "./usePairingState";
@@ -315,11 +327,13 @@ function AppProviderInner({
   const {
     state: {
       uiTheme,
+      themeId,
       companionVrmPowerMode,
       companionAnimateWhenHidden,
       companionHalfFramerateMode,
     },
     setUiTheme,
+    setThemeId,
     setCompanionVrmPowerMode,
     setCompanionAnimateWhenHidden,
     setCompanionHalfFramerateMode,
@@ -798,6 +812,12 @@ function AppProviderInner({
       selectedChains: onboardingSelectedChains,
       rpcSelections: onboardingRpcSelections,
       rpcKeys: onboardingRpcKeys,
+      featureTelegram: onboardingFeatureTelegram,
+      featureDiscord: onboardingFeatureDiscord,
+      featurePhone: onboardingFeaturePhone,
+      featureCrypto: onboardingFeatureCrypto,
+      featureBrowser: onboardingFeatureBrowser,
+      featureOAuthPending: onboardingFeatureOAuthPending,
     },
     setStep: setOnboardingStep,
     setMode: setOnboardingMode,
@@ -856,6 +876,12 @@ function AppProviderInner({
     setOnboardingRpcSelections,
     setOnboardingRpcKeys,
     setOnboardingAvatar,
+    setOnboardingFeatureTelegram,
+    setOnboardingFeatureDiscord,
+    setOnboardingFeaturePhone,
+    setOnboardingFeatureCrypto,
+    setOnboardingFeatureBrowser,
+    setOnboardingFeatureOAuthPending,
     setOnboardingCloudProvisionedContainer,
     setPostOnboardingChecklistDismissed,
     setOnboardingDeferredTasks,
@@ -925,9 +951,26 @@ function AppProviderInner({
   // chatPendingImages now comes from useChatState
 
   // --- Admin ---
-  const [appsSubTab, setAppsSubTab] = useState<"browse" | "running" | "games">(
-    "browse",
-  );
+  const [appsSubTab, setAppsSubTabRaw] = useState<
+    "browse" | "running" | "games"
+  >(() => {
+    try {
+      const stored = sessionStorage.getItem("eliza:appsSubTab");
+      if (stored === "browse" || stored === "running" || stored === "games")
+        return stored;
+    } catch {
+      /* ignore */
+    }
+    return "browse";
+  });
+  const setAppsSubTab = useCallback((v: "browse" | "running" | "games") => {
+    setAppsSubTabRaw(v);
+    try {
+      sessionStorage.setItem("eliza:appsSubTab", v);
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [agentSubTab, setAgentSubTab] = useState<
     "character" | "inventory" | "knowledge"
   >("character");
@@ -937,6 +980,15 @@ function AppProviderInner({
   const [databaseSubTab, setDatabaseSubTab] = useState<
     "tables" | "media" | "vectors"
   >("tables");
+
+  // --- Favorite apps ---
+  const [favoriteApps, setFavoriteAppsRaw] = useState<string[]>(() =>
+    loadFavoriteApps(),
+  );
+  const setFavoriteApps = useCallback((apps: string[]) => {
+    setFavoriteAppsRaw(apps);
+    saveFavoriteApps(apps);
+  }, []);
 
   // --- Config ---
   const [configRaw, setConfigRaw] = useState<Record<string, unknown>>({});
@@ -974,6 +1026,8 @@ function AppProviderInner({
   });
   const {
     state: {
+      browserEnabled,
+      walletEnabled,
       walletAddresses,
       walletConfig,
       walletBalances,
@@ -1001,6 +1055,8 @@ function AppProviderInner({
       whitelistStatus,
       whitelistLoading,
     },
+    setBrowserEnabled,
+    setWalletEnabled,
     setWalletAddresses,
     setInventoryView,
     setInventorySort,
@@ -1286,6 +1342,7 @@ function AppProviderInner({
     restartBackend,
     relaunchDesktop,
     showDesktopNotification,
+    notifyAssistantEvent,
     notifyHeartbeatEvent,
     handleResetAppliedFromMain,
     handleReset,
@@ -1332,6 +1389,7 @@ function AppProviderInner({
     setOnboardingRemoteError,
     setOnboardingRemoteConnected,
     setPostOnboardingChecklistDismissed,
+    setBrowserEnabled,
     setOnboardingComplete,
     coordinatorOnboardingCompleteRef,
     initialTabSetRef,
@@ -1344,6 +1402,7 @@ function AppProviderInner({
     elizaCloudConnected,
     setActionNotice,
     retryStartup,
+    setWalletEnabled,
     forceLocalBootstrapRef,
     client,
   });
@@ -1397,6 +1456,8 @@ function AppProviderInner({
         logTagFilter: setLogTagFilter,
         logLevelFilter: setLogLevelFilter,
         logSourceFilter: setLogSourceFilter,
+        browserEnabled: setBrowserEnabled,
+        walletEnabled: setWalletEnabled,
         inventoryView: setInventoryView,
         inventorySort: setInventorySort,
         inventorySortDirection: setInventorySortDirection,
@@ -1444,6 +1505,12 @@ function AppProviderInner({
         onboardingElizaCloudTab: setOnboardingElizaCloudTab,
         onboardingRpcKeys: setOnboardingRpcKeys,
         onboardingAvatar: setOnboardingAvatar,
+        onboardingFeatureTelegram: setOnboardingFeatureTelegram,
+        onboardingFeatureDiscord: setOnboardingFeatureDiscord,
+        onboardingFeaturePhone: setOnboardingFeaturePhone,
+        onboardingFeatureCrypto: setOnboardingFeatureCrypto,
+        onboardingFeatureBrowser: setOnboardingFeatureBrowser,
+        onboardingFeatureOAuthPending: setOnboardingFeatureOAuthPending,
         elizaCloudEnabled: setElizaCloudEnabled,
         elizaCloudVoiceProxyAvailable: setElizaCloudVoiceProxyAvailable,
         cloudDashboardView: setCloudDashboardView,
@@ -1503,6 +1570,7 @@ function AppProviderInner({
         agentSubTab: setAgentSubTab,
         pluginsSubTab: setPluginsSubTab,
         databaseSubTab: setDatabaseSubTab,
+        favoriteApps: setFavoriteApps,
         configRaw: setConfigRaw,
         configText: setConfigText,
         onboardingComplete: setOnboardingComplete,
@@ -1557,6 +1625,7 @@ function AppProviderInner({
       setOnboardingWhatsAppSessionPath,
       setOnboardingComplete,
       setStartupError,
+      setFavoriteApps,
       setTabRaw,
     ],
   );
@@ -1644,6 +1713,7 @@ function AppProviderInner({
     pollCloudCredits,
     fetchAutonomyReplay,
     appendAutonomousEvent,
+    notifyAssistantEvent,
     notifyHeartbeatEvent,
     setSelectedVrmIndex,
     setCustomVrmUrl,
@@ -1682,6 +1752,44 @@ function AppProviderInner({
     () => startupCoordinator,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [startupCoordinator.state],
+  );
+
+  const switchAgentProfile = useCallback(
+    (profileId: string) => {
+      const profile = loadAgentProfileRegistry().profiles.find(
+        (p) => p.id === profileId,
+      );
+      if (!profile) return;
+
+      setActiveProfileId(profileId);
+
+      const server = createPersistedActiveServer({
+        kind: profile.kind,
+        apiBase: profile.apiBase,
+        accessToken: profile.accessToken,
+        label: profile.label,
+      });
+      savePersistedActiveServer(server);
+
+      if (profile.apiBase) {
+        client.setBaseUrl(profile.apiBase);
+      }
+      if (profile.accessToken) {
+        client.setToken(profile.accessToken);
+      }
+
+      const target =
+        profile.kind === "cloud"
+          ? "cloud-managed"
+          : profile.kind === "remote"
+            ? "remote-backend"
+            : "embedded-local";
+      startupCoordinator.dispatch({
+        type: "SWITCH_AGENT",
+        target: target as RuntimeTarget,
+      });
+    },
+    [startupCoordinator],
   );
 
   // When agent transitions to "running", send a greeting if conversation is empty
@@ -1822,6 +1930,7 @@ function AppProviderInner({
       uiShellMode,
       uiLanguage,
       uiTheme,
+      themeId,
       companionVrmPowerMode,
       companionAnimateWhenHidden,
       companionHalfFramerateMode,
@@ -1905,6 +2014,8 @@ function AppProviderInner({
       logLevelFilter,
       logSourceFilter,
       logLoadError,
+      browserEnabled,
+      walletEnabled,
       walletAddresses,
       walletConfig,
       walletBalances,
@@ -1962,6 +2073,7 @@ function AppProviderInner({
       elizaCloudLoginBusy,
       elizaCloudLoginError,
       elizaCloudDisconnecting,
+      activeAgentProfile: getActiveProfile(),
       updateStatus,
       updateLoading,
       updateChannelSaving,
@@ -2043,6 +2155,12 @@ function AppProviderInner({
       onboardingRpcSelections,
       onboardingRpcKeys,
       onboardingAvatar,
+      onboardingFeatureTelegram,
+      onboardingFeatureDiscord,
+      onboardingFeaturePhone,
+      onboardingFeatureCrypto,
+      onboardingFeatureBrowser,
+      onboardingFeatureOAuthPending,
       commandPaletteOpen,
       commandQuery,
       commandActiveIndex,
@@ -2077,6 +2195,7 @@ function AppProviderInner({
       agentSubTab,
       pluginsSubTab,
       databaseSubTab,
+      favoriteApps,
       configRaw,
       configText,
       activeGamePostMessagePayload,
@@ -2089,6 +2208,7 @@ function AppProviderInner({
       navigation,
       setUiLanguage,
       setUiTheme,
+      setThemeId,
       setCompanionVrmPowerMode,
       setCompanionAnimateWhenHidden,
       setCompanionHalfFramerateMode,
@@ -2184,6 +2304,7 @@ function AppProviderInner({
       handleOnboardingUseLocalBackend,
       handleCloudLogin,
       handleCloudDisconnect,
+      switchAgentProfile,
       handleCloudOnboardingFinish,
       vincentConnected,
       vincentLoginBusy,
@@ -2210,6 +2331,7 @@ function AppProviderInner({
       uiShellMode,
       uiLanguage,
       uiTheme,
+      themeId,
       companionVrmPowerMode,
       companionAnimateWhenHidden,
       companionHalfFramerateMode,
@@ -2289,6 +2411,8 @@ function AppProviderInner({
       logLevelFilter,
       logSourceFilter,
       logLoadError,
+      browserEnabled,
+      walletEnabled,
       walletAddresses,
       walletConfig,
       walletBalances,
@@ -2427,6 +2551,12 @@ function AppProviderInner({
       onboardingRpcSelections,
       onboardingRpcKeys,
       onboardingAvatar,
+      onboardingFeatureTelegram,
+      onboardingFeatureDiscord,
+      onboardingFeaturePhone,
+      onboardingFeatureCrypto,
+      onboardingFeatureBrowser,
+      onboardingFeatureOAuthPending,
       commandPaletteOpen,
       commandQuery,
       commandActiveIndex,
@@ -2460,6 +2590,7 @@ function AppProviderInner({
       agentSubTab,
       pluginsSubTab,
       databaseSubTab,
+      favoriteApps,
       configRaw,
       configText,
       activeGamePostMessagePayload,
@@ -2471,6 +2602,7 @@ function AppProviderInner({
       navigation,
       setUiLanguage,
       setUiTheme,
+      setThemeId,
       setCompanionVrmPowerMode,
       setCompanionAnimateWhenHidden,
       setCompanionHalfFramerateMode,
@@ -2563,6 +2695,7 @@ function AppProviderInner({
       handleOnboardingUseLocalBackend,
       handleCloudLogin,
       handleCloudDisconnect,
+      switchAgentProfile,
       handleCloudOnboardingFinish,
       vincentConnected,
       vincentLoginBusy,

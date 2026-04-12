@@ -85,6 +85,16 @@ describe("release support workflow drift", () => {
     expect(pkg.scripts?.["build:web"]).toContain("apps/web");
   });
 
+  it("exposes a root release script for LifeOps Browser companion packaging", () => {
+    const pkg = JSON.parse(fs.readFileSync(ROOT_PACKAGE_JSON, "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(pkg.scripts?.["lifeops:browser:package:release"]).toBe(
+      "cd apps/extensions/lifeops-browser && bun run package:release",
+    );
+  });
+
   it("keeps stable release publishing idempotent", () => {
     const workflow = fs.readFileSync(AGENT_RELEASE_WORKFLOW, "utf8");
 
@@ -108,6 +118,12 @@ describe("release support workflow drift", () => {
 
     expect(workflow).toContain("name: Build Cloud App Image");
     expect(workflow).toContain("file: Dockerfile.ci");
+    expect(workflow).toContain("- name: Build shared workspace");
+    expect(workflow).toContain("cd packages/shared");
+    expect(workflow).toContain("- name: Build selfcontrol workspace");
+    expect(workflow).toContain("cd packages/plugin-selfcontrol");
+    expect(workflow).toContain("- name: Build agent workspace");
+    expect(workflow).toContain("bun run build:docker-dist");
     expect(workflow).toContain("type=raw,value=cloud-app");
     expect(workflow).toContain(
       "type=raw,value=cloud-app-$" +
@@ -175,9 +191,17 @@ describe("release support workflow drift", () => {
   it("syncs iOS Capacitor via the repo-supported app script", () => {
     const workflow = fs.readFileSync(APPLE_STORE_RELEASE_WORKFLOW, "utf8");
 
+    expect(workflow).toContain("bash scripts/prepare-ios-cocoapods.sh");
     expect(workflow).toContain("working-directory: apps/app");
     expect(workflow).toContain("run: bun run cap:sync:ios");
     expect(workflow).not.toContain("run: npx cap sync ios");
+  });
+
+  it("primes CocoaPods before iOS sync in release validation workflows", () => {
+    const workflow = fs.readFileSync(AGENT_RELEASE_WORKFLOW, "utf8");
+
+    expect(workflow).toContain("bash scripts/prepare-ios-cocoapods.sh");
+    expect(workflow).toContain("run: bun run cap:sync:ios");
   });
 
   it("dispatches Homebrew updates to the actual tap repository", () => {

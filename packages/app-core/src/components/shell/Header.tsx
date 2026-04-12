@@ -28,17 +28,17 @@ const NAV_LABEL_I18N_KEY: Record<string, string> = {
   Companion: "nav.companion",
   Stream: "nav.stream",
   Character: "nav.character",
-  Inventory: "nav.inventory",
+  Wallet: "nav.wallet",
   Knowledge: "nav.knowledge",
   Connectors: "nav.social",
   Apps: "nav.apps",
   Settings: "nav.settings",
   Heartbeats: "nav.heartbeats",
-  Advanced: "nav.advanced",
 };
 
 interface HeaderProps {
   mobileLeft?: ReactNode;
+  pageRightExtras?: ReactNode;
   transparent?: boolean;
   hideCloudCredits?: boolean;
   tasksEventsPanelOpen?: boolean;
@@ -46,7 +46,7 @@ interface HeaderProps {
 }
 
 const HEADER_NAV_BUTTON_BASE_CLASSNAME =
-  "relative z-10 min-h-[44px] shrink-0 rounded-xl border border-transparent px-3 py-2.5 text-[12px] transition-all duration-200 md:px-3.5 xl:px-4";
+  "relative z-10 min-h-[44px] shrink-0 rounded-xl border border-transparent px-3 py-2.5 text-xs transition-all duration-200 md:px-3.5 xl:px-4";
 const HEADER_NAV_BUTTON_ACTIVE_CLASSNAME =
   "border-accent/30 bg-accent/12 text-txt font-semibold shadow-[0_2px_10px_rgba(3,5,10,0.08)] ring-1 ring-inset ring-accent/18 dark:shadow-[0_0_0_1px_rgba(var(--accent-rgb),0.14),0_0_14px_rgba(var(--accent-rgb),0.14)]";
 const HEADER_NAV_BUTTON_INACTIVE_CLASSNAME =
@@ -60,6 +60,7 @@ const HEADER_MOBILE_NAV_BUTTON_INACTIVE_CLASSNAME =
 
 export function Header({
   mobileLeft,
+  pageRightExtras,
   transparent: _transparent = false,
   hideCloudCredits = false,
   tasksEventsPanelOpen = false,
@@ -77,6 +78,8 @@ export function Header({
     setTab,
     setState,
     plugins,
+    browserEnabled,
+    walletEnabled,
     loadDropStatus,
     uiLanguage,
     setUiLanguage,
@@ -116,8 +119,8 @@ export function Header({
     [plugins],
   );
   const tabGroups = useMemo(
-    () => getTabGroups(streamingEnabled),
-    [streamingEnabled],
+    () => getTabGroups(streamingEnabled, walletEnabled, browserEnabled),
+    [streamingEnabled, walletEnabled, browserEnabled],
   );
   const activeTabGroup = useMemo(
     () =>
@@ -218,19 +221,7 @@ export function Header({
         style={{ WebkitUserSelect: "none", userSelect: "none" }}
         data-no-camera-drag="true"
       >
-        <div
-          style={{
-            paddingTop: `calc(var(--safe-area-top, 0px) + var(--milady-macos-frame-top-inset, 0px) + ${
-              isDesktopShell ? "0.875rem" : "0.375rem"
-            })`,
-            paddingLeft: `calc(var(--safe-area-left, 0px) + ${
-              isDesktopShell ? "clamp(0.65rem, 1.3vw, 1.2rem)" : "0.375rem"
-            })`,
-            paddingRight: `calc(var(--safe-area-right, 0px) + ${
-              isDesktopShell ? "clamp(0.65rem, 1.3vw, 1.2rem)" : "0.375rem"
-            })`,
-          }}
-        >
+        <div className="px-2 py-1">
           <div
             className={`pointer-events-auto relative mx-auto w-full rounded-[20px] border bg-clip-padding transition-all sm:rounded-[22px] ${headerFrameClassName} ${headerShellClassName}`}
             data-testid="header-glass-shell"
@@ -252,6 +243,7 @@ export function Header({
               themeToggleWrapperTestId="header-theme-toggle-desktop"
               rightExtras={
                 <>
+                  {pageRightExtras}
                   {onToggleTasksPanel ? (
                     <Button
                       size="icon"
@@ -309,7 +301,7 @@ export function Header({
               }
             >
               {showNavigationMenu ? (
-                <nav className="scrollbar-hide hidden flex-1 items-center justify-start gap-1.5 overflow-x-auto whitespace-nowrap px-2 sm:flex sm:pl-4">
+                <nav className="scrollbar-hide hidden flex-1 items-center justify-start gap-1.5 overflow-x-auto whitespace-nowrap sm:flex">
                   {tabGroups.map((group: TabGroup) => {
                     const primaryTab = group.tabs[0];
                     const isActive = group.tabs.includes(tab);
@@ -411,7 +403,7 @@ export function Header({
                             {t(NAV_LABEL_I18N_KEY[group.label] ?? group.label)}
                           </div>
                           {group.description && (
-                            <div className="text-[11px] text-muted mt-0.5">
+                            <div className="text-xs-tight text-muted mt-0.5">
                               {group.description}
                             </div>
                           )}

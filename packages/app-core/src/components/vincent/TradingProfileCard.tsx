@@ -73,10 +73,10 @@ export function TradingProfileCard({
       </div>
 
       {/* Token breakdown */}
-      {tokenBreakdown.length > 0 && (
+      {tokenBreakdown && tokenBreakdown.length > 0 && (
         <div className="rounded-xl border border-border/20 bg-card/40 overflow-hidden">
           <div className="border-b border-border/20 px-4 py-2.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted/70">
+            <span className="text-xs-tight font-semibold uppercase tracking-wider text-muted/70">
               Token Breakdown
             </span>
           </div>

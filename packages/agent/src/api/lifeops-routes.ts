@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type http from "node:http";
 import { type AgentRuntime, logger, type UUID } from "@elizaos/core";
 import type {
@@ -7,6 +8,7 @@ import type {
   CompleteLifeOpsBrowserSessionRequest,
   CompleteLifeOpsOccurrenceRequest,
   ConfirmLifeOpsBrowserSessionRequest,
+  CreateLifeOpsBrowserCompanionPairingRequest,
   CreateLifeOpsBrowserSessionRequest,
   CreateLifeOpsCalendarEventRequest,
   CreateLifeOpsDefinitionRequest,
@@ -27,11 +29,13 @@ import type {
   RunLifeOpsWorkflowRequest,
   SelectLifeOpsGoogleConnectorPreferenceRequest,
   SendLifeOpsGmailBatchReplyRequest,
+  SendLifeOpsGmailMessageRequest,
   SendLifeOpsGmailReplyRequest,
   SetLifeOpsReminderPreferenceRequest,
   SnoozeLifeOpsOccurrenceRequest,
   StartLifeOpsGoogleConnectorRequest,
   SyncLifeOpsBrowserStateRequest,
+  UpdateLifeOpsBrowserSessionProgressRequest,
   UpdateLifeOpsBrowserSettingsRequest,
   UpdateLifeOpsDefinitionRequest,
   UpdateLifeOpsGoalRequest,
@@ -44,6 +48,12 @@ import { createIntegrationTelemetrySpan } from "../diagnostics/integration-obser
 import { LifeOpsService, LifeOpsServiceError } from "../lifeops/service.js";
 import { isRetryableLifeOpsStorageError } from "../lifeops/sql.js";
 import type { ReadJsonBodyOptions } from "./http-helpers.js";
+import {
+  buildLifeOpsBrowserCompanionPackage,
+  getLifeOpsBrowserCompanionDownloadFile,
+  getLifeOpsBrowserCompanionPackageStatus,
+} from "./lifeops-browser-packaging.js";
+import { checkRateLimit, type RateLimitConfig } from "./rate-limiter.js";
 
 export interface LifeOpsRouteContext {
   req: http.IncomingMessage;
@@ -77,6 +87,72 @@ function getService(ctx: LifeOpsRouteContext): LifeOpsService | null {
   return new LifeOpsService(ctx.state.runtime, {
     ownerEntityId: ctx.state.adminEntityId,
   });
+}
+
+function getBrowserCompanionAuth(
+  ctx: LifeOpsRouteContext,
+): { companionId: string; pairingToken: string } | null {
+  const companionHeader = ctx.req.headers["x-milady-browser-companion-id"];
+  const companionId =
+    typeof companionHeader === "string" ? companionHeader.trim() : "";
+  if (!companionId) {
+    ctx.error(ctx.res, "Missing X-Milady-Browser-Companion-Id header", 401);
+    return null;
+  }
+  const authHeader =
+    typeof ctx.req.headers.authorization === "string"
+      ? ctx.req.headers.authorization.trim()
+      : "";
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  const pairingToken = match?.[1]?.trim() ?? "";
+  if (!pairingToken) {
+    ctx.error(ctx.res, "Missing browser companion bearer token", 401);
+    return null;
+  }
+  return {
+    companionId,
+    pairingToken,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Rate limit configuration per operation.
+// Keys are logical operation names; the "default" entry applies to any
+// operation not explicitly listed.
+// ---------------------------------------------------------------------------
+const LIFEOPS_RATE_LIMITS: Record<string, RateLimitConfig> = {
+  google_api_read: { maxRequests: 120, windowMs: 60_000 },
+  google_api_write: { maxRequests: 30, windowMs: 60_000 },
+  reminders_process: { maxRequests: 10, windowMs: 60_000 },
+  task_create: { maxRequests: 30, windowMs: 60_000 },
+  task_update: { maxRequests: 30, windowMs: 60_000 },
+  gmail_draft: { maxRequests: 20, windowMs: 60_000 },
+  gmail_send: { maxRequests: 5, windowMs: 60_000 },
+  calendar_create: { maxRequests: 20, windowMs: 60_000 },
+  default: { maxRequests: 60, windowMs: 60_000 },
+};
+
+/**
+ * Check rate limit for a LifeOps operation. If the limit is exceeded,
+ * sends a 429 response with Retry-After header and returns `true`.
+ * Returns `false` when the request is allowed to proceed.
+ */
+function rateLimitRequest(
+  ctx: LifeOpsRouteContext,
+  operation: string,
+): boolean {
+  const agentId = String(ctx.state.runtime?.agentId ?? "unknown");
+  const limitKey = `${agentId}:${operation}`;
+  const config = LIFEOPS_RATE_LIMITS[operation] ?? LIFEOPS_RATE_LIMITS.default;
+  const { allowed, retryAfterMs } = checkRateLimit(limitKey, config);
+  if (!allowed) {
+    ctx.res.writeHead(429, {
+      "Retry-After": String(Math.ceil(retryAfterMs / 1_000)),
+    });
+    ctx.res.end(JSON.stringify({ error: "Rate limit exceeded", retryAfterMs }));
+    return true;
+  }
+  return false;
 }
 
 function routeOperation(ctx: LifeOpsRouteContext): string {
@@ -161,7 +237,11 @@ async function runRoute(
     return true;
   } catch (error) {
     if (error instanceof LifeOpsServiceError) {
-      logger.warn(
+      const logFn =
+        error.status === 401
+          ? logger.debug.bind(logger)
+          : logger.warn.bind(logger);
+      logFn(
         {
           boundary: "lifeops",
           operation,
@@ -338,6 +418,7 @@ export async function handleLifeOpsRoutes(
     method === "GET" &&
     pathname === "/api/lifeops/connectors/google/status"
   ) {
+    if (rateLimitRequest(ctx, "google_api_read")) return true;
     return runRoute(ctx, async (service) => {
       const rawMode = url.searchParams.get("mode");
       const rawSide = url.searchParams.get("side");
@@ -371,6 +452,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "GET" && pathname === "/api/lifeops/calendar/feed") {
+    if (rateLimitRequest(ctx, "google_api_read")) return true;
     return runRoute(ctx, async (service) => {
       const rawMode = url.searchParams.get("mode");
       const rawSide = url.searchParams.get("side");
@@ -419,6 +501,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "GET" && pathname === "/api/lifeops/calendar/next-context") {
+    if (rateLimitRequest(ctx, "google_api_read")) return true;
     return runRoute(ctx, async (service) => {
       const rawMode = url.searchParams.get("mode");
       const rawSide = url.searchParams.get("side");
@@ -453,6 +536,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "GET" && pathname === "/api/lifeops/gmail/triage") {
+    if (rateLimitRequest(ctx, "google_api_read")) return true;
     return runRoute(ctx, async (service) => {
       const rawMode = url.searchParams.get("mode");
       const rawSide = url.searchParams.get("side");
@@ -501,6 +585,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "GET" && pathname === "/api/lifeops/gmail/search") {
+    if (rateLimitRequest(ctx, "google_api_read")) return true;
     return runRoute(ctx, async (service) => {
       const rawMode = url.searchParams.get("mode");
       const rawSide = url.searchParams.get("side");
@@ -565,6 +650,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "GET" && pathname === "/api/lifeops/gmail/needs-response") {
+    if (rateLimitRequest(ctx, "google_api_read")) return true;
     return runRoute(ctx, async (service) => {
       const rawMode = url.searchParams.get("mode");
       const rawSide = url.searchParams.get("side");
@@ -613,6 +699,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "POST" && pathname === "/api/lifeops/calendar/events") {
+    if (rateLimitRequest(ctx, "calendar_create")) return true;
     const body = await readJsonBody<CreateLifeOpsCalendarEventRequest>(
       req,
       res,
@@ -624,6 +711,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "POST" && pathname === "/api/lifeops/gmail/reply-drafts") {
+    if (rateLimitRequest(ctx, "gmail_draft")) return true;
     const body = await readJsonBody<CreateLifeOpsGmailReplyDraftRequest>(
       req,
       res,
@@ -638,6 +726,7 @@ export async function handleLifeOpsRoutes(
     method === "POST" &&
     pathname === "/api/lifeops/gmail/batch-reply-drafts"
   ) {
+    if (rateLimitRequest(ctx, "gmail_draft")) return true;
     const body = await readJsonBody<CreateLifeOpsGmailBatchReplyDraftsRequest>(
       req,
       res,
@@ -653,6 +742,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "POST" && pathname === "/api/lifeops/gmail/reply-send") {
+    if (rateLimitRequest(ctx, "gmail_send")) return true;
     const body = await readJsonBody<SendLifeOpsGmailReplyRequest>(req, res);
     if (!body) return true;
     return runRoute(ctx, async (service) => {
@@ -660,7 +750,17 @@ export async function handleLifeOpsRoutes(
     });
   }
 
+  if (method === "POST" && pathname === "/api/lifeops/gmail/message-send") {
+    if (rateLimitRequest(ctx, "gmail_send")) return true;
+    const body = await readJsonBody<SendLifeOpsGmailMessageRequest>(req, res);
+    if (!body) return true;
+    return runRoute(ctx, async (service) => {
+      json(res, await service.sendGmailMessage(url, body));
+    });
+  }
+
   if (method === "POST" && pathname === "/api/lifeops/gmail/batch-reply-send") {
+    if (rateLimitRequest(ctx, "gmail_send")) return true;
     const body = await readJsonBody<SendLifeOpsGmailBatchReplyRequest>(
       req,
       res,
@@ -675,6 +775,7 @@ export async function handleLifeOpsRoutes(
     method === "POST" &&
     pathname === "/api/lifeops/connectors/google/start"
   ) {
+    if (rateLimitRequest(ctx, "google_api_write")) return true;
     const body = await readJsonBody<StartLifeOpsGoogleConnectorRequest>(
       req,
       res,
@@ -689,6 +790,7 @@ export async function handleLifeOpsRoutes(
     method === "POST" &&
     pathname === "/api/lifeops/connectors/google/preference"
   ) {
+    if (rateLimitRequest(ctx, "google_api_write")) return true;
     const body =
       await readJsonBody<SelectLifeOpsGoogleConnectorPreferenceRequest>(
         req,
@@ -768,6 +870,7 @@ export async function handleLifeOpsRoutes(
     method === "POST" &&
     pathname === "/api/lifeops/connectors/google/disconnect"
   ) {
+    if (rateLimitRequest(ctx, "google_api_write")) return true;
     const body = await readJsonBody<DisconnectLifeOpsGoogleConnectorRequest>(
       req,
       res,
@@ -867,6 +970,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "POST" && pathname === "/api/lifeops/reminders/process") {
+    if (rateLimitRequest(ctx, "reminders_process")) return true;
     const body = await readJsonBody<ProcessLifeOpsRemindersRequest>(req, res);
     if (!body) return true;
     return runRoute(ctx, async (service) => {
@@ -997,15 +1101,108 @@ export async function handleLifeOpsRoutes(
     });
   }
 
+  if (
+    method === "POST" &&
+    pathname === "/api/lifeops/browser/companions/pair"
+  ) {
+    const body =
+      await readJsonBody<CreateLifeOpsBrowserCompanionPairingRequest>(req, res);
+    if (!body) return true;
+    return runRoute(ctx, async (service) => {
+      json(res, await service.createBrowserCompanionPairing(body), 201);
+    });
+  }
+
   if (method === "GET" && pathname === "/api/lifeops/browser/companions") {
     return runRoute(ctx, async (service) => {
       json(res, { companions: await service.listBrowserCompanions() });
     });
   }
 
+  if (method === "GET" && pathname === "/api/lifeops/browser/packages") {
+    return runRoute(ctx, async () => {
+      json(res, { status: getLifeOpsBrowserCompanionPackageStatus() });
+    });
+  }
+
+  if (
+    method === "POST" &&
+    pathname === "/api/lifeops/browser/companions/sync"
+  ) {
+    const body = await readJsonBody<SyncLifeOpsBrowserStateRequest>(req, res);
+    if (!body) return true;
+    return runRoute(ctx, async (service) => {
+      const auth = getBrowserCompanionAuth(ctx);
+      if (!auth) {
+        return;
+      }
+      json(
+        res,
+        await service.syncBrowserCompanion(
+          auth.companionId,
+          auth.pairingToken,
+          body,
+        ),
+      );
+    });
+  }
+
   if (method === "GET" && pathname === "/api/lifeops/browser/tabs") {
     return runRoute(ctx, async (service) => {
       json(res, { tabs: await service.listBrowserTabs() });
+    });
+  }
+
+  const browserPackageBuildMatch = pathname.match(
+    /^\/api\/lifeops\/browser\/packages\/([^/]+)\/build$/,
+  );
+  if (method === "POST" && browserPackageBuildMatch) {
+    const browser = decodePathComponent(
+      browserPackageBuildMatch[1],
+      res,
+      "browser package target",
+    );
+    if (!browser) return true;
+    if (browser !== "chrome" && browser !== "safari") {
+      ctx.error(res, "browser must be chrome or safari", 400);
+      return true;
+    }
+    return runRoute(ctx, async () => {
+      json(res, {
+        status: await buildLifeOpsBrowserCompanionPackage(browser),
+      });
+    });
+  }
+
+  const browserPackageDownloadMatch = pathname.match(
+    /^\/api\/lifeops\/browser\/packages\/([^/]+)\/download$/,
+  );
+  if (method === "GET" && browserPackageDownloadMatch) {
+    const browser = decodePathComponent(
+      browserPackageDownloadMatch[1],
+      res,
+      "browser package target",
+    );
+    if (!browser) return true;
+    if (browser !== "chrome" && browser !== "safari") {
+      ctx.error(res, "browser must be chrome or safari", 400);
+      return true;
+    }
+    return runRoute(ctx, async () => {
+      const artifact = getLifeOpsBrowserCompanionDownloadFile(browser);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", artifact.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${artifact.filename}"`,
+      );
+      await new Promise<void>((resolve, reject) => {
+        const stream = fs.createReadStream(artifact.path);
+        stream.on("error", reject);
+        res.on("error", reject);
+        stream.on("end", resolve);
+        stream.pipe(res);
+      });
     });
   }
 
@@ -1040,6 +1237,32 @@ export async function handleLifeOpsRoutes(
     });
   }
 
+  if (method === "GET" && pathname === "/api/lifeops/seed-templates") {
+    return runRoute(ctx, async (service) => {
+      json(res, await service.checkAndOfferSeeding());
+    });
+  }
+
+  if (method === "POST" && pathname === "/api/lifeops/seed") {
+    const body = await readJsonBody<{ keys: string[]; timezone?: string }>(
+      req,
+      res,
+    );
+    if (!body) return true;
+    if (!Array.isArray(body.keys) || body.keys.length === 0) {
+      ctx.error(
+        res,
+        "keys must be a non-empty array of seed template keys",
+        400,
+      );
+      return true;
+    }
+    return runRoute(ctx, async (service) => {
+      const ids = await service.applySeedRoutines(body.keys, body.timezone);
+      json(res, { createdIds: ids }, 201);
+    });
+  }
+
   if (method === "GET" && pathname === "/api/lifeops/definitions") {
     return runRoute(ctx, async (service) => {
       json(res, { definitions: await service.listDefinitions() });
@@ -1047,6 +1270,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "POST" && pathname === "/api/lifeops/definitions") {
+    if (rateLimitRequest(ctx, "task_create")) return true;
     const body = await readJsonBody<CreateLifeOpsDefinitionRequest>(req, res);
     if (!body) return true;
     return runRoute(ctx, async (service) => {
@@ -1070,6 +1294,7 @@ export async function handleLifeOpsRoutes(
       });
     }
     if (method === "PUT") {
+      if (rateLimitRequest(ctx, "task_update")) return true;
       const body = await readJsonBody<UpdateLifeOpsDefinitionRequest>(req, res);
       if (!body) return true;
       return runRoute(ctx, async (service) => {
@@ -1091,6 +1316,7 @@ export async function handleLifeOpsRoutes(
   }
 
   if (method === "POST" && pathname === "/api/lifeops/goals") {
+    if (rateLimitRequest(ctx, "task_create")) return true;
     const body = await readJsonBody<CreateLifeOpsGoalRequest>(req, res);
     if (!body) return true;
     return runRoute(ctx, async (service) => {
@@ -1108,6 +1334,7 @@ export async function handleLifeOpsRoutes(
       });
     }
     if (method === "PUT") {
+      if (rateLimitRequest(ctx, "task_update")) return true;
       const body = await readJsonBody<UpdateLifeOpsGoalRequest>(req, res);
       if (!body) return true;
       return runRoute(ctx, async (service) => {
@@ -1229,6 +1456,68 @@ export async function handleLifeOpsRoutes(
     return runRoute(ctx, async (service) => {
       json(res, {
         session: await service.completeBrowserSession(sessionId, body),
+      });
+    });
+  }
+
+  const browserCompanionProgressMatch = pathname.match(
+    /^\/api\/lifeops\/browser\/companions\/sessions\/([^/]+)\/progress$/,
+  );
+  if (method === "POST" && browserCompanionProgressMatch) {
+    const sessionId = decodePathComponent(
+      browserCompanionProgressMatch[1],
+      res,
+      "browser session id",
+    );
+    if (!sessionId) return true;
+    const body = await readJsonBody<UpdateLifeOpsBrowserSessionProgressRequest>(
+      req,
+      res,
+    );
+    if (!body) return true;
+    return runRoute(ctx, async (service) => {
+      const auth = getBrowserCompanionAuth(ctx);
+      if (!auth) {
+        return;
+      }
+      json(res, {
+        session: await service.updateBrowserSessionProgressFromCompanion(
+          auth.companionId,
+          auth.pairingToken,
+          sessionId,
+          body,
+        ),
+      });
+    });
+  }
+
+  const browserCompanionCompleteMatch = pathname.match(
+    /^\/api\/lifeops\/browser\/companions\/sessions\/([^/]+)\/complete$/,
+  );
+  if (method === "POST" && browserCompanionCompleteMatch) {
+    const sessionId = decodePathComponent(
+      browserCompanionCompleteMatch[1],
+      res,
+      "browser session id",
+    );
+    if (!sessionId) return true;
+    const body = await readJsonBody<CompleteLifeOpsBrowserSessionRequest>(
+      req,
+      res,
+    );
+    if (!body) return true;
+    return runRoute(ctx, async (service) => {
+      const auth = getBrowserCompanionAuth(ctx);
+      if (!auth) {
+        return;
+      }
+      json(res, {
+        session: await service.completeBrowserSessionFromCompanion(
+          auth.companionId,
+          auth.pairingToken,
+          sessionId,
+          body,
+        ),
       });
     });
   }

@@ -1,6 +1,8 @@
 # Build and release (CI, desktop binaries)
 
-`.github/workflows/release-electrobun.yml` is the canonical desktop release workflow and reusable desktop release-build graph. `.github/workflows/test-electrobun-release.yml` calls that same graph on pull requests in build-only mode, and `.github/workflows/release.yml` remains a manual legacy desktop fallback only.
+`.github/workflows/release-electrobun.yml` is the canonical desktop release workflow and reusable desktop release-build graph. `.github/workflows/test-electrobun-release.yml` calls that same graph on pull requests in build-only mode.
+
+Post-release distribution is now centralized in `.github/workflows/release-orchestrator.yml`. Why: the repo ships multiple downstream channels (npm, PyPI, Snap, Debian/APT, Flatpak, Google Play, Apple stores, Homebrew, homepage), and letting each workflow independently listen to `release: published` made retries, compliance routing, and drift management harder than necessary. The orchestrator owns channel policy and fans out to reusable child workflows.
 
 Why the release pipeline and desktop bundle work the way they do.
 
@@ -51,9 +53,8 @@ The release workflow (`.github/workflows/release.yml`) is designed for **reprodu
 
 CI workflows that need Node (for node-gyp / native modules or npm registry) were timing out on Node download and install. We fixed this as follows.
 
-- **`useblacksmith/setup-node@v5` on Blacksmith runners** — In `test.yml`, jobs that run on `blacksmith-4vcpu-ubuntu-2404` use `useblacksmith/setup-node` instead of `actions/setup-node`. **Why:** Blacksmith’s action uses their colocated cache (same DC as the runner), so Node binaries are served at ~400MB/s and we avoid slow or failing downloads from nodejs.org.
-- **`actions/setup-node@v3` (not v4) on GitHub-hosted runners** — Release, test (macOS legs), nightly, publish-npm, and other workflows pin to `@v3`. **Why:** v4 has a known slow post-action step and often triggers nodejs.org downloads that time out; v3 uses the runner toolcache when the version is present and avoids the regression.
-- **`check-latest: false`** — We set this explicitly on every `actions/setup-node` step (Blacksmith jobs use `useblacksmith/setup-node`, which has its own caching behavior). **Why:** With the default, the action can hit nodejs.org to check for a newer patch; that adds latency and can timeout. We want a fixed, cached Node version for reproducible CI.
+- **`actions/setup-node@v4` on all runners** — Every workflow uses the standard `actions/setup-node@v4` on GitHub-hosted `ubuntu-24.04` / `windows-2025` runners.
+- **`check-latest: false`** — We set this explicitly on every `actions/setup-node` step. **Why:** With the default, the action can hit nodejs.org to check for a newer patch; that adds latency and can timeout. We want a fixed, cached Node version for reproducible CI.
 - **Bun global cache (`~/.bun/install/cache`)** — test.yml, release.yml, benchmark-tests.yml, publish-npm.yml, and nightly.yml all cache this path with `actions/cache@v4` keyed by `bun.lock`. **Why:** Bun install is fast, but re-downloading every package every run was still a major cost; caching the global cache avoids re-downloading tarballs while letting `bun install` do its fast hardlink/clonefile into `node_modules`. We do not cache `node_modules` itself — compression/upload cost exceeds the gain.
 - **`timeout-minutes` on jobs** — We set explicit timeouts (e.g. 20–30 min for test jobs, 45 for release build-desktop). **Why:** So a hung or extremely slow run fails in a bounded time instead of burning runner hours; also makes flakiness visible.
 
@@ -61,7 +62,8 @@ CI workflows that need Node (for node-gyp / native modules or npm registry) were
 
 - **Electrobun PR release validation:** `.github/workflows/test-electrobun-release.yml` — on pull requests; runs the same Electrobun release build matrix in build-only mode without creating a GitHub release.
 - **Electrobun release:** `.github/workflows/release-electrobun.yml` — on version tag push or manual dispatch; builds macOS arm64, macOS x64, Windows x64, and Linux x64 Electrobun artifacts plus update channel files.
-- **Legacy desktop compatibility stub:** `.github/workflows/release.yml` — manual workflow that only points maintainers at the Electrobun release path.
+- **Pre-release gate and tag publication:** `.github/workflows/agent-release.yml` — validates the heavy build matrix, then creates the GitHub Release only after the blocking lanes are green.
+- **Post-release distribution:** `.github/workflows/release-orchestrator.yml` — triggered by the published GitHub Release (or manual dispatch), computes stable vs pre-release channel policy, and fans out to the reusable publish workflows for npm, package registries, Android, Apple, Homebrew, and homepage deploy.
 - **Local desktop build:** From repo root, use the Electrobun path: `bun run build:desktop` for a local bundle build, then `bash apps/app/electrobun/scripts/smoke-test.sh` for packaged desktop verification.
 
 ## Electrobun update-channel naming

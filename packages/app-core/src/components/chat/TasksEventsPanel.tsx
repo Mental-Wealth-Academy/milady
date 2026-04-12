@@ -4,14 +4,12 @@
  * Desktop: persistent right rail alongside /chat.
  * Mobile: sheet content toggled from the chat header.
  *
- * The panel only lays out widget modules. Widget behavior lives in
- * plugin-scoped widget definitions under ./widgets/plugins.
+ * Renders the `chat-sidebar` widget slot via the plugin widget system.
  */
 
-import { useMemo } from "react";
 import type { ActivityEvent } from "../../hooks/useActivityEvents";
-import { useApp } from "../../state";
-import { resolveChatSidebarWidgets } from "./widgets/registry";
+import { WidgetHost } from "../../widgets";
+import { FavoriteAppsBar } from "./FavoriteAppsBar";
 
 interface TasksEventsPanelProps {
   open: boolean;
@@ -28,12 +26,6 @@ export function TasksEventsPanel({
   clearEvents,
   mobile = false,
 }: TasksEventsPanelProps) {
-  const { plugins } = useApp();
-  const widgetDefinitions = useMemo(
-    () => resolveChatSidebarWidgets(plugins ?? []),
-    [plugins],
-  );
-
   if (!open) return null;
 
   const rootClassName = mobile
@@ -43,15 +35,13 @@ export function TasksEventsPanel({
   return (
     <aside className={rootClassName} data-testid="chat-widgets-bar">
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
-        {widgetDefinitions.length === 0 ? (
-          <div className="py-3 text-xs text-muted">
-            No plugin widgets are enabled for this chat view.
-          </div>
-        ) : (
-          widgetDefinitions.map(({ id, Component }) => (
-            <Component key={id} events={events} clearEvents={clearEvents} />
-          ))
-        )}
+        <FavoriteAppsBar />
+        <WidgetHost
+          slot="chat-sidebar"
+          events={events}
+          clearEvents={clearEvents}
+          hideWhenEmpty={false}
+        />
       </div>
     </aside>
   );

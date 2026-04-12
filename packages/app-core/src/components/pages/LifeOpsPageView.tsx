@@ -24,6 +24,7 @@ import {
 } from "../../platform";
 import { useApp } from "../../state";
 import { openExternalUrl } from "../../utils";
+import { LifeOpsSettingsSection } from "../settings/LifeOpsSettingsSection";
 import {
   AgentGithubCard,
   GoalList,
@@ -482,20 +483,12 @@ export function LifeOpsPageView() {
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-full px-4 text-[11px] font-semibold"
+                className="rounded-full px-4 text-xs-tight font-semibold"
                 onClick={() => void refreshAll()}
                 disabled={overviewLoading || githubLoading}
               >
                 <RefreshCw className="mr-2 h-3.5 w-3.5" />
                 Refresh
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full px-4 text-[11px] font-semibold"
-                onClick={() => setTab("settings")}
-              >
-                Settings
               </Button>
             </div>
           }
@@ -577,6 +570,8 @@ export function LifeOpsPageView() {
         ) : null}
       </PagePanel>
 
+      <LifeOpsSettingsSection />
+
       <PagePanel variant="section" className="p-4 lg:p-5">
         <PagePanel.Header
           eyebrow="GitHub"
@@ -586,7 +581,7 @@ export function LifeOpsPageView() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-full px-4 text-[11px] font-semibold"
+              className="rounded-full px-4 text-xs-tight font-semibold"
               onClick={openCloudAgents}
             >
               Open Cloud
@@ -628,7 +623,7 @@ export function LifeOpsPageView() {
                   <Button
                     variant="default"
                     size="sm"
-                    className="rounded-full px-4 text-[11px] font-semibold"
+                    className="rounded-full px-4 text-xs-tight font-semibold"
                     disabled={ownerGithubBusy}
                     onClick={() => void handleConnectOwnerGithub()}
                   >
@@ -639,7 +634,7 @@ export function LifeOpsPageView() {
                   </Button>
                 </div>
                 {ownerGithubConnections.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/45 bg-bg/55 p-4 text-[12px] text-muted">
+                  <div className="rounded-2xl border border-dashed border-border/45 bg-bg/55 p-4 text-xs text-muted">
                     No owner GitHub account linked yet.
                   </div>
                 ) : (
@@ -660,7 +655,7 @@ export function LifeOpsPageView() {
                 subtitle="Bind GitHub per cloud agent so coding work can use a separate identity from the owner account. Access may be read-only or write-enabled depending on the connected account or installation."
               >
                 {agentGithubEntries.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/45 bg-bg/55 p-4 text-[12px] text-muted">
+                  <div className="rounded-2xl border border-dashed border-border/45 bg-bg/55 p-4 text-xs text-muted">
                     No cloud agents found yet. Create or connect a cloud agent
                     to give it its own GitHub identity.
                   </div>

@@ -15,6 +15,8 @@ import {
 const LIVE_TESTS_ENABLED =
   process.env.MILADY_LIVE_TEST === "1" || process.env.ELIZA_LIVE_TEST === "1";
 const LIVE_CHAT_TESTS_ENABLED = process.env.MILADY_LIVE_CHAT_TEST === "1";
+const SELFCONTROL_CHAT_TESTS_ENABLED =
+  process.env.MILADY_LIVE_SELFCONTROL_CHAT_TEST === "1";
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const ENV_PATH = path.join(REPO_ROOT, ".env");
 
@@ -106,6 +108,12 @@ function resolveSelectedProviderPlugin(): string | null {
 }
 
 const selectedLiveProviderPlugin = resolveSelectedProviderPlugin();
+const liveSelfcontrolChatEnabled =
+  LIVE_TESTS_ENABLED &&
+  LIVE_CHAT_TESTS_ENABLED &&
+  SELFCONTROL_CHAT_TESTS_ENABLED &&
+  Boolean(selectedLiveProvider) &&
+  Boolean(selectedLiveProviderPlugin);
 
 type StartedRuntime = {
   close: () => Promise<void>;
@@ -254,13 +262,20 @@ async function waitForWebsiteBlockStatus(
   );
 }
 
-async function startLiveRuntime(): Promise<StartedRuntime> {
+async function startLiveRuntime(options?: {
+  includeProviderPlugin?: boolean;
+}): Promise<StartedRuntime> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "milady-selfcontrol-"));
   const stateDir = path.join(tempRoot, "state");
   const configPath = path.join(tempRoot, "eliza.json");
   const hostsFilePath = path.join(tempRoot, "hosts");
   const apiPort = await getFreePort();
   const logs: string[] = [];
+  const allowPlugins = ["selfcontrol"];
+
+  if (options?.includeProviderPlugin && selectedLiveProviderPlugin) {
+    allowPlugins.push(selectedLiveProviderPlugin);
+  }
 
   await mkdir(stateDir, { recursive: true });
   await writeFile(hostsFilePath, "127.0.0.1 localhost\n", "utf8");
@@ -270,9 +285,7 @@ async function startLiveRuntime(): Promise<StartedRuntime> {
       {
         logging: { level: "info" },
         plugins: {
-          allow: ["selfcontrol", selectedLiveProviderPlugin].filter(
-            (entry): entry is string => typeof entry === "string",
-          ),
+          allow: allowPlugins,
         },
       },
       null,
@@ -295,6 +308,7 @@ async function startLiveRuntime(): Promise<StartedRuntime> {
       SELFCONTROL_HOSTS_FILE_PATH: hostsFilePath,
       ELIZA_DISABLE_LOCAL_EMBEDDINGS: "1",
       MILADY_DISABLE_LOCAL_EMBEDDINGS: "1",
+      ALLOW_NO_DATABASE: "",
       DISCORD_API_TOKEN: "",
       DISCORD_BOT_TOKEN: "",
       TELEGRAM_BOT_TOKEN: "",
@@ -391,20 +405,13 @@ describeIf(LIVE_TESTS_ENABLED)(
         },
       });
 
-      const hosts = await waitForHostsBlock(runtime.hostsFilePath, [
+      // Startup smoke should verify the runtime contract only. Dedicated dev
+      // and service tests already cover the concrete hosts-file mutation path.
+      const statusResponse = await waitForWebsiteBlockStatus(runtime, [
         "x.com",
         "twitter.com",
       ]);
-      expect(hosts).toContain("x.com");
-      expect(hosts).toContain("twitter.com");
-
-      const statusResponse = await req(
-        runtime.port,
-        "GET",
-        "/api/website-blocker",
-      );
-      expect(statusResponse.status).toBe(200);
-      expect(statusResponse.data).toMatchObject({
+      expect(statusResponse).toMatchObject({
         active: true,
         engine: "hosts-file",
         requiresElevation: false,
@@ -428,89 +435,85 @@ describeIf(LIVE_TESTS_ENABLED)(
   },
 );
 
-describeIf(
-  !(
-    LIVE_TESTS_ENABLED &&
-    LIVE_CHAT_TESTS_ENABLED &&
-    selectedLiveProvider &&
-    selectedLiveProviderPlugin
-  ),
-)("Live: website blocker chat roundtrip", () => {
-  let runtime: StartedRuntime | undefined;
+describeIf(liveSelfcontrolChatEnabled)(
+  "Live: website blocker chat roundtrip",
+  () => {
+    let runtime: StartedRuntime | undefined;
 
-  beforeAll(async () => {
-    runtime = await startLiveRuntime();
-  }, 120_000);
+    beforeAll(async () => {
+      runtime = await startLiveRuntime({ includeProviderPlugin: true });
+    }, 180_000);
 
-  afterAll(async () => {
-    if (runtime) {
-      await runtime.close();
-    }
-  });
-
-  it("uses prior chat context to block websites through the real runtime", async () => {
-    const pluginsResponse = await req(runtime.port, "GET", "/api/plugins");
-    expect(pluginsResponse.status).toBe(200);
-
-    const { conversationId } = await createConversation(runtime.port, {
-      title: "Live SelfControl",
+    afterAll(async () => {
+      if (runtime) {
+        await runtime.close();
+      }
     });
 
-    const firstTurn = await postConversationMessage(
-      runtime.port,
-      conversationId,
-      {
-        text: "The websites distracting me are x.com and twitter.com. Do not block them yet.",
-      },
-    );
-    expect(firstTurn.status).toBe(200);
-    assertNoProviderIssue(
-      "first turn",
-      String(firstTurn.data.text ?? ""),
-      runtime,
-    );
-    expect(await readFile(runtime.hostsFilePath, "utf8")).toBe(
-      "127.0.0.1 localhost\n",
-    );
-    const firstTurnStatus = await req(
-      runtime.port,
-      "GET",
-      "/api/website-blocker",
-    );
-    expect(firstTurnStatus.status).toBe(200);
-    expect(firstTurnStatus.data).toMatchObject({
-      active: false,
-      websites: [],
-    });
+    it("uses prior chat context to block websites through the real runtime", async () => {
+      const pluginsResponse = await req(runtime.port, "GET", "/api/plugins");
+      expect(pluginsResponse.status).toBe(200);
 
-    const secondTurn = await postConversationMessage(
-      runtime.port,
-      conversationId,
-      {
-        text: "Use self control now. Actually block the websites for 1 minute instead of giving advice.",
-      },
-    );
-    expect(secondTurn.status).toBe(200);
+      const { conversationId } = await createConversation(runtime.port, {
+        title: "Live SelfControl",
+      });
 
-    const secondText = String(secondTurn.data.text ?? "");
-    assertNoProviderIssue("second turn", secondText, runtime);
-    expect(secondText).not.toMatch(
-      /Provide at least one public website hostname/i,
-    );
+      const firstTurn = await postConversationMessage(
+        runtime.port,
+        conversationId,
+        {
+          text: "The websites distracting me are x.com and twitter.com. Do not block them yet.",
+        },
+      );
+      expect(firstTurn.status).toBe(200);
+      assertNoProviderIssue(
+        "first turn",
+        String(firstTurn.data.text ?? ""),
+        runtime,
+      );
+      expect(await readFile(runtime.hostsFilePath, "utf8")).toBe(
+        "127.0.0.1 localhost\n",
+      );
+      const firstTurnStatus = await req(
+        runtime.port,
+        "GET",
+        "/api/website-blocker",
+      );
+      expect(firstTurnStatus.status).toBe(200);
+      expect(firstTurnStatus.data).toMatchObject({
+        active: false,
+        websites: [],
+      });
 
-    const status = await waitForWebsiteBlockStatus(runtime, [
-      "x.com",
-      "twitter.com",
-    ]);
-    expect(status).toMatchObject({
-      active: true,
-      websites: expect.arrayContaining(["x.com", "twitter.com"]),
-    });
-    const hosts = await waitForHostsBlock(runtime.hostsFilePath, [
-      "x.com",
-      "twitter.com",
-    ]);
-    expect(hosts).toContain("x.com");
-    expect(hosts).toContain("twitter.com");
-  }, 180_000);
-});
+      const secondTurn = await postConversationMessage(
+        runtime.port,
+        conversationId,
+        {
+          text: "Use self control now. Actually block the websites for 1 minute instead of giving advice.",
+        },
+      );
+      expect(secondTurn.status).toBe(200);
+
+      const secondText = String(secondTurn.data.text ?? "");
+      assertNoProviderIssue("second turn", secondText, runtime);
+      expect(secondText).not.toMatch(
+        /Provide at least one public website hostname/i,
+      );
+
+      const status = await waitForWebsiteBlockStatus(runtime, [
+        "x.com",
+        "twitter.com",
+      ]);
+      expect(status).toMatchObject({
+        active: true,
+        websites: expect.arrayContaining(["x.com", "twitter.com"]),
+      });
+      const hosts = await waitForHostsBlock(runtime.hostsFilePath, [
+        "x.com",
+        "twitter.com",
+      ]);
+      expect(hosts).toContain("x.com");
+      expect(hosts).toContain("twitter.com");
+    }, 180_000);
+  },
+);

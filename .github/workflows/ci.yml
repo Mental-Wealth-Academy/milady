@@ -19,7 +19,7 @@ env:
 jobs:
   pre-review:
     name: Pre-Review
-    runs-on: ${{ github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -36,7 +36,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
           skip-avatar-clone: "true"
           no-vision-deps: "true"
 
@@ -52,7 +52,7 @@ jobs:
 
   lint:
     name: Lint & Format
-    runs-on: ${{ github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +60,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -68,7 +68,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
 
       - name: Biome lint
         run: bun run verify:lint
@@ -78,7 +78,7 @@ jobs:
 
   typecheck:
     name: Type Check
-    runs-on: ${{ github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,7 +86,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -94,14 +94,14 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run type checker
         run: bun run verify:typecheck
 
   test:
     name: Unit Tests
-    runs-on: ${{ github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,7 +109,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -117,7 +117,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run unit tests
         run: bunx vitest run --config vitest.unit.config.ts
@@ -126,7 +126,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ${{ github.repository_owner == 'milady-ai' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -134,7 +134,7 @@ jobs:
           submodules: false
 
       - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -142,7 +142,7 @@ jobs:
         uses: ./.github/actions/setup-bun-workspace
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          install-command: bun install --ignore-scripts
+          install-command: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build project
         run: bun run build

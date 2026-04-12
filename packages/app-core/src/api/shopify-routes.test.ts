@@ -55,8 +55,7 @@ function fakeReq(
     url,
     headers: { host: "127.0.0.1:31337" },
     on(event: string, cb: (...args: unknown[]) => void) {
-      if (!listeners[event]) listeners[event] = [];
-      listeners[event].push(cb);
+      (listeners[event] ??= []).push(cb);
       return this;
     },
   } as unknown as http.IncomingMessage;

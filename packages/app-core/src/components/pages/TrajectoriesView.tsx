@@ -71,13 +71,20 @@ interface TrajectoriesViewProps {
 
 export function TrajectoriesView({
   contentHeader,
-  selectedTrajectoryId = null,
-  onSelectTrajectory,
+  selectedTrajectoryId: controlledId,
+  onSelectTrajectory: controlledOnSelect,
 }: TrajectoriesViewProps) {
   const { t, setActionNotice } = useApp();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<TrajectoryListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Self-manage selection when no external callback is provided (standalone mode).
+  const [internalId, setInternalId] = useState<string | null>(null);
+  const selectedTrajectoryId = controlledOnSelect
+    ? (controlledId ?? null)
+    : internalId;
+  const onSelectTrajectory = controlledOnSelect ?? setInternalId;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -376,8 +383,8 @@ export function TrajectoriesView({
               <ConfirmDeleteControl
                 triggerVariant="outline"
                 triggerClassName="h-7 w-7 rounded-full text-danger transition-all hover:bg-danger/10"
-                confirmClassName="h-7 rounded-full border border-danger/25 bg-danger/14 px-3 text-[10px] font-bold text-danger transition-all hover:bg-danger/20"
-                cancelClassName="h-7 rounded-full border border-border/35 px-3 text-[10px] font-bold text-muted-strong transition-all hover:border-border-strong hover:text-txt"
+                confirmClassName="h-7 rounded-full border border-danger/25 bg-danger/14 px-3 text-2xs font-bold text-danger transition-all hover:bg-danger/20"
+                cancelClassName="h-7 rounded-full border border-border/35 px-3 text-2xs font-bold text-muted-strong transition-all hover:border-border-strong hover:text-txt"
                 disabled={deleteDisabled}
                 triggerLabel={<Trash2 className="h-3 w-3" />}
                 triggerTitle={t("trajectoriesview.DeleteCurrent", {
@@ -398,8 +405,8 @@ export function TrajectoriesView({
               <ConfirmDeleteControl
                 triggerVariant="outline"
                 triggerClassName="h-7 w-7 rounded-full text-danger transition-all hover:bg-danger/10"
-                confirmClassName="h-7 rounded-full border border-danger/25 bg-danger/14 px-3 text-[10px] font-bold text-danger transition-all hover:bg-danger/20"
-                cancelClassName="h-7 rounded-full border border-border/35 px-3 text-[10px] font-bold text-muted-strong transition-all hover:border-border-strong hover:text-txt"
+                confirmClassName="h-7 rounded-full border border-danger/25 bg-danger/14 px-3 text-2xs font-bold text-danger transition-all hover:bg-danger/20"
+                cancelClassName="h-7 rounded-full border border-border/35 px-3 text-2xs font-bold text-muted-strong transition-all hover:border-border-strong hover:text-txt"
                 disabled={clearAllDisabled}
                 triggerLabel={<XCircle className="h-3 w-3" />}
                 triggerTitle={t("trajectoriesview.ClearAll", {
@@ -479,7 +486,7 @@ export function TrajectoriesView({
                   variant="outline"
                   size="sm"
                   type="button"
-                  className="h-8 rounded-full px-3 text-[11px]"
+                  className="h-8 rounded-full px-3 text-xs-tight"
                   onClick={() => setPage((current) => Math.max(0, current - 1))}
                   disabled={page === 0}
                 >
@@ -489,7 +496,7 @@ export function TrajectoriesView({
                   variant="outline"
                   size="sm"
                   type="button"
-                  className="h-8 rounded-full px-3 text-[11px]"
+                  className="h-8 rounded-full px-3 text-xs-tight"
                   onClick={() => setPage((current) => current + 1)}
                   disabled={page >= totalPages - 1}
                 >

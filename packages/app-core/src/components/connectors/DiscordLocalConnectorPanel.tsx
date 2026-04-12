@@ -1,5 +1,5 @@
 import { Button, PagePanel } from "@miladyai/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { client } from "../../api";
 import { useApp } from "../../state";
 
@@ -49,6 +49,12 @@ function currentUserLabel(status: DiscordLocalStatus | null): string | null {
   );
 }
 
+function selectedChannelIdsFromStatus(status: DiscordLocalStatus): string[] {
+  return status.subscribedChannelIds.length > 0
+    ? status.subscribedChannelIds
+    : status.configuredChannelIds;
+}
+
 export function DiscordLocalConnectorPanel() {
   const { t } = useApp();
   const [status, setStatus] = useState<DiscordLocalStatus | null>(null);
@@ -65,17 +71,16 @@ export function DiscordLocalConnectorPanel() {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  const applyStatus = useCallback((nextStatus: DiscordLocalStatus) => {
+    setStatus(nextStatus);
+    setSelectedChannelIds(selectedChannelIdsFromStatus(nextStatus));
+  }, []);
+
   const refreshStatus = useCallback(async () => {
     setLoadingStatus(true);
     setError(null);
     try {
-      const nextStatus = await client.getDiscordLocalStatus();
-      setStatus(nextStatus);
-      setSelectedChannelIds(
-        nextStatus.subscribedChannelIds.length > 0
-          ? nextStatus.subscribedChannelIds
-          : nextStatus.configuredChannelIds,
-      );
+      applyStatus(await client.getDiscordLocalStatus());
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : String(nextError),
@@ -83,7 +88,7 @@ export function DiscordLocalConnectorPanel() {
     } finally {
       setLoadingStatus(false);
     }
-  }, []);
+  }, [applyStatus]);
 
   const loadGuilds = useCallback(async () => {
     setLoadingGuilds(true);
@@ -167,13 +172,7 @@ export function DiscordLocalConnectorPanel() {
     setError(null);
     setSaveMessage(null);
     try {
-      const nextStatus = await client.authorizeDiscordLocal();
-      setStatus(nextStatus);
-      setSelectedChannelIds(
-        nextStatus.subscribedChannelIds.length > 0
-          ? nextStatus.subscribedChannelIds
-          : nextStatus.configuredChannelIds,
-      );
+      applyStatus(await client.authorizeDiscordLocal());
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : String(nextError),
@@ -181,7 +180,7 @@ export function DiscordLocalConnectorPanel() {
     } finally {
       setAuthorizing(false);
     }
-  }, []);
+  }, [applyStatus]);
 
   const handleDisconnect = useCallback(async () => {
     setDisconnecting(true);
@@ -229,8 +228,7 @@ export function DiscordLocalConnectorPanel() {
       setSaving(false);
     }
   }, [selectedChannelIds, t]);
-
-  const connectedUser = useMemo(() => currentUserLabel(status), [status]);
+  const connectedUser = currentUserLabel(status);
 
   return (
     <PagePanel.Notice
@@ -250,7 +248,7 @@ export function DiscordLocalConnectorPanel() {
                 })}
           </div>
           {connectedUser ? (
-            <code className="rounded-md border border-border/40 bg-bg/60 px-2 py-1 text-[11px] text-muted-strong">
+            <code className="rounded-md border border-border/40 bg-bg/60 px-2 py-1 text-xs-tight text-muted-strong">
               {connectedUser}
             </code>
           ) : null}
@@ -262,7 +260,7 @@ export function DiscordLocalConnectorPanel() {
               defaultValue: "Discord IPC socket",
             })}
             :{" "}
-            <code className="text-[11px] text-muted-strong">
+            <code className="text-xs-tight text-muted-strong">
               {status.ipcPath}
             </code>
           </div>
@@ -278,7 +276,7 @@ export function DiscordLocalConnectorPanel() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+            className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
             onClick={() => {
               void refreshStatus();
             }}
@@ -291,7 +289,7 @@ export function DiscordLocalConnectorPanel() {
           <Button
             variant="default"
             size="sm"
-            className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+            className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
             onClick={() => {
               void handleAuthorize();
             }}
@@ -309,7 +307,7 @@ export function DiscordLocalConnectorPanel() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+              className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
               onClick={() => {
                 void handleDisconnect();
               }}
@@ -422,7 +420,7 @@ export function DiscordLocalConnectorPanel() {
                   <Button
                     variant="default"
                     size="sm"
-                    className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+                    className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
                     onClick={() => {
                       void handleSaveSubscriptions();
                     }}

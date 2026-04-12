@@ -162,6 +162,12 @@ const WEBSITE_BLOCK_PERMISSION_RE =
 const WEBSITE_BLOCK_PERMISSION_MODEL_RE =
   /\b(permission|approval|approve|access|admin|administrator|root|sudo)\b/i;
 const NON_EXECUTABLE_FALLBACK_ACTIONS = new Set(["REPLY", "NONE", "IGNORE"]);
+const TASK_AGENT_STRONG_HINT_RE =
+  /\b(repo|repository|codebase|coding|debug|fix|implement|refactor|workspace|parallel|delegate|subtask|sub-agent|subagent|agent|orchestrate|coordinate|pull request|pr\b|branch|commit|background task)\b/i;
+const TASK_AGENT_WEAK_HINT_RE =
+  /\b(investigate|research|analyze|analysis|summarize|summary|write|draft|document|plan|workflow|automation|compare|test|tests)\b/i;
+const NON_TASK_ASSISTANT_QUERY_RE =
+  /\b(calendar|schedule|event|events|meeting|meetings|appointment|appointments|gmail|email|emails|inbox|lifeops|flight|flights|travel|trip|today|tomorrow|tonight|this week|next week|remind|reminder|task|habit)\b/i;
 
 function isExecutableFallbackAction(action: { name: string }): boolean {
   return !NON_EXECUTABLE_FALLBACK_ACTIONS.has(action.name);
@@ -244,6 +250,29 @@ function listExecutedRuntimeActions(
   } catch {
     return new Set();
   }
+}
+
+function shouldPreferTaskAgentRouting(
+  runtime: AgentRuntime,
+  text: string,
+): boolean {
+  const routingPolicy = runtime.getSetting("PARALLAX_TASK_AGENT_ROUTING_POLICY");
+  if (
+    typeof routingPolicy === "string" &&
+    routingPolicy.trim() === "framework-default"
+  ) {
+    return false;
+  }
+  if (NON_TASK_ASSISTANT_QUERY_RE.test(text)) {
+    return false;
+  }
+  return (
+    TASK_AGENT_STRONG_HINT_RE.test(text) ||
+    (TASK_AGENT_WEAK_HINT_RE.test(text) &&
+      /\b(repo|repository|workspace|code|coding|sub-agent|subagent|agent|parallel|delegate|background)\b/i.test(
+        text,
+      ))
+  );
 }
 
 function hasWebsiteBlockingPermissionIntent(text: string): boolean {
@@ -1009,7 +1038,10 @@ export async function generateChatResponse(
             const contentMetadata = message.content.metadata as
               | Record<string, unknown>
               | undefined;
-            if (contentMetadata?.intent === "create_task") {
+            const shouldDirectCreateTask =
+              contentMetadata?.intent === "create_task" ||
+              shouldPreferTaskAgentRouting(runtime, originalUserText);
+            if (shouldDirectCreateTask) {
               const coordinator = runtime.getService("SWARM_COORDINATOR");
               if (coordinator) {
                 const createTaskAction = runtime.actions.find(
@@ -1019,10 +1051,13 @@ export async function generateChatResponse(
                   runtime.logger?.info(
                     {
                       src: "eliza-api",
-                      agentType: contentMetadata.agentType,
-                      intent: "create_task",
+                      agentType: contentMetadata?.agentType,
+                      intent:
+                        contentMetadata?.intent === "create_task"
+                          ? "create_task"
+                          : "task-agent-policy",
                     },
-                    "[eliza-api] Direct dispatch CREATE_TASK from UI intent",
+                    "[eliza-api] Direct dispatch CREATE_TASK",
                   );
                   let actionResponseText = "";
                   await createTaskAction.handler(

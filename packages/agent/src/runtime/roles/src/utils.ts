@@ -250,10 +250,11 @@ export async function checkSenderRole(
       { liveEntityMetadata: getLiveEntityMetadataFromMessage(message) },
     );
     return {
+      entityId: message.entityId as string,
       role,
       isOwner: role === "OWNER",
       isAdmin: role === "OWNER" || role === "ADMIN",
-      hasPrivateAccess: role === "OWNER" || role === "ADMIN",
+      canManageRoles: role === "OWNER" || role === "ADMIN",
     };
   } catch {
     return null;
@@ -266,5 +267,5 @@ export async function checkSenderPrivateAccess(
 ): Promise<{ hasPrivateAccess: boolean } | null> {
   const result = await checkSenderRole(runtime, message);
   if (!result) return null;
-  return { hasPrivateAccess: result.hasPrivateAccess };
+  return { hasPrivateAccess: result.isAdmin };
 }

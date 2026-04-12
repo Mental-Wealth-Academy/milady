@@ -284,9 +284,11 @@ function DetailList({
 
 function ProviderRoutingPanel({ status }: { status: CodingAgentStatus }) {
   const frameworks = Array.isArray(status.frameworks) ? status.frameworks : [];
+  const workers = Array.isArray(status.workers) ? status.workers : [];
 
   if (
     frameworks.length === 0 &&
+    workers.length === 0 &&
     !status.preferredAgentType &&
     status.pendingConfirmations === 0
   ) {
@@ -299,12 +301,28 @@ function ProviderRoutingPanel({ status }: { status: CodingAgentStatus }) {
         <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted">
           Provider Routing
         </div>
+        {status.taskAgentRoutingPolicy ? (
+          <Badge
+            variant="secondary"
+            className="bg-bg-hover/70 text-[9px] text-muted"
+          >
+            Task agents: {status.taskAgentRoutingPolicy}
+          </Badge>
+        ) : null}
         {status.preferredAgentType ? (
           <Badge variant="secondary" className="bg-ok/15 text-[9px] text-ok">
             {status.preferredAgentReason === "user selected"
               ? "Selected"
               : "Preferred"}
             : {status.preferredAgentType}
+          </Badge>
+        ) : null}
+        {status.preferredWorker ? (
+          <Badge
+            variant="secondary"
+            className="bg-accent/15 text-[9px] text-accent"
+          >
+            Worker: {status.preferredWorker.label}
           </Badge>
         ) : null}
         <Badge
@@ -321,6 +339,50 @@ function ProviderRoutingPanel({ status }: { status: CodingAgentStatus }) {
       {status.preferredAgentReason ? (
         <div className="mb-2 text-xs-tight text-muted">
           {status.preferredAgentReason}
+        </div>
+      ) : null}
+      {status.preferredWorker ? (
+        <div className="mb-2 text-[11px] text-muted">
+          {status.preferredWorker.reason}
+        </div>
+      ) : null}
+      {status.taskAgentRoutingPolicy === "subscriptions-first" ? (
+        <div className="mb-2 text-[11px] text-muted">
+          Cloud connection stays available as fallback infrastructure, but task
+          agents prefer your subscription-backed workers first.
+        </div>
+      ) : null}
+      {workers.length > 0 ? (
+        <div className="mb-2 space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+            Worker Inventory
+          </div>
+          {workers.slice(0, 5).map((worker) => (
+            <div
+              key={worker.id}
+              className="rounded border border-border/40 bg-bg-hover/30 px-2 py-1.5 text-[11px] text-txt"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-medium">
+                  {worker.label}
+                  <span className="ml-1 text-muted">({worker.source})</span>
+                </div>
+                <div className={worker.available ? "text-ok" : "text-muted"}>
+                  {worker.available
+                    ? "ready"
+                    : worker.enabled
+                      ? "standby"
+                      : "disabled"}
+                </div>
+              </div>
+              <div className="text-muted">
+                {worker.reason}
+                {worker.activeSessions > 0
+                  ? ` Active sessions: ${worker.activeSessions}.`
+                  : ""}
+              </div>
+            </div>
+          ))}
         </div>
       ) : null}
       {frameworks.length > 0 ? (

@@ -405,7 +405,10 @@ describe("handleShopifyRoute", () => {
                               {
                                 node: {
                                   available: 5,
-                                  location: { name: "Main Warehouse" },
+                                  location: {
+                                    id: "gid://shopify/Location/1",
+                                    name: "Main Warehouse",
+                                  },
                                 },
                               },
                             ],
@@ -439,6 +442,7 @@ describe("handleShopifyRoute", () => {
     const body = JSON.parse(captured.body);
     expect(body.locations).toContain("Main Warehouse");
     expect(body.items).toHaveLength(1);
+    expect(body.items[0].locationId).toBe("gid://shopify/Location/1");
     expect(body.items[0].available).toBe(5);
     expect(body.items[0].variantTitle).toBe(""); // "Default Title" is normalized to ""
   });
@@ -467,28 +471,6 @@ describe("handleShopifyRoute", () => {
 
     const itemId = "gid://shopify/InventoryItem/1";
 
-    // First call: resolve location
-    fetchMock.mockResolvedValueOnce(
-      shopifyOk({
-        inventoryItem: {
-          id: itemId,
-          inventoryLevels: {
-            edges: [
-              {
-                node: {
-                  id: "gid://shopify/InventoryLevel/1",
-                  location: {
-                    id: "gid://shopify/Location/1",
-                    name: "Main Warehouse",
-                  },
-                },
-              },
-            ],
-          },
-        },
-      }),
-    );
-
     // Second call: the adjust mutation
     fetchMock.mockResolvedValueOnce(
       shopifyOk({
@@ -500,7 +482,11 @@ describe("handleShopifyRoute", () => {
     );
 
     const pathname = `/api/shopify/inventory/${itemId}/adjust`;
-    const req = fakeReq("POST", pathname, JSON.stringify({ delta: 3 }));
+    const req = fakeReq(
+      "POST",
+      pathname,
+      JSON.stringify({ delta: 3, locationId: "gid://shopify/Location/2" }),
+    );
     const { res, captured } = fakeRes();
     const handled = await handleShopifyRoute(req, res, pathname, "POST");
 
@@ -508,7 +494,79 @@ describe("handleShopifyRoute", () => {
     expect(captured.statusCode).toBe(200);
     const body = JSON.parse(captured.body);
     expect(body.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const parsed = JSON.parse(String(init?.body ?? "{}"));
+    expect(parsed.variables.input.changes[0].locationId).toBe(
+      "gid://shopify/Location/2",
+    );
+  });
+
+  it("POST /api/shopify/inventory/:id/adjust surfaces mutation userErrors", async () => {
+    process.env.SHOPIFY_STORE_DOMAIN = "test.myshopify.com";
+    process.env.SHOPIFY_ACCESS_TOKEN = "shpat_test";
+
+    const itemId = "gid://shopify/InventoryItem/1";
+    fetchMock.mockResolvedValueOnce(
+      shopifyOk({
+        inventoryAdjustQuantities: {
+          inventoryAdjustmentGroup: { reason: "correction" },
+          userErrors: [
+            {
+              field: ["changes", "0", "locationId"],
+              message: "inventory item not found at location",
+            },
+          ],
+        },
+      }),
+    );
+
+    const pathname = `/api/shopify/inventory/${itemId}/adjust`;
+    const req = fakeReq(
+      "POST",
+      pathname,
+      JSON.stringify({ delta: 3, locationId: "gid://shopify/Location/2" }),
+    );
+    const { res, captured } = fakeRes();
+    await handleShopifyRoute(req, res, pathname, "POST");
+
+    expect(captured.statusCode).toBe(422);
+    expect(JSON.parse(captured.body).error).toContain(
+      "inventory item not found at location",
+    );
+  });
+
+  it("POST /api/shopify/inventory/:id/adjust requires locationId", async () => {
+    process.env.SHOPIFY_STORE_DOMAIN = "test.myshopify.com";
+    process.env.SHOPIFY_ACCESS_TOKEN = "shpat_test";
+
+    const itemId = "gid://shopify/InventoryItem/1";
+    const pathname = `/api/shopify/inventory/${itemId}/adjust`;
+    const req = fakeReq("POST", pathname, JSON.stringify({ delta: 3 }));
+    const { res, captured } = fakeRes();
+    await handleShopifyRoute(req, res, pathname, "POST");
+
+    expect(captured.statusCode).toBe(400);
+    expect(JSON.parse(captured.body).error).toMatch(/locationId/i);
+  });
+
+  it("GET /api/shopify/products rejects pages beyond the 250-item fetch window", async () => {
+    process.env.SHOPIFY_STORE_DOMAIN = "test.myshopify.com";
+    process.env.SHOPIFY_ACCESS_TOKEN = "shpat_test";
+
+    const req = fakeReq("GET", "/api/shopify/products?page=14&limit=20&q=");
+    const { res, captured } = fakeRes();
+    const handled = await handleShopifyRoute(
+      req,
+      res,
+      "/api/shopify/products",
+      "GET",
+    );
+
+    expect(handled).toBe(true);
+    expect(captured.statusCode).toBe(400);
+    expect(JSON.parse(captured.body).error).toContain("250-item cursor window");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   // 12. Customers

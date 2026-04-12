@@ -6,7 +6,7 @@
  * POST /api/shopify/products                         body: { title, vendor?, productType?, price? }
  * GET  /api/shopify/orders?status=S&limit=N
  * GET  /api/shopify/inventory
- * POST /api/shopify/inventory/:itemId/adjust         body: { delta }
+ * POST /api/shopify/inventory/:itemId/adjust          body: { delta, locationId }
  * GET  /api/shopify/customers?q=Q&limit=N
  *
  * Credentials are read from process.env:
@@ -152,6 +152,15 @@ export async function handleShopifyRoute(
       );
       const search = url.searchParams.get("q")?.trim() || null;
       const fetchCount = Math.min(page * limit, 250);
+      const maxAccessiblePage = Math.max(1, Math.ceil(fetchCount / limit));
+      if (fetchCount === 250 && page > maxAccessiblePage) {
+        sendJsonError(
+          res,
+          400,
+          "Page exceeds the 250-item cursor window; use search to narrow results",
+        );
+        return true;
+      }
 
       const data = await shopifyGql<{
         products: {
@@ -427,7 +436,7 @@ export async function handleShopifyRoute(
                         edges: Array<{
                           node: {
                             available: number;
-                            location: { name: string };
+                            location: { id: string; name: string };
                           };
                         }>;
                       };
@@ -455,7 +464,7 @@ export async function handleShopifyRoute(
                       inventoryItem {
                         id
                         inventoryLevels(first: 10) {
-                          edges { node { available location { name } } }
+                          edges { node { available location { id name } } }
                         }
                       }
                     }
@@ -472,6 +481,7 @@ export async function handleShopifyRoute(
 
       const items: Array<{
         id: string;
+        locationId: string | null;
         sku: string;
         productTitle: string;
         variantTitle: string;
@@ -487,6 +497,7 @@ export async function handleShopifyRoute(
           if (levels.length === 0) {
             items.push({
               id: variant.inventoryItem.id,
+              locationId: null,
               sku: variant.sku ?? "",
               productTitle: productEdge.node.title,
               variantTitle:
@@ -501,6 +512,7 @@ export async function handleShopifyRoute(
           for (const levelEdge of levels) {
             items.push({
               id: variant.inventoryItem.id,
+              locationId: levelEdge.node.location.id,
               sku: variant.sku ?? "",
               productTitle: productEdge.node.title,
               variantTitle:
@@ -536,55 +548,27 @@ export async function handleShopifyRoute(
   if (adjustMatch && method === "POST") {
     try {
       const raw = await readBody(req);
-      const body = JSON.parse(raw) as { delta?: number };
+      let body: { delta?: number; locationId?: string } = {};
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        sendJsonError(res, 400, "Invalid JSON body");
+        return true;
+      }
       const delta = Number(body.delta);
       if (!Number.isInteger(delta) || delta === 0) {
         sendJsonError(res, 400, "delta must be a non-zero integer");
         return true;
       }
 
+      const locationId = body.locationId?.trim();
+      if (!locationId) {
+        sendJsonError(res, 400, "locationId is required");
+        return true;
+      }
+
       const inventoryItemId = adjustMatch[1];
-      const itemData = await shopifyGql<{
-        inventoryItem: {
-          id: string;
-          inventoryLevels: {
-            edges: Array<{
-              node: {
-                id: string;
-                location: { id: string; name: string };
-              };
-            }>;
-          };
-        } | null;
-      }>(
-        config,
-        `query GetInventoryItem($id: ID!) {
-          inventoryItem(id: $id) {
-            id
-            inventoryLevels(first: 5) {
-              edges { node { id location { id name } } }
-            }
-          }
-        }`,
-        { id: inventoryItemId },
-      );
-
-      if (!itemData.inventoryItem) {
-        sendJsonError(res, 404, `Inventory item not found: ${inventoryItemId}`);
-        return true;
-      }
-
-      const levels = itemData.inventoryItem.inventoryLevels.edges;
-      if (levels.length === 0) {
-        sendJsonError(
-          res,
-          422,
-          "No inventory levels found for this item — item may not be tracked",
-        );
-        return true;
-      }
-
-      await shopifyGql<{
+      const result = await shopifyGql<{
         inventoryAdjustQuantities: {
           inventoryAdjustmentGroup: { reason: string } | null;
           userErrors: Array<{ field: string[]; message: string }>;
@@ -604,13 +588,23 @@ export async function handleShopifyRoute(
             changes: [
               {
                 inventoryItemId,
-                locationId: levels[0].node.location.id,
+                locationId,
                 delta,
               },
             ],
           },
         },
       );
+
+      if (result.inventoryAdjustQuantities.userErrors.length > 0) {
+        const msg = result.inventoryAdjustQuantities.userErrors
+          .map((e) =>
+            e.field?.length ? `${e.field.join(".")}: ${e.message}` : e.message,
+          )
+          .join("; ");
+        sendJsonError(res, 422, msg || "Inventory adjustment failed");
+        return true;
+      }
 
       sendJson(res, 200, { ok: true });
     } catch (err) {

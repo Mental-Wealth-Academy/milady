@@ -232,15 +232,43 @@ interface FrameworkAvailability {
   docsUrl?: string;
 }
 
+interface WorkerAvailability {
+  id: string;
+  label: string;
+  frameworkId: FrameworkId;
+  source: "subscription" | "cloud";
+  enabled: boolean;
+  priority: number;
+  installed: boolean;
+  authReady: boolean;
+  subscriptionReady: boolean;
+  temporarilyDisabled: boolean;
+  available: boolean;
+  activeSessions: number;
+  recommended: boolean;
+  reason: string;
+}
+
 interface PreferredFramework {
   id: FrameworkId;
   reason: string;
 }
 
+interface PreferredWorker {
+  id: string;
+  label: string;
+  frameworkId: FrameworkId;
+  source: "subscription" | "cloud";
+  reason: string;
+}
+
 interface FrameworkState {
+  routingPolicy: "subscriptions-first" | "framework-default";
   configuredSubscriptionProvider?: string;
   frameworks: FrameworkAvailability[];
+  workers: WorkerAvailability[];
   preferred: PreferredFramework;
+  preferredWorker?: PreferredWorker;
 }
 
 const basePlugin = resolveBasePlugin();
@@ -259,6 +287,48 @@ const FRAMEWORK_LABELS: Record<FrameworkId, string> = {
   pi: "Pi",
 };
 const STANDARD_FRAMEWORKS: AdapterId[] = ["claude", "codex", "gemini", "aider"];
+const DEFAULT_WORKERS = [
+  {
+    id: "codex-1",
+    label: "Codex 1",
+    frameworkId: "codex" as const,
+    source: "subscription" as const,
+    enabled: true,
+    priority: 10,
+  },
+  {
+    id: "codex-2",
+    label: "Codex 2",
+    frameworkId: "codex" as const,
+    source: "subscription" as const,
+    enabled: true,
+    priority: 20,
+  },
+  {
+    id: "claude-1",
+    label: "Claude 1",
+    frameworkId: "claude" as const,
+    source: "subscription" as const,
+    enabled: true,
+    priority: 30,
+  },
+  {
+    id: "codex-cloud",
+    label: "Codex Cloud Fallback",
+    frameworkId: "codex" as const,
+    source: "cloud" as const,
+    enabled: true,
+    priority: 90,
+  },
+  {
+    id: "claude-cloud",
+    label: "Claude Cloud Fallback",
+    frameworkId: "claude" as const,
+    source: "cloud" as const,
+    enabled: true,
+    priority: 100,
+  },
+];
 
 const TASK_AGENT_STRONG_HINT_RE =
   /\b(repo|repository|codebase|coding|debug|fix|implement|refactor|workspace|parallel|delegate|subtask|sub-agent|subagent|agent|orchestrate|coordinate|pull request|pr\b|branch|commit|background task)\b/i;
@@ -536,6 +606,11 @@ async function computeFrameworkState(
   ptyService?: PTYServiceLike,
 ): Promise<FrameworkState> {
   const configuredSubscriptionProvider = readConfiguredSubscriptionProvider();
+  const routingPolicy =
+    readMiladyEnvKey("PARALLAX_TASK_AGENT_ROUTING_POLICY") ===
+    "framework-default"
+      ? "framework-default"
+      : "subscriptions-first";
   const preflightRecords = new Map<AdapterId, AdapterPreflight>();
 
   if (ptyService) {
@@ -719,10 +794,131 @@ async function computeFrameworkState(
     framework.recommended = framework.id === preferred.id;
   }
 
+  const workers: WorkerAvailability[] = DEFAULT_WORKERS.map((worker) => {
+    const framework = frameworks.find((entry) => entry.id === worker.frameworkId);
+    const subscriptionReady =
+      worker.source === "subscription"
+        ? Boolean(framework?.subscriptionReady)
+        : false;
+    const authReady =
+      worker.source === "subscription"
+        ? subscriptionReady
+        : Boolean(readMiladyCloudApiKey()) && Boolean(framework?.installed);
+    const available =
+      worker.enabled &&
+      Boolean(framework?.installed) &&
+      authReady &&
+      !Boolean((framework as { temporarilyDisabled?: boolean } | undefined)?.temporarilyDisabled);
+    return {
+      ...worker,
+      installed: Boolean(framework?.installed),
+      authReady,
+      subscriptionReady,
+      temporarilyDisabled: Boolean(
+        (framework as { temporarilyDisabled?: boolean } | undefined)
+          ?.temporarilyDisabled,
+      ),
+      available,
+      activeSessions: 0,
+      recommended: false,
+      reason:
+        worker.source === "subscription"
+          ? subscriptionReady
+            ? `ready to use the user's ${framework?.label ?? worker.frameworkId} subscription`
+            : `${framework?.label ?? worker.frameworkId} subscription auth was not detected`
+          : readMiladyCloudApiKey()
+            ? `ready as an Eliza Cloud fallback worker for ${framework?.label ?? worker.frameworkId}`
+            : "Eliza Cloud is not paired, so fallback routing is unavailable",
+    };
+  });
+  const preferredWorker = (
+    workers.find(
+      (worker) =>
+        worker.source === "subscription" &&
+        worker.available &&
+        worker.frameworkId === preferred.id,
+    ) ??
+    workers.find(
+      (worker) =>
+        worker.source === "subscription" && worker.available,
+    ) ??
+    workers.find((worker) => worker.source === "cloud" && worker.available)
+  )
+    ? {
+        id:
+          (
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" &&
+                worker.available &&
+                worker.frameworkId === preferred.id,
+            ) ??
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" && worker.available,
+            ) ??
+            workers.find((worker) => worker.source === "cloud" && worker.available)
+          )!.id,
+        label:
+          (
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" &&
+                worker.available &&
+                worker.frameworkId === preferred.id,
+            ) ??
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" && worker.available,
+            ) ??
+            workers.find((worker) => worker.source === "cloud" && worker.available)
+          )!.label,
+        frameworkId:
+          (
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" &&
+                worker.available &&
+                worker.frameworkId === preferred.id,
+            ) ??
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" && worker.available,
+            ) ??
+            workers.find((worker) => worker.source === "cloud" && worker.available)
+          )!.frameworkId,
+        source:
+          (
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" &&
+                worker.available &&
+                worker.frameworkId === preferred.id,
+            ) ??
+            workers.find(
+              (worker) =>
+                worker.source === "subscription" && worker.available,
+            ) ??
+            workers.find((worker) => worker.source === "cloud" && worker.available)
+          )!.source,
+        reason:
+          routingPolicy === "subscriptions-first"
+            ? "Subscriptions-first task-agent routing prefers local subscription workers before Eliza Cloud fallback."
+            : "Worker selection is following the framework-default policy.",
+      }
+    : undefined;
+
+  for (const worker of workers) {
+    worker.recommended = worker.id === preferredWorker?.id;
+  }
+
   return {
+    routingPolicy,
     configuredSubscriptionProvider,
     frameworks,
+    workers,
     preferred,
+    preferredWorker,
   };
 }
 
@@ -1816,16 +2012,19 @@ async function handleSettingsRoute(
   res: http.ServerResponse,
 ): Promise<boolean> {
   const ptyService = getPtyService(runtime);
-  const frameworkState = await getFrameworkState(runtime, ptyService);
+  const frameworkState = await getFrameworkState(runtime);
   sendJson(res, {
     defaultApprovalPreset: ptyService?.defaultApprovalPreset ?? "permissive",
     agentSelectionStrategy: ptyService?.agentSelectionStrategy ?? "fixed",
     defaultAgentType: frameworkState.preferred.id,
+    taskAgentRoutingPolicy: frameworkState.routingPolicy,
     preferredAgentType: frameworkState.preferred.id,
     preferredAgentReason: frameworkState.preferred.reason,
+    preferredWorker: frameworkState.preferredWorker,
     configuredSubscriptionProvider:
       frameworkState.configuredSubscriptionProvider,
     frameworks: frameworkState.frameworks,
+    workers: frameworkState.workers,
   });
   return true;
 }
@@ -1837,8 +2036,7 @@ async function handleCoordinatorStatusRoute(
   const coordinator = resolveCoordinator(runtime);
   if (!coordinator) return false;
 
-  const ptyService = getPtyService(runtime);
-  const frameworkState = await getFrameworkState(runtime, ptyService);
+  const frameworkState = await getFrameworkState(runtime);
   const allTasks = uniqueTaskList(coordinator.getAllTaskContexts?.() ?? []);
   const persistedThreads = coordinator.listTaskThreads
     ? await coordinator.listTaskThreads({
@@ -1908,9 +2106,12 @@ async function handleCoordinatorStatusRoute(
       archivedAt: thread.archivedAt,
     })),
     pendingConfirmations: coordinator.getPendingConfirmations?.().length ?? 0,
+    taskAgentRoutingPolicy: frameworkState.routingPolicy,
     preferredAgentType: frameworkState.preferred.id,
     preferredAgentReason: frameworkState.preferred.reason,
+    preferredWorker: frameworkState.preferredWorker,
     frameworks: frameworkState.frameworks,
+    workers: frameworkState.workers,
   });
   return true;
 }

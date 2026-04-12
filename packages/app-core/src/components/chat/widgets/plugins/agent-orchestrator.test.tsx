@@ -369,9 +369,18 @@ describe("agent orchestrator tasks widget", () => {
       taskCount: 1,
       tasks: [],
       pendingConfirmations: 1,
+      taskAgentRoutingPolicy: "subscriptions-first",
       preferredAgentType: "codex",
       preferredAgentReason:
         "Codex is authenticated and has the best readiness score.",
+      preferredWorker: {
+        id: "codex-1",
+        label: "Codex 1",
+        frameworkId: "codex",
+        source: "subscription",
+        reason:
+          "Codex 1 is selected for Codex using the subscriptions-first task-agent policy",
+      },
       frameworks: [
         {
           id: "codex",
@@ -400,6 +409,24 @@ describe("agent orchestrator tasks widget", () => {
           warnings: ["auth"],
         },
       ],
+      workers: [
+        {
+          id: "codex-1",
+          label: "Codex 1",
+          frameworkId: "codex",
+          source: "subscription",
+          enabled: true,
+          priority: 10,
+          installed: true,
+          authReady: true,
+          subscriptionReady: true,
+          temporarilyDisabled: false,
+          available: true,
+          activeSessions: 0,
+          recommended: true,
+          reason: "ready to use the user's Codex subscription",
+        },
+      ],
     });
 
     await act(async () => {
@@ -426,6 +453,10 @@ describe("agent orchestrator tasks widget", () => {
     );
 
     expect(textOf(requireTree(tree).root)).toContain("Preferred: codex");
+    expect(textOf(requireTree(tree).root)).toContain(
+      "Task agents: subscriptions-first",
+    );
+    expect(textOf(requireTree(tree).root)).toContain("Worker: Codex 1");
     expect(textOf(requireTree(tree).root)).toContain("Pending approvals: 1");
     expect(textOf(requireTree(tree).root)).toContain(
       "Approve the production deploy?",
@@ -434,6 +465,9 @@ describe("agent orchestrator tasks widget", () => {
       "Validation already passed and the deploy is the final step.",
     );
     expect(textOf(requireTree(tree).root)).toContain("subscription");
+    expect(textOf(requireTree(tree).root)).toContain(
+      "Cloud connection stays available as fallback infrastructure",
+    );
     expect(textOf(requireTree(tree).root)).toContain("Login required");
   });
 

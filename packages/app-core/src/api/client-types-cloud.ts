@@ -928,6 +928,35 @@ export interface CodingAgentFrameworkAvailability {
   score: number;
   reason: string;
   warnings: string[];
+  subscriptionReady?: boolean;
+  temporarilyDisabled?: boolean;
+  selectionScore?: number;
+}
+
+export interface CodingAgentWorkerAvailability {
+  id: string;
+  label: string;
+  frameworkId: string;
+  source: "subscription" | "cloud";
+  enabled: boolean;
+  priority: number;
+  installed: boolean;
+  authReady: boolean;
+  subscriptionReady: boolean;
+  temporarilyDisabled: boolean;
+  available: boolean;
+  activeSessions: number;
+  recommended: boolean;
+  reason: string;
+  selectionScore?: number;
+}
+
+export interface CodingAgentPreferredWorker {
+  id: string;
+  label: string;
+  frameworkId: string;
+  source: "subscription" | "cloud";
+  reason: string;
 }
 
 export interface CodingAgentStatus {
@@ -937,9 +966,12 @@ export interface CodingAgentStatus {
   pendingConfirmations: number;
   taskThreadCount?: number;
   taskThreads?: CodingAgentTaskThread[];
+  taskAgentRoutingPolicy?: string;
   preferredAgentType?: string;
   preferredAgentReason?: string;
+  preferredWorker?: CodingAgentPreferredWorker;
   frameworks?: CodingAgentFrameworkAvailability[];
+  workers?: CodingAgentWorkerAvailability[];
 }
 
 /** Raw PTY session shape returned by /api/coding-agents. */

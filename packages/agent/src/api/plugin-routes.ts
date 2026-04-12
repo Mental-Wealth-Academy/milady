@@ -46,6 +46,204 @@ interface PluginParamDef {
   isSet: boolean;
 }
 
+function getNestedConfigValue(
+  root: Record<string, unknown> | undefined,
+  path: string,
+): unknown {
+  if (!root) return undefined;
+  const segments = path.split(".").filter(Boolean);
+  let current: unknown = root;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function setNestedConfigValue(
+  root: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return;
+  let current: Record<string, unknown> = root;
+  for (const segment of segments.slice(0, -1)) {
+    const next = current[segment];
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+  current[segments[segments.length - 1]] = value;
+}
+
+function deleteNestedConfigValue(
+  root: Record<string, unknown>,
+  path: string,
+): void {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return;
+  let current: Record<string, unknown> = root;
+  for (const segment of segments.slice(0, -1)) {
+    const next = current[segment];
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      return;
+    }
+    current = next as Record<string, unknown>;
+  }
+  delete current[segments[segments.length - 1]];
+}
+
+function normalizePluginConfigValue(
+  param: Pick<PluginParamDef, "type"> | undefined,
+  rawValue: string,
+): unknown {
+  if (!param) return rawValue;
+  if (param.type === "boolean") {
+    return rawValue.trim().toLowerCase() === "true";
+  }
+  if (param.type === "number") {
+    const parsed = Number(rawValue);
+    return Number.isFinite(parsed) ? parsed : rawValue;
+  }
+  return rawValue;
+}
+
+function upsertPluginParam(
+  plugin: PluginEntry,
+  param: PluginParamDef,
+): void {
+  if (plugin.parameters.some((existing) => existing.key === param.key)) {
+    return;
+  }
+  plugin.parameters.push(param);
+}
+
+function applyDiscordUserExperienceParams(
+  plugin: PluginEntry,
+  config: ElizaConfig,
+): void {
+  if (plugin.id !== "discord") return;
+
+  const ackReaction = getNestedConfigValue(
+    config as Record<string, unknown>,
+    "messages.ackReaction",
+  );
+  const ackReactionScope = getNestedConfigValue(
+    config as Record<string, unknown>,
+    "messages.ackReactionScope",
+  );
+  const removeAckAfterReply = getNestedConfigValue(
+    config as Record<string, unknown>,
+    "messages.removeAckAfterReply",
+  );
+
+  upsertPluginParam(plugin, {
+    key: "messages.ackReaction",
+    type: "string",
+    description:
+      "Emoji Milady adds to acknowledge an incoming message so users can see the bot noticed them. Leave empty to disable.",
+    required: false,
+    sensitive: false,
+    default: "",
+    currentValue:
+      typeof ackReaction === "string" && ackReaction.trim() ? ackReaction : null,
+    isSet: typeof ackReaction === "string" && ackReaction.trim().length > 0,
+  });
+  upsertPluginParam(plugin, {
+    key: "messages.ackReactionScope",
+    type: "string",
+    description:
+      'Where the acknowledgment emoji is used. "group-mentions" is the safest default.',
+    required: false,
+    sensitive: false,
+    default: "group-mentions",
+    options: ["group-mentions", "group-all", "direct", "all"],
+    currentValue:
+      typeof ackReactionScope === "string" && ackReactionScope.trim()
+        ? ackReactionScope
+        : null,
+    isSet:
+      typeof ackReactionScope === "string" &&
+      ackReactionScope.trim().length > 0,
+  });
+  upsertPluginParam(plugin, {
+    key: "messages.removeAckAfterReply",
+    type: "boolean",
+    description:
+      "Remove the acknowledgment emoji after Milady sends the reply. Off keeps the acknowledgment visible.",
+    required: false,
+    sensitive: false,
+    default: "false",
+    currentValue:
+      typeof removeAckAfterReply === "boolean"
+        ? String(removeAckAfterReply)
+        : null,
+    isSet: typeof removeAckAfterReply === "boolean",
+  });
+
+  plugin.configKeys = Array.from(
+    new Set([
+      ...plugin.configKeys,
+      "messages.ackReaction",
+      "messages.ackReactionScope",
+      "messages.removeAckAfterReply",
+    ]),
+  );
+  plugin.configUiHints = plugin.configUiHints ?? {};
+  plugin.configUiHints["messages.ackReaction"] = {
+    ...plugin.configUiHints["messages.ackReaction"],
+    label: "Visible Acknowledgment Emoji",
+    help: "Shows users the bot noticed their message. Example: 👀, ✅, or ❤️. Leave blank to disable.",
+    group: "User Experience",
+    order: 90,
+    placeholder: "e.g. 👀",
+    width: "half",
+  };
+  plugin.configUiHints["messages.ackReactionScope"] = {
+    ...plugin.configUiHints["messages.ackReactionScope"],
+    label: "Acknowledgment Scope",
+    help: 'Choose where the acknowledgment emoji appears. "All" makes the bot visibly react everywhere.',
+    group: "User Experience",
+    order: 91,
+    type: "select",
+    options: [
+      {
+        value: "group-mentions",
+        label: "Mentions in groups",
+        description: "Acknowledge only when mentioned in group channels.",
+      },
+      {
+        value: "group-all",
+        label: "All group messages",
+        description: "Acknowledge every message in group channels.",
+      },
+      {
+        value: "direct",
+        label: "Direct messages",
+        description: "Acknowledge only in DMs.",
+      },
+      {
+        value: "all",
+        label: "All messages",
+        description: "Acknowledge both DMs and group messages.",
+      },
+    ],
+    width: "half",
+  };
+  plugin.configUiHints["messages.removeAckAfterReply"] = {
+    ...plugin.configUiHints["messages.removeAckAfterReply"],
+    label: "Remove Acknowledgment After Reply",
+    help: "Turn this on if you want the emoji to act like a temporary typing indicator instead of a persistent acknowledgment.",
+    group: "User Experience",
+    order: 92,
+    width: "full",
+  };
+}
+
 interface PluginEntry {
   id: string;
   name: string;
@@ -332,7 +530,29 @@ export async function handlePluginRoutes(
     }
 
     for (const plugin of allPlugins) {
+      applyDiscordUserExperienceParams(plugin, freshConfig);
+
       for (const param of plugin.parameters) {
+        if (param.key.includes(".")) {
+          const nestedValue = getNestedConfigValue(
+            freshConfig as Record<string, unknown>,
+            param.key,
+          );
+          if (typeof nestedValue === "string" && nestedValue.trim()) {
+            param.isSet = true;
+            param.currentValue = nestedValue;
+          } else if (typeof nestedValue === "boolean") {
+            param.isSet = true;
+            param.currentValue = String(nestedValue);
+          } else if (typeof nestedValue === "number" && Number.isFinite(nestedValue)) {
+            param.isSet = true;
+            param.currentValue = String(nestedValue);
+          } else {
+            param.isSet = false;
+            param.currentValue = null;
+          }
+          continue;
+        }
         const envValue = process.env[param.key];
         param.isSet = Boolean(envValue?.trim());
         param.currentValue = param.isSet
@@ -552,12 +772,32 @@ export async function handlePluginRoutes(
       }
 
       const allowedParamKeys = new Set(plugin.parameters.map((p) => p.key));
+      const paramByKey = new Map(plugin.parameters.map((p) => [p.key, p]));
 
       // Persist config values to state.config.env so they survive restarts
       if (!state.config.env) {
         state.config.env = {};
       }
       for (const [key, value] of Object.entries(body.config)) {
+        const param = paramByKey.get(key);
+        if (allowedParamKeys.has(key) && key.includes(".")) {
+          if (typeof value !== "string") {
+            continue;
+          }
+          if (value.trim()) {
+            setNestedConfigValue(
+              state.config as Record<string, unknown>,
+              key,
+              normalizePluginConfigValue(param, value),
+            );
+          } else {
+            deleteNestedConfigValue(
+              state.config as Record<string, unknown>,
+              key,
+            );
+          }
+          continue;
+        }
         if (
           allowedParamKeys.has(key) &&
           !BLOCKED_ENV_KEYS.has(key.toUpperCase()) &&

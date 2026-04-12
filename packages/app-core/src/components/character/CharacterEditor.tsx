@@ -22,6 +22,7 @@ import {
 } from "../../events/index";
 import { useChatAvatarVoiceBridge, useVoiceChat } from "../../hooks";
 import { useApp } from "../../state/useApp";
+import { confirmDesktopAction } from "../../utils/desktop-dialogs";
 import { WidgetHost } from "../../widgets";
 import { normalizeCharacterMessageExamples } from "../../utils/character-message-examples";
 import {
@@ -893,6 +894,56 @@ export function CharacterEditor({
     applyVoicePresetForEntry,
   ]);
 
+  const handleExitEditor = useCallback(async () => {
+    if (hasPendingChanges) {
+      const confirmed = await confirmDesktopAction({
+        title: t("charactereditor.LeaveEditorTitle", {
+          defaultValue: "Leave character editor?",
+        }),
+        message: t("charactereditor.LeaveEditorMessage", {
+          defaultValue:
+            "You have unsaved character changes. Leave this screen without saving?",
+        }),
+        detail: t("charactereditor.LeaveEditorDetail", {
+          defaultValue:
+            "Save first if you want to keep the current character edits.",
+        }),
+        type: "warning",
+        confirmLabel: t("charactereditor.LeaveEditorConfirm", {
+          defaultValue: "Leave",
+        }),
+        cancelLabel: t("common.cancel", {
+          defaultValue: "Cancel",
+        }),
+      });
+      if (!confirmed) return;
+    }
+    setTab("chat");
+  }, [hasPendingChanges, setTab, t]);
+
+  useEffect(() => {
+    if (sceneOverlay || typeof window === "undefined") return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      if (
+        target?.isContentEditable ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void handleExitEditor();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleExitEditor, sceneOverlay]);
+
   /* ── Export character JSON ────────────────────────────────────────── */
   const handleExportCharacter = useCallback(() => {
     const data = currentCharacter;
@@ -1514,6 +1565,99 @@ export function CharacterEditor({
                     {generateError}
                   </span>
                 )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={`${CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME} w-full`}
+                  style={idleSaveBtnStyle}
+                  onClick={() => void handleExitEditor()}
+                  title={t("charactereditor.BackToChat", {
+                    defaultValue: "Back to Chat",
+                  })}
+                >
+                  {t("charactereditor.BackToChat", {
+                    defaultValue: "Back to Chat",
+                  })}
+                </Button>
+                <Button
+                  size="sm"
+                  className={`${CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME} w-full`}
+                  style={
+                    hasPendingChanges ? accentGradientStyle : idleSaveBtnStyle
+                  }
+                  disabled={
+                    characterSaving || voiceSaving || !hasPendingChanges
+                  }
+                  onClick={() => void handleSaveAll()}
+                >
+                  {characterSaving || voiceSaving
+                    ? t("charactereditor.Saving", { defaultValue: "saving..." })
+                    : t("charactereditor.Save", { defaultValue: "Save" })}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={`${CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME} w-full`}
+                  style={idleSaveBtnStyle}
+                  onClick={handleResetToDefaults}
+                  disabled={!activeCharacterRosterEntry}
+                  title={t("charactereditor.ResetToDefaults", {
+                    defaultValue: "Reset to Defaults",
+                  })}
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                  {t("charactereditor.Reset", { defaultValue: "Reset" })}
+                </Button>
+                <input
+                  type="file"
+                  id="ce-vrm-upload-standalone"
+                  accept=".vrm"
+                  className="hidden"
+                  style={{ display: "none" }}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setState("selectedVrmIndex", 0);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={`${CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME} w-full`}
+                  style={idleSaveBtnStyle}
+                  onClick={() =>
+                    document.getElementById("ce-vrm-upload-standalone")?.click()
+                  }
+                  title={t("charactereditor.UploadVRM", {
+                    defaultValue: "Upload VRM",
+                  })}
+                >
+                  {t("charactereditor.UploadVRM", {
+                    defaultValue: "Upload VRM",
+                  })}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={`${CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME} w-full`}
+                  style={idleSaveBtnStyle}
+                  onClick={handleExportCharacter}
+                  disabled={!currentCharacter}
+                  title={t("charactereditor.ExportJSON", {
+                    defaultValue: "Export JSON",
+                  })}
+                >
+                  <DownloadIcon className="h-3.5 w-3.5 mr-1" />
+                  {t("charactereditor.ExportJSON", {
+                    defaultValue: "Export JSON",
+                  })}
+                </Button>
               </div>
             ) : null}
             {activePage !== "knowledge"
@@ -1582,6 +1726,45 @@ export function CharacterEditor({
                   <KnowledgeView embedded />
                 </div>
               )}
+            </div>
+
+            {/* Mobile: fixed bottom bar (no sticky sidebar on small screens) */}
+            <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-center gap-3 border-t border-border bg-bg/90 px-4 py-2.5 backdrop-blur-md md:hidden">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME}
+                style={idleSaveBtnStyle}
+                onClick={() => void handleExitEditor()}
+              >
+                {t("charactereditor.Back", { defaultValue: "Back" })}
+              </Button>
+              <Button
+                size="sm"
+                className={CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME}
+                style={
+                  hasPendingChanges ? accentGradientStyle : idleSaveBtnStyle
+                }
+                disabled={characterSaving || voiceSaving || !hasPendingChanges}
+                onClick={() => void handleSaveAll()}
+              >
+                {characterSaving || voiceSaving
+                  ? t("charactereditor.Saving", { defaultValue: "saving..." })
+                  : t("charactereditor.Save", { defaultValue: "Save" })}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={CHARACTER_EDITOR_FOOTER_ACTION_CLASSNAME}
+                style={idleSaveBtnStyle}
+                onClick={handleResetToDefaults}
+                disabled={!activeCharacterRosterEntry}
+              >
+                <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                {t("charactereditor.Reset", { defaultValue: "Reset" })}
+              </Button>
             </div>
           </PageLayout>
         )}

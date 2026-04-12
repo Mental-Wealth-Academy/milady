@@ -47,6 +47,7 @@ export interface ShopifyOrder {
 
 export interface ShopifyInventoryItem {
   id: string;
+  locationId: string | null;
   sku: string;
   productTitle: string;
   variantTitle: string;

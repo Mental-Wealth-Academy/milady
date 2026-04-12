@@ -213,12 +213,17 @@ export function runInitSubmodules({
         initReason ? ` because ${initReason}` : ""
       }...`,
     );
+    const skipRecursive = NO_RECURSE_SUBMODULES.has(submodule.path);
+    const recursiveFlag = skipRecursive ? "" : " --recursive";
     try {
       try {
-        exec(`git submodule update --init --recursive "${submodule.path}"`, {
-          cwd: rootDir,
-          stdio: "inherit",
-        });
+        exec(
+          `git submodule update --init${recursiveFlag} "${submodule.path}"`,
+          {
+            cwd: rootDir,
+            stdio: "inherit",
+          },
+        );
       } catch (_shallowErr) {
         // Shallow clones (common in CI) may fail to fetch the pinned SHA.
         // Retry: register the submodule, fetch all refs deeply, then update.
@@ -241,7 +246,7 @@ export function runInitSubmodules({
             shell: true,
           });
         }
-        exec(`git submodule update --recursive "${submodule.path}"`, {
+        exec(`git submodule update${recursiveFlag} "${submodule.path}"`, {
           cwd: rootDir,
           stdio: "inherit",
         });

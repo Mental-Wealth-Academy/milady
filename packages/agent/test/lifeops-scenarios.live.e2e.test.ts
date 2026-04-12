@@ -2,10 +2,10 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { describeIf } from "../../../test/helpers/conditional-tests.ts";
 import type { StartedLifeOpsLiveRuntime } from "./helpers/lifeops-live-harness.ts";
 import {
+  getLifeOpsLiveSetupWarnings,
   LIVE_CHAT_TESTS_ENABLED,
   LIVE_SCENARIO_TESTS_ENABLED,
   LIVE_TESTS_ENABLED,
-  getLifeOpsLiveSetupWarnings,
   selectLifeOpsLiveProvider,
   startLifeOpsLiveRuntime,
 } from "./helpers/lifeops-live-harness.ts";
@@ -20,6 +20,8 @@ const LIVE_SCENARIO_SUITE_ENABLED =
   LIVE_CHAT_TESTS_ENABLED &&
   LIVE_SCENARIO_TESTS_ENABLED &&
   selectedLiveProvider !== null;
+const SHARED_RUNTIME_ENABLED =
+  process.env.MILADY_LIVE_SCENARIO_SHARED_RUNTIME === "1";
 
 if (!LIVE_SCENARIO_SUITE_ENABLED) {
   console.info(
@@ -35,6 +37,9 @@ describeIf(LIVE_SCENARIO_SUITE_ENABLED)(
     let runtime: StartedLifeOpsLiveRuntime | undefined;
 
     beforeAll(async () => {
+      if (!SHARED_RUNTIME_ENABLED) {
+        return;
+      }
       runtime = await startLifeOpsLiveRuntime({
         selectedProvider: selectedLiveProvider,
       });
@@ -47,24 +52,40 @@ describeIf(LIVE_SCENARIO_SUITE_ENABLED)(
     });
 
     for (const scenario of scenarios) {
-      it(
-        `${scenario.id}: ${scenario.title}`,
-        async () => {
-          if (!runtime) {
-            throw new Error("Live runtime was not started.");
-          }
-          const report = await runLifeOpsLiveScenario({
-            runtime,
-            scenario,
+      it(`${scenario.id}: ${scenario.title}`, async () => {
+        if (scenario.requiresIsolation || !SHARED_RUNTIME_ENABLED) {
+          const isolatedRuntime = await startLifeOpsLiveRuntime({
+            selectedProvider: selectedLiveProvider,
           });
-          expect(report.status, report.error).toBe("passed");
-          expect(report.turns.length).toBe(scenario.turns.length);
-          expect(
-            report.finalChecks.every((check) => check.status === "passed"),
-          ).toBe(true);
-        },
-        300_000,
-      );
+          try {
+            const report = await runLifeOpsLiveScenario({
+              runtime: isolatedRuntime,
+              scenario,
+            });
+            expect(report.status, report.error).toBe("passed");
+            expect(report.turns.length).toBe(scenario.turns.length);
+            expect(
+              report.finalChecks.every((check) => check.status === "passed"),
+            ).toBe(true);
+          } finally {
+            await isolatedRuntime.close();
+          }
+          return;
+        }
+
+        if (!runtime) {
+          throw new Error("Live runtime was not started.");
+        }
+        const report = await runLifeOpsLiveScenario({
+          runtime,
+          scenario,
+        });
+        expect(report.status, report.error).toBe("passed");
+        expect(report.turns.length).toBe(scenario.turns.length);
+        expect(
+          report.finalChecks.every((check) => check.status === "passed"),
+        ).toBe(true);
+      }, 300_000);
     }
   },
 );

@@ -5,11 +5,13 @@ import type {
   IAgentRuntime,
   Memory,
   Room,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger, ModelType } from "@elizaos/core";
 import { formatSpeakerLabel } from "../providers/conversation-utils.js";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey } from "./context-signal.js";
 
 type SearchConversationsParams = {
   query?: string;
@@ -58,9 +60,16 @@ export const searchConversationsAction: Action = {
   description:
     "Search across all conversations on all connected platforms. " +
     "Uses semantic search to find relevant messages. " +
-    "Results include line numbers for copying to scratchpad.",
+    "Results include line numbers for copying to clipboard.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(
+      message,
+      state,
+      "search_conversations",
+    );
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {
@@ -167,7 +176,7 @@ export const searchConversationsAction: Action = {
       );
       const header = `Search results for "${query}" | ${results.length} messages found`;
       const footer =
-        "\nTo save relevant results to scratchpad, use SCRATCHPAD_WRITE with the line range.";
+        "\nTo save relevant results to clipboard, use CLIPBOARD_WRITE with the line range.";
 
       return {
         text: `${header}\n${"─".repeat(60)}\n${formatted}\n${footer}`,

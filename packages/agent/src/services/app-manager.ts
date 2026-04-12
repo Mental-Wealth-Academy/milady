@@ -259,10 +259,16 @@ function canonicalizeCuratedRegistryPlugin<T extends RegistryPluginInfo>(
 
   const next = cloneRegistryPluginInfo(appInfo);
   next.name = canonicalName;
-  next.npm = {
-    ...next.npm,
-    package: canonicalName,
-  };
+  // Only rewrite npm.package if it was derived from the name (no separate
+  // runtime plugin). When npm.package differs from name (e.g. Hyperscape:
+  // app=@hyperscape/plugin-hyperscape, plugin=@elizaos/plugin-hyperscape),
+  // preserve the original so resolvePluginPackageName stays correct.
+  if (!next.npm.package || next.npm.package === appInfo.name) {
+    next.npm = {
+      ...next.npm,
+      package: canonicalName,
+    };
+  }
   return next;
 }
 
@@ -2135,6 +2141,7 @@ function sameRunIdentity(
 
 export class AppManager {
   private readonly activeSessions = new Map<string, ActiveAppSession>();
+  private readonly knownAppNames = new Set<string>();
   private readonly runRefreshAt = new Map<string, number>();
   private readonly runRefreshInFlight = new Map<
     string,
@@ -2147,6 +2154,7 @@ export class AppManager {
     this.stateDir = options.stateDir;
     for (const run of readAppRunStore(this.stateDir)) {
       this.appRuns.set(run.runId, run);
+      this.knownAppNames.add(run.appName);
     }
   }
 
@@ -2161,6 +2169,7 @@ export class AppManager {
   }
 
   private storeRun(run: AppRunSummary): AppRunSummary {
+    this.knownAppNames.add(run.appName);
     this.appRuns.set(run.runId, run);
     this.persistRuns();
     return run;
@@ -2321,29 +2330,8 @@ export class AppManager {
   async listAvailable(
     pluginManager: PluginManagerLike,
   ): Promise<RegistryPluginInfo[]> {
-    const registry = await pluginManager.refreshRegistry();
-    // Merge in local workspace app entries that are discovered by our
-    // registry-client but not by the elizaos
-    // plugin-manager service.
-    try {
-      const localRegistry = await getRegistryPlugins();
-      for (const [name, info] of localRegistry) {
-        if (info.kind !== "app" && !info.appMeta) {
-          continue;
-        }
-
-        const existing = registry.get(name) as RegistryAppPlugin | undefined;
-        if (!existing) {
-          registry.set(name, info);
-          continue;
-        }
-
-        mergeLocalRegistryInfo(existing, info);
-        registry.set(name, existing);
-      }
-    } catch {
-      // local discovery is best-effort
-    }
+    void pluginManager;
+    const registry = await getRegistryPlugins();
     const apps = curateCatalogApps(
       Array.from(registry.values()).filter(isAppRegistryPlugin),
     );
@@ -2725,11 +2713,14 @@ export class AppManager {
       (run) => run.appName === name,
     );
     if (runsForApp.length === 0) {
-      const appInfo = (await pluginManager.getRegistryPlugin(
-        name,
-      )) as RegistryAppPlugin | null;
-      if (!appInfo) {
-        throw new Error(`App "${name}" not found in the registry.`);
+      if (!this.knownAppNames.has(name)) {
+        const appInfo = (await pluginManager.getRegistryPlugin(
+          name,
+        )) as RegistryAppPlugin | null;
+        if (!appInfo) {
+          throw new Error(`App "${name}" not found in the registry.`);
+        }
+        this.knownAppNames.add(name);
       }
 
       return {
@@ -2768,12 +2759,21 @@ export class AppManager {
     pluginManager: PluginManagerLike,
   ): Promise<InstalledAppInfo[]> {
     const installed = await pluginManager.listInstalledPlugins();
-    const registry = await pluginManager.refreshRegistry();
+    const registry = await getRegistryPlugins();
+    const refreshedRegistry = await pluginManager
+      .refreshRegistry()
+      .catch(() => new Map<string, RegistryPluginInfo>());
+    const mergedRegistry = new Map<string, RegistryPluginInfo>(registry);
+    for (const [name, info] of refreshedRegistry.entries()) {
+      if (!mergedRegistry.has(name)) {
+        mergedRegistry.set(name, info);
+      }
+    }
     const installedByName = new Map(
       installed.map((plugin) => [plugin.name, plugin] as const),
     );
 
-    const appEntries = Array.from(registry.values())
+    const appEntries = Array.from(mergedRegistry.values())
       .filter(isAppRegistryPlugin)
       .map(flattenAppInfo);
 

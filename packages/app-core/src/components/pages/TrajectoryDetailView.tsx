@@ -3,15 +3,90 @@
  * embedded right-hand viewer.
  */
 
-import { client, type TrajectoryDetailResult } from "@miladyai/app-core/api";
+import {
+  client,
+  type TrajectoryDetailResult,
+  type TrajectoryLlmCall,
+} from "@miladyai/app-core/api";
 import { useApp } from "@miladyai/app-core/state";
-import { PagePanel, TrajectoryLlmCallCard } from "@miladyai/ui";
-import { useCallback, useEffect, useState } from "react";
+import {
+  PagePanel,
+  TrajectoryLlmCallCard,
+  TrajectoryPipelineGraph,
+  type PipelineNode,
+  type PipelineStageId,
+} from "@miladyai/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Brain,
+  CheckCircle,
+  MessageSquare,
+  ShieldCheck,
+  X,
+  Zap,
+} from "lucide-react";
 import {
   formatTrajectoryDuration,
   formatTrajectoryTokenCount,
 } from "../../utils/trajectory-format";
 import { estimateTokenCost } from "../conversations/conversation-utils";
+
+// ---------------------------------------------------------------------------
+// Pipeline stage mapping
+// ---------------------------------------------------------------------------
+
+const STEP_TYPE_TO_STAGE: Record<string, PipelineStageId> = {
+  should_respond: "should_respond",
+  compose_state: "plan",
+  response: "plan",
+  reasoning: "plan",
+  orchestrator: "plan",
+  coordination: "plan",
+  action: "actions",
+  evaluation: "evaluators",
+  observation_extraction: "evaluators",
+  turn_complete: "evaluators",
+};
+
+function stageForCall(call: TrajectoryLlmCall): PipelineStageId {
+  return STEP_TYPE_TO_STAGE[call.stepType ?? ""] ?? "plan";
+}
+
+const PIPELINE_STAGES: Array<{
+  id: PipelineStageId;
+  label: string;
+  icon: typeof Brain;
+}> = [
+  { id: "input", label: "Input", icon: MessageSquare },
+  { id: "should_respond", label: "Should Respond", icon: ShieldCheck },
+  { id: "plan", label: "Plan", icon: Brain },
+  { id: "actions", label: "Actions", icon: Zap },
+  { id: "evaluators", label: "Evaluators", icon: CheckCircle },
+];
+
+function buildPipelineNodes(
+  llmCalls: TrajectoryLlmCall[],
+  trajectoryStatus: string,
+): PipelineNode[] {
+  const counts = new Map<PipelineStageId, number>();
+  for (const call of llmCalls) {
+    const stage = stageForCall(call);
+    counts.set(stage, (counts.get(stage) ?? 0) + 1);
+  }
+
+  return PIPELINE_STAGES.map(({ id, label, icon }) => {
+    const count = counts.get(id) ?? 0;
+    const status: PipelineNode["status"] =
+      id === "input"
+        ? "active"
+        : trajectoryStatus === "error" && count > 0
+          ? "error"
+          : count > 0
+            ? "active"
+            : "skipped";
+    return { id, label, callCount: count, status, icon };
+  });
+}
 
 interface TrajectoryDetailViewProps {
   trajectoryId: string;
@@ -43,6 +118,7 @@ export function TrajectoryDetailView({
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<TrajectoryDetailResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeStage, setActiveStage] = useState<PipelineStageId | null>(null);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -62,6 +138,30 @@ export function TrajectoryDetailView({
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
+
+  const llmCalls = detail?.llmCalls ?? [];
+  const trajectory = detail?.trajectory;
+
+  const pipelineNodes = useMemo(
+    () => buildPipelineNodes(llmCalls, trajectory?.status ?? "active"),
+    [llmCalls, trajectory?.status],
+  );
+
+  const filteredCalls = useMemo(() => {
+    if (!activeStage || activeStage === "input") return llmCalls;
+    return llmCalls.filter((call) => stageForCall(call) === activeStage);
+  }, [llmCalls, activeStage]);
+
+  const callIndexMap = useMemo(
+    () => new Map(llmCalls.map((call, i) => [call.id, i])),
+    [llmCalls],
+  );
+
+  const handleStageClick = useCallback((stageId: PipelineStageId) => {
+    setActiveStage((prev) =>
+      prev === stageId || stageId === "input" ? null : stageId,
+    );
+  }, []);
 
   if (loading) {
     return (
@@ -83,7 +183,7 @@ export function TrajectoryDetailView({
     );
   }
 
-  if (!detail) {
+  if (!detail || !trajectory) {
     return (
       <PagePanel.Empty
         variant="workspace"
@@ -93,7 +193,6 @@ export function TrajectoryDetailView({
     );
   }
 
-  const { trajectory, llmCalls } = detail;
   const totalPromptTokens = llmCalls.reduce(
     (sum, call) => sum + (call.promptTokens ?? 0),
     0,
@@ -137,12 +236,12 @@ export function TrajectoryDetailView({
     <div className="flex h-full min-h-0 flex-col gap-4">
       {orchestratorData ? (
         <PagePanel variant="section" className="p-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted/70">
+          <div className="text-xs-tight font-semibold uppercase tracking-[0.16em] text-muted/70">
             {t("trajectorydetailview.Orchestrator")}
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <PagePanel.SummaryCard compact className="px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-muted/70">
+              <div className="text-xs-tight uppercase tracking-[0.14em] text-muted/70">
                 {t("trajectorydetailview.DecisionType")}
               </div>
               <div className="mt-2 text-sm font-semibold text-txt">
@@ -150,7 +249,7 @@ export function TrajectoryDetailView({
               </div>
             </PagePanel.SummaryCard>
             <PagePanel.SummaryCard compact className="px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-muted/70">
+              <div className="text-xs-tight uppercase tracking-[0.14em] text-muted/70">
                 {t("trajectorydetailview.Task")}
               </div>
               <div className="mt-2 text-sm font-semibold text-txt">
@@ -158,14 +257,47 @@ export function TrajectoryDetailView({
               </div>
             </PagePanel.SummaryCard>
             <PagePanel.SummaryCard compact className="px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-muted/70">
+              <div className="text-xs-tight uppercase tracking-[0.14em] text-muted/70">
                 {t("trajectorydetailview.Session1")}
               </div>
-              <div className="mt-2 break-all font-mono text-[11px] text-txt">
+              <div className="mt-2 break-all font-mono text-xs-tight text-txt">
                 {String(orchestratorData.sessionId ?? "—")}
               </div>
             </PagePanel.SummaryCard>
           </div>
+        </PagePanel>
+      ) : null}
+
+      {llmCalls.length > 0 ? (
+        <PagePanel variant="section" className="px-5 py-4">
+          <div className="mb-3 text-xs-tight font-semibold uppercase tracking-[0.16em] text-muted/70">
+            {t("trajectorydetailview.Pipeline", {
+              defaultValue: "Pipeline",
+            })}
+          </div>
+          <TrajectoryPipelineGraph
+            nodes={pipelineNodes}
+            activeStageId={activeStage}
+            onStageClick={handleStageClick}
+          />
+          {activeStage && activeStage !== "input" ? (
+            <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+              <span>
+                {t("trajectorydetailview.ShowingCalls", {
+                  defaultValue: "Showing {{count}} {{stage}} calls",
+                  count: filteredCalls.length,
+                  stage: activeStage.replace(/_/g, " "),
+                })}
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveStage(null)}
+                className="rounded p-0.5 hover:bg-muted/10"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : null}
         </PagePanel>
       ) : null}
 
@@ -179,10 +311,10 @@ export function TrajectoryDetailView({
               description={t("trajectorydetailview.NoLLMCallsRecorde")}
             />
           ) : (
-            llmCalls.map((call, index) => (
+            filteredCalls.map((call) => (
               <TrajectoryLlmCallCard
                 key={call.id}
-                callLabel={`#${index + 1}`}
+                callLabel={`#${(callIndexMap.get(call.id) ?? 0) + 1}`}
                 model={call.model}
                 purposeLabel={formatTrajectoryStepLabel(
                   call.stepType || call.purpose || call.actionType,

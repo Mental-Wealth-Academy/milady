@@ -38,15 +38,15 @@ interface SplashCloudAgentsProps {
 function statusBadge(status: string): { label: string; className: string } {
   switch (status) {
     case "running":
-      return { label: "LIVE", className: "bg-green-600 text-white" };
+      return { label: "LIVE", className: "bg-ok text-white" };
     case "provisioning":
     case "queued":
-      return { label: "STARTING", className: "bg-yellow-500 text-black" };
+      return { label: "STARTING", className: "bg-warn text-black" };
     case "stopped":
     case "suspended":
       return { label: "STOPPED", className: "bg-black/20 text-black/70" };
     case "failed":
-      return { label: "FAILED", className: "bg-red-600 text-white" };
+      return { label: "FAILED", className: "bg-danger text-white" };
     default:
       return {
         label: status.toUpperCase(),
@@ -60,11 +60,8 @@ export function SplashCloudAgents({
   onBack,
   dispatchStartup,
 }: SplashCloudAgentsProps) {
-  const {
-    elizaCloudConnected,
-    elizaCloudLoginBusy,
-    handleCloudLogin,
-  } = useApp();
+  const { elizaCloudConnected, elizaCloudLoginBusy, handleCloudLogin } =
+    useApp();
 
   const [stage, setStage] = useState<Stage>(
     elizaCloudConnected ? "loading" : "login",
@@ -107,9 +104,7 @@ export function SplashCloudAgents({
         }
       } catch (err) {
         if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "Failed to load agents",
-        );
+        setError(err instanceof Error ? err.message : "Failed to load agents");
         setStage("agent-list");
       }
     })();
@@ -224,9 +219,7 @@ export function SplashCloudAgents({
         }
       }, 2500);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create agent",
-      );
+      setError(err instanceof Error ? err.message : "Failed to create agent");
       setStage("agent-list");
     }
   }, [newAgentName, connectToAgent]);
@@ -242,7 +235,7 @@ export function SplashCloudAgents({
       <div className="mt-4 flex w-full flex-col gap-3 text-left">
         <p
           style={{ fontFamily: MONO_FONT }}
-          className="text-[9px] uppercase text-black/60"
+          className="text-3xs uppercase text-black/60"
         >
           {t("startupshell.CloudLogin", {
             defaultValue: "Sign in to Eliza Cloud",
@@ -271,7 +264,7 @@ export function SplashCloudAgents({
         {error && (
           <p
             style={{ fontFamily: MONO_FONT }}
-            className="text-[9px] text-red-700"
+            className="text-3xs text-danger"
           >
             {error}
           </p>
@@ -288,7 +281,7 @@ export function SplashCloudAgents({
         <Spinner className="h-6 w-6 text-black/60" />
         <p
           style={{ fontFamily: MONO_FONT }}
-          className="text-[9px] uppercase text-black/50"
+          className="text-3xs uppercase text-black/50"
         >
           {t("startupshell.LoadingAgents", {
             defaultValue: "Loading agents...",
@@ -299,13 +292,17 @@ export function SplashCloudAgents({
   }
 
   // ── Provisioning / Connecting stage ─────────────────────────────────
-  if (stage === "creating" || stage === "provisioning" || stage === "connecting") {
+  if (
+    stage === "creating" ||
+    stage === "provisioning" ||
+    stage === "connecting"
+  ) {
     return (
       <div className="mt-4 flex w-full flex-col items-center gap-3">
         <Spinner className="h-6 w-6 text-black/60" />
         <p
           style={{ fontFamily: MONO_FONT }}
-          className="text-[9px] uppercase text-black/50"
+          className="text-3xs uppercase text-black/50"
         >
           {stage === "creating"
             ? t("startupshell.CreatingAgent", {
@@ -330,7 +327,7 @@ export function SplashCloudAgents({
       <div className="flex items-center justify-between">
         <p
           style={{ fontFamily: MONO_FONT }}
-          className="text-[9px] uppercase text-black/60"
+          className="text-3xs uppercase text-black/60"
         >
           {t("startupshell.YourCloudAgents", {
             defaultValue: "Your cloud agents",
@@ -340,7 +337,7 @@ export function SplashCloudAgents({
           type="button"
           onClick={handleRefresh}
           style={{ fontFamily: MONO_FONT }}
-          className="text-[9px] uppercase text-black/50 hover:text-black underline"
+          className="text-3xs uppercase text-black/50 hover:text-black underline"
         >
           {t("startupshell.Refresh", { defaultValue: "Refresh" })}
         </button>
@@ -349,7 +346,7 @@ export function SplashCloudAgents({
       {error && (
         <p
           style={{ fontFamily: MONO_FONT }}
-          className="text-[9px] text-red-700"
+          className="text-3xs text-danger"
         >
           {error}
         </p>
@@ -371,7 +368,7 @@ export function SplashCloudAgents({
                         {agent.agent_name}
                       </p>
                       <span
-                        className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-bold ${badge.className}`}
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-3xs font-bold ${badge.className}`}
                       >
                         {badge.label}
                       </span>
@@ -379,7 +376,7 @@ export function SplashCloudAgents({
                     {agent.web_ui_url && (
                       <p
                         style={{ fontFamily: MONO_FONT }}
-                        className="truncate text-[9px] text-black/50"
+                        className="truncate text-3xs text-black/50"
                       >
                         {agent.web_ui_url}
                       </p>
@@ -405,7 +402,7 @@ export function SplashCloudAgents({
       {agents.length === 0 && !error && (
         <p
           style={{ fontFamily: MONO_FONT }}
-          className="text-[10px] text-black/50 text-center py-2"
+          className="text-2xs text-black/50 text-center py-2"
         >
           {t("startupshell.NoCloudAgents", {
             defaultValue: "No cloud agents yet",
@@ -448,13 +445,16 @@ export function SplashCloudAgents({
 function BackButton({
   t,
   onClick,
-}: { t: SplashCloudAgentsProps["t"]; onClick: () => void }) {
+}: {
+  t: SplashCloudAgentsProps["t"];
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       style={{ fontFamily: MONO_FONT }}
-      className="mt-1 text-[9px] uppercase text-black/50 hover:text-black underline text-center"
+      className="mt-1 text-3xs uppercase text-black/50 hover:text-black underline text-center"
     >
       {t("startupshell.Back", { defaultValue: "Back" })}
     </button>

@@ -39,6 +39,10 @@ import {
   TrajectoriesSection,
 } from "./fine-tuning-panels";
 
+function asArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function FineTuningView({
   contentHeader,
 }: {
@@ -124,30 +128,33 @@ export function FineTuningView({
 
   const loadDatasets = useCallback(async () => {
     const listed = await client.listTrainingDatasets();
-    setDatasets(listed.datasets);
+    const nextDatasets = asArray(listed.datasets);
+    setDatasets(nextDatasets);
     setSelectedDatasetId((prev) => {
-      if (prev && listed.datasets.some((dataset) => dataset.id === prev)) {
+      if (prev && nextDatasets.some((dataset) => dataset.id === prev)) {
         return prev;
       }
-      return listed.datasets[0]?.id ?? "";
+      return nextDatasets[0]?.id ?? "";
     });
   }, []);
 
   const loadJobs = useCallback(async () => {
     const listed = await client.listTrainingJobs();
-    setJobs(listed.jobs);
+    const nextJobs = asArray(listed.jobs);
+    setJobs(nextJobs);
     setSelectedJobId((prev) => {
-      if (prev && listed.jobs.some((job) => job.id === prev)) return prev;
-      return listed.jobs[0]?.id ?? "";
+      if (prev && nextJobs.some((job) => job.id === prev)) return prev;
+      return nextJobs[0]?.id ?? "";
     });
   }, []);
 
   const loadModels = useCallback(async () => {
     const listed = await client.listTrainingModels();
-    setModels(listed.models);
+    const nextModels = asArray(listed.models);
+    setModels(nextModels);
     setSelectedModelId((prev) => {
-      if (prev && listed.models.some((model) => model.id === prev)) return prev;
-      return listed.models[0]?.id ?? "";
+      if (prev && nextModels.some((model) => model.id === prev)) return prev;
+      return nextModels[0]?.id ?? "";
     });
   }, []);
 
@@ -539,7 +546,7 @@ export function FineTuningView({
         </div>
         <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3 xl:grid-cols-6">
           <div className={FINE_TUNING_STATUS_CARD_CLASS}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <div className="text-xs-tight font-semibold uppercase tracking-[0.14em] text-muted/70">
               {t("finetuningview.Runtime")}
             </div>
             <div className="mt-2 text-base font-semibold text-txt">
@@ -549,7 +556,7 @@ export function FineTuningView({
             </div>
           </div>
           <div className={FINE_TUNING_STATUS_CARD_CLASS}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <div className="text-xs-tight font-semibold uppercase tracking-[0.14em] text-muted/70">
               {t("finetuningview.RunningJobs")}
             </div>
             <div className="mt-2 text-base font-semibold text-txt">
@@ -557,7 +564,7 @@ export function FineTuningView({
             </div>
           </div>
           <div className={FINE_TUNING_STATUS_CARD_CLASS}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <div className="text-xs-tight font-semibold uppercase tracking-[0.14em] text-muted/70">
               {t("finetuningview.QueuedJobs")}
             </div>
             <div className="mt-2 text-base font-semibold text-txt">
@@ -565,7 +572,7 @@ export function FineTuningView({
             </div>
           </div>
           <div className={FINE_TUNING_STATUS_CARD_CLASS}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <div className="text-xs-tight font-semibold uppercase tracking-[0.14em] text-muted/70">
               {t("finetuningview.Datasets")}
             </div>
             <div className="mt-2 text-base font-semibold text-txt">
@@ -573,7 +580,7 @@ export function FineTuningView({
             </div>
           </div>
           <div className={FINE_TUNING_STATUS_CARD_CLASS}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <div className="text-xs-tight font-semibold uppercase tracking-[0.14em] text-muted/70">
               {t("finetuningview.Models")}
             </div>
             <div className="mt-2 text-base font-semibold text-txt">
@@ -581,7 +588,7 @@ export function FineTuningView({
             </div>
           </div>
           <div className={FINE_TUNING_STATUS_CARD_CLASS}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <div className="text-xs-tight font-semibold uppercase tracking-[0.14em] text-muted/70">
               {t("finetuningview.FailedJobs")}
             </div>
             <div className="mt-2 text-base font-semibold text-txt">

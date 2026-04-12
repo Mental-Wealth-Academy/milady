@@ -18,31 +18,29 @@ describe("Electrobun test workflow drift", () => {
     const workflow = fs.readFileSync(WORKFLOW_PATH, "utf8");
 
     expect(workflow).toContain("bun run test:regression-matrix:pr");
+    expect(workflow).toContain("bun run test:integration");
     expect(workflow).toContain("bun run test:e2e");
     expect(workflow).toContain("bun run test:startup:contract");
-    expect(workflow).toContain("bun run test:startup:e2e");
+    expect(workflow).toContain("bun run test:startup:integration");
     expect(workflow).toContain("bun run test:desktop:contract");
     expect(workflow).toContain("bun run test:live:cloud");
     expect(workflow).toContain("bun run test:e2e:validation");
-    expect(workflow).not.toContain(
-      "--exclude packages/agent/test/anvil-contracts.e2e.test.ts",
-    );
     expect(workflow).not.toContain(
       "--exclude packages/agent/test/apps-e2e.e2e.test.ts",
     );
   });
 
-  it("does not rerun postinstall in jobs that already use plain bun install", () => {
+  it("uses the shared setup action without reintroducing double postinstall", () => {
     const workflow = fs.readFileSync(WORKFLOW_PATH, "utf8");
 
     expect(workflow).toContain(
       "name: Setup workspace dependencies\n        uses: ./.github/actions/setup-bun-workspace",
     );
-    expect(workflow).toContain("install-command: bun install");
-    expect(workflow).toContain('run-postinstall: "false"');
-    expect(workflow).not.toContain(
-      'install-command: bun install\n          run-postinstall: "true"',
+    expect(workflow).toContain(
+      "install-command: bun install --frozen-lockfile --ignore-scripts",
     );
+    expect(workflow).not.toContain("run-postinstall:");
+    expect(workflow).not.toContain("install-command: bun install\n");
   });
 
   it("skips avatar clone and vision deps in pure test jobs", () => {
@@ -61,7 +59,7 @@ describe("Electrobun test workflow drift", () => {
     expect(workflow).toContain("branches: [main, develop]");
     expect(workflow).toContain("permissions:");
     expect(workflow).toContain("contents: read");
-    expect(workflow).toContain('BUN_VERSION: "1.3.9"');
+    expect(workflow).toContain('BUN_VERSION: "1.3.11"');
     expect(workflow).toContain('NODE_NO_WARNINGS: "1"');
     expect(workflow).toContain(
       // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression

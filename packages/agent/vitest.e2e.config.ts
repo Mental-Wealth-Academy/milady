@@ -1,22 +1,29 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.join(packageRoot, "..", "..");
+// See top-level vitest.config.ts for the rationale. Prefer the local
+// eliza source; fall back to the committed shim when the checkout is
+// disabled (CI published-only mode).
+const elizaCoreRolesSource = path.join(
+  repoRoot,
+  "eliza",
+  "packages",
+  "typescript",
+  "src",
+  "roles.ts",
+);
+const elizaCoreRolesAlias = fs.existsSync(elizaCoreRolesSource)
+  ? elizaCoreRolesSource
+  : path.join(repoRoot, "scripts", "lib", "elizaos-core-roles-shim.js");
 
 export default defineConfig({
   resolve: {
     alias: {
-      "@elizaos/core/roles": path.join(
-        packageRoot,
-        "..",
-        "..",
-        "eliza",
-        "packages",
-        "typescript",
-        "src",
-        "roles.ts",
-      ),
+      "@elizaos/core/roles": elizaCoreRolesAlias,
       "@elizaos/core": path.join(
         packageRoot,
         "..",
@@ -25,43 +32,7 @@ export default defineConfig({
         "node",
         "index.node.js",
       ),
-      "@elizaos/skills": path.join(
-        packageRoot,
-        "test",
-        "stubs",
-        "empty-module.mjs",
-      ),
-      "@elizaos/plugin-agent-orchestrator": path.join(
-        packageRoot,
-        "test",
-        "stubs",
-        "coding-agent-module.ts",
-      ),
-      "@elizaos/plugin-coding-agent": path.join(
-        packageRoot,
-        "test",
-        "stubs",
-        "coding-agent-module.ts",
-      ),
-      "@elizaos/plugin-pdf": path.join(
-        packageRoot,
-        "test",
-        "stubs",
-        "empty-module.mjs",
-      ),
-      "@elizaos/plugin-form": path.join(
-        packageRoot,
-        "test",
-        "stubs",
-        "empty-module.mjs",
-      ),
-      "@elizaos/plugin-pi-ai": path.join(
-        packageRoot,
-        "test",
-        "stubs",
-        "pi-ai-module.ts",
-      ),
-      electron: path.join(packageRoot, "test", "stubs", "electron-module.ts"),
+
     },
   },
   test: {

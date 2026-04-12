@@ -46,14 +46,14 @@ export function SplashServerChooser({
                 <div className="min-w-0">
                   <p
                     style={{ fontFamily: MONO_FONT }}
-                    className="text-[9px] uppercase text-black/60"
+                    className="text-3xs uppercase text-black/60"
                   >
                     {gatewayLabel(gateway, t)}
                   </p>
                   <p className="truncate text-sm font-semibold text-black">
                     {gateway.name}
                   </p>
-                  <p className="truncate text-[11px] text-black/70">
+                  <p className="truncate text-xs-tight text-black/70">
                     {gateway.host}
                   </p>
                 </div>
@@ -82,7 +82,7 @@ export function SplashServerChooser({
           <span className="flex flex-col items-start gap-1">
             <span
               style={{ fontFamily: MONO_FONT }}
-              className="text-[9px] uppercase text-[#ffe600]/80"
+              className="text-3xs uppercase text-[#ffe600]/80"
             >
               {t("startupshell.CreateAgentLabel", {
                 defaultValue: "Desktop only",
@@ -106,7 +106,7 @@ export function SplashServerChooser({
         <span className="flex flex-col items-start gap-1">
           <span
             style={{ fontFamily: MONO_FONT }}
-            className="text-[9px] uppercase text-black/60"
+            className="text-3xs uppercase text-black/60"
           >
             {t("startupshell.ElizaCloudAgent", {
               defaultValue: "Eliza Cloud",
@@ -129,7 +129,7 @@ export function SplashServerChooser({
         <span className="flex flex-col items-start gap-1">
           <span
             style={{ fontFamily: MONO_FONT }}
-            className="text-[9px] uppercase text-black/60"
+            className="text-3xs uppercase text-black/60"
           >
             {t("startupshell.RemoteAgentLabel", {
               defaultValue: "Remote server",

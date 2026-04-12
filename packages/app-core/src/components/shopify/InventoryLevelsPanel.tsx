@@ -3,7 +3,7 @@
  * +/- inventory adjustment controls.
  */
 
-import { Button, Input, Skeleton } from "@miladyai/ui";
+import { Button, Skeleton } from "@miladyai/ui";
 import { Minus, Package, Plus } from "lucide-react";
 import { useState } from "react";
 import type { ShopifyInventoryItem } from "./useShopifyDashboard";
@@ -12,7 +12,11 @@ import type { ShopifyInventoryItem } from "./useShopifyDashboard";
 
 interface InventoryRowProps {
   item: ShopifyInventoryItem;
-  onAdjust: (itemId: string, delta: number) => Promise<void>;
+  onAdjust: (
+    itemId: string,
+    locationId: string | null,
+    delta: number,
+  ) => Promise<void>;
 }
 
 function InventoryRow({ item, onAdjust }: InventoryRowProps) {
@@ -24,25 +28,23 @@ function InventoryRow({ item, onAdjust }: InventoryRowProps) {
     setAdjusting(true);
     setAdjustError(null);
     try {
-      await onAdjust(item.id, delta);
+      await onAdjust(item.id, item.locationId, delta);
       setLocalAvailable((prev) => prev + delta);
     } catch (err) {
-      setAdjustError(
-        err instanceof Error ? err.message : "Adjustment failed.",
-      );
+      setAdjustError(err instanceof Error ? err.message : "Adjustment failed.");
     } finally {
       setAdjusting(false);
     }
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-[16px] border border-border/20 bg-card/30 px-3 py-3">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/20 bg-card/30 px-3 py-3">
       {/* Product / variant info */}
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold text-txt">
           {item.productTitle}
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs-tight text-muted">
           {item.variantTitle ? <span>{item.variantTitle}</span> : null}
           {item.sku ? (
             <>
@@ -52,7 +54,7 @@ function InventoryRow({ item, onAdjust }: InventoryRowProps) {
           ) : null}
         </div>
         {adjustError ? (
-          <div className="mt-1 text-[11px] text-danger">{adjustError}</div>
+          <div className="mt-1 text-xs-tight text-danger">{adjustError}</div>
         ) : null}
       </div>
 
@@ -61,7 +63,7 @@ function InventoryRow({ item, onAdjust }: InventoryRowProps) {
         <div className="text-sm font-semibold text-txt">
           {localAvailable.toLocaleString()}
         </div>
-        <div className="mt-0.5 text-[10px] text-muted">available</div>
+        <div className="mt-0.5 text-2xs text-muted">available</div>
       </div>
 
       {/* Incoming */}
@@ -69,7 +71,7 @@ function InventoryRow({ item, onAdjust }: InventoryRowProps) {
         <div className="text-sm font-semibold text-txt">
           {item.incoming.toLocaleString()}
         </div>
-        <div className="mt-0.5 text-[10px] text-muted">incoming</div>
+        <div className="mt-0.5 text-2xs text-muted">incoming</div>
       </div>
 
       {/* Adjust controls */}
@@ -123,11 +125,15 @@ export function InventoryLevelsPanel({
       ? items
       : items.filter((item) => item.locationName === selectedLocation);
 
-  async function handleAdjust(itemId: string, delta: number): Promise<void> {
+  async function handleAdjust(
+    itemId: string,
+    locationId: string | null,
+    delta: number,
+  ): Promise<void> {
     const res = await fetch(`/api/shopify/inventory/${itemId}/adjust`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ delta }),
+      body: JSON.stringify({ delta, locationId }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "Unknown error");
@@ -167,7 +173,7 @@ export function InventoryLevelsPanel({
 
       {/* Error */}
       {error ? (
-        <div className="rounded-[14px] border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+        <div className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
           {error}
         </div>
       ) : null}
@@ -176,11 +182,11 @@ export function InventoryLevelsPanel({
       {loading && items.length === 0 ? (
         <div className="space-y-2">
           {Array.from({ length: 6 }, (_, i) => i).map((i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-[16px]" />
+            <Skeleton key={i} className="h-16 w-full rounded-xl" />
           ))}
         </div>
       ) : displayedItems.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-[18px] border border-border/20 bg-card/20 py-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/20 bg-card/20 py-12 text-center">
           <Package className="h-8 w-8 text-muted/40" />
           <div className="text-sm text-muted">
             {selectedLocation === "all"

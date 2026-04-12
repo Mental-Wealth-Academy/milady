@@ -1,74 +1,42 @@
 /**
- * VincentAppView — full-screen overlay app for Vincent DeFi vault management.
+ * VincentAppView — full-screen overlay app for Vincent DeFi management.
  *
  * Layout:
  *   - Header with back button and connection status badge
  *   - VincentConnectionCard (OAuth connect/disconnect)
- *   - VaultStatusCard (vault health, addresses, balances) — when connected
+ *   - VaultStatusCard (agent wallet addresses + balances) — when connected
  *   - TradingStrategyPanel (strategy config + start/stop) — when connected
  *   - TradingProfileCard (P&L analytics) — when connected
- *   - Tab section: Transaction History | Approval Queue — when connected
+ *
+ * Uses the internal agent wallet for addresses/balances, NOT the steward
+ * vault system (which is a separate optional custody layer).
  *
  * Implements the OverlayApp Component contract.
  */
 
-import type { OverlayAppContext } from "../apps/overlay-app-api";
-import { Button, PagePanel, SegmentedControl, Spinner } from "@miladyai/ui";
+import { Button, PagePanel, Spinner } from "@miladyai/ui";
 import { ArrowLeft, RefreshCw } from "lucide-react";
-import { useCallback, useState } from "react";
 import { useApp } from "../../state";
-import { ApprovalQueue } from "../steward/ApprovalQueue";
-import { TransactionHistory } from "../steward/TransactionHistory";
+import type { OverlayAppContext } from "../apps/overlay-app-api";
 import { TradingProfileCard } from "./TradingProfileCard";
 import { TradingStrategyPanel } from "./TradingStrategyPanel";
+import { useVincentDashboard } from "./useVincentDashboard";
 import { VaultStatusCard } from "./VaultStatusCard";
 import { VincentConnectionCard } from "./VincentConnectionCard";
-import { useVincentDashboard } from "./useVincentDashboard";
-
-type VincentTab = "history" | "approvals";
-
-const TAB_ITEMS: Array<{ value: VincentTab; label: string }> = [
-  { value: "history", label: "Transaction History" },
-  { value: "approvals", label: "Approval Queue" },
-];
 
 export function VincentAppView({ exitToApps, t }: OverlayAppContext) {
-  const {
-    setActionNotice,
-    getStewardHistory,
-    getStewardPending,
-    approveStewardTx,
-    rejectStewardTx,
-    copyToClipboard,
-  } = useApp();
+  const { setActionNotice } = useApp();
 
   const {
     vincentConnected,
-    stewardStatus,
-    vaultStatus,
+    walletAddresses,
+    walletBalances,
     strategy,
     tradingProfile,
     loading,
     error,
     refresh,
   } = useVincentDashboard();
-
-  const [activeTab, setActiveTab] = useState<VincentTab>("history");
-  const [pendingCount, setPendingCount] = useState(0);
-
-  const handlePendingCountChange = useCallback((count: number) => {
-    setPendingCount(count);
-  }, []);
-
-  const tabItems = TAB_ITEMS.map((item) => ({
-    ...item,
-    badge:
-      item.value === "approvals" && pendingCount > 0 ? (
-        <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-accent px-1 py-0.5 text-[10px] font-bold text-accent-fg">
-          {pendingCount}
-        </span>
-      ) : undefined,
-  }));
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-bg h-[100vh] overflow-hidden supports-[height:100dvh]:h-[100dvh]">
@@ -86,7 +54,7 @@ export function VincentAppView({ exitToApps, t }: OverlayAppContext) {
           </Button>
           <div>
             <h1 className="text-base font-semibold text-txt">Vincent</h1>
-            <p className="text-[11px] text-muted leading-none">
+            <p className="text-xs-tight text-muted leading-none">
               DeFi vault management &amp; autotrading
             </p>
           </div>
@@ -95,7 +63,7 @@ export function VincentAppView({ exitToApps, t }: OverlayAppContext) {
         <div className="flex items-center gap-2">
           {/* Connection status pill */}
           <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs-tight font-semibold ${
               vincentConnected
                 ? "border-ok/35 bg-ok/12 text-ok"
                 : "border-border bg-bg-accent text-muted"
@@ -124,98 +92,66 @@ export function VincentAppView({ exitToApps, t }: OverlayAppContext) {
 
       {/* Scrollable content */}
       <div className="chat-native-scrollbar flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-        <div className="mx-auto max-w-3xl space-y-4">
+        <div className="mx-auto max-w-5xl">
           {/* Error banner */}
-          {error && (
-            <PagePanel.Notice tone="danger">{error}</PagePanel.Notice>
-          )}
+          {error && <PagePanel.Notice tone="danger">{error}</PagePanel.Notice>}
 
           {/* Initial loading state */}
-          {loading && !vincentConnected && stewardStatus === null && (
+          {loading && !vincentConnected && walletAddresses === null && (
             <div className="flex items-center justify-center py-16">
               <Spinner className="h-5 w-5 text-muted" />
               <span className="ml-3 text-sm text-muted">Loading…</span>
             </div>
           )}
 
-          {/* Connection card — always visible */}
-          <VincentConnectionCard
-            setActionNotice={setActionNotice}
-            t={t}
-          />
+          {/* Two-column grid: main cards left, wallet summary top-right */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,340px)] gap-4 items-start">
+            {/* Left column — main cards */}
+            <div className="space-y-4">
+              <VincentConnectionCard setActionNotice={setActionNotice} t={t} />
 
-          {/* Cards below only render when connected */}
-          {vincentConnected && (
-            <>
-              <VaultStatusCard
-                stewardStatus={stewardStatus}
-                vaultStatus={vaultStatus}
-                setActionNotice={setActionNotice}
-              />
-
-              <TradingStrategyPanel
-                strategy={strategy}
-                onStrategyChange={refresh}
-                setActionNotice={setActionNotice}
-              />
-
-              <TradingProfileCard tradingProfile={tradingProfile} />
-
-              {/* Tab section */}
-              <div className="rounded-[28px] border border-border/18 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_98%,transparent))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] overflow-hidden">
-                {/* Tab bar */}
-                <div className="flex items-center border-b border-border/20 px-5 pt-4 pb-0">
-                  <SegmentedControl
-                    value={activeTab}
-                    onValueChange={(v) => setActiveTab(v as VincentTab)}
-                    items={tabItems}
-                    className="border-0 bg-transparent p-0"
-                    buttonClassName="text-xs"
+              {vincentConnected && (
+                <>
+                  <TradingStrategyPanel
+                    strategy={strategy}
+                    onStrategyChange={refresh}
+                    setActionNotice={setActionNotice}
                   />
-                </div>
 
-                {/* Tab content */}
-                <div className="px-5 py-4">
-                  {activeTab === "history" && (
-                    <TransactionHistory
-                      getStewardHistory={getStewardHistory}
-                      copyToClipboard={copyToClipboard}
-                      setActionNotice={setActionNotice}
-                      embedded
-                    />
-                  )}
-                  {activeTab === "approvals" && (
-                    <ApprovalQueue
-                      getStewardPending={getStewardPending}
-                      approveStewardTx={approveStewardTx}
-                      rejectStewardTx={rejectStewardTx}
-                      copyToClipboard={copyToClipboard}
-                      setActionNotice={setActionNotice}
-                      onPendingCountChange={handlePendingCountChange}
-                      embedded
-                    />
-                  )}
-                </div>
-              </div>
-            </>
-          )}
+                  <TradingProfileCard tradingProfile={tradingProfile} />
+                </>
+              )}
 
-          {/* Not-connected informational card */}
-          {!vincentConnected && !loading && (
-            <div className="rounded-[28px] border border-border/18 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_98%,transparent))] px-5 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-              <p className="text-sm font-medium text-txt">
-                {t("vincent.connectPrompt", {
-                  defaultValue: "Connect your Vincent account to get started",
-                })}
-              </p>
-              <p className="mx-auto mt-2 max-w-sm text-xs text-muted leading-relaxed">
-                {t("vincent.connectPromptDetail", {
-                  defaultValue:
-                    "Once connected, you'll see your vault health, trading strategy, P&L analytics, and transaction history here.",
-                })}
-              </p>
+              {/* Not-connected informational card */}
+              {!vincentConnected && !loading && (
+                <div className="rounded-3xl border border-border/18 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_98%,transparent))] px-5 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                  <p className="text-sm font-medium text-txt">
+                    {t("vincent.connectPrompt", {
+                      defaultValue:
+                        "Connect your Vincent account to get started",
+                    })}
+                  </p>
+                  <p className="mx-auto mt-2 max-w-sm text-xs text-muted leading-relaxed">
+                    {t("vincent.connectPromptDetail", {
+                      defaultValue:
+                        "Once connected, you'll see your wallet balances, trading strategy, and P&L analytics here.",
+                    })}
+                  </p>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Right column — wallet status (top-right, sticky on desktop) */}
+            {vincentConnected && (
+              <div className="lg:sticky lg:top-4">
+                <VaultStatusCard
+                  walletAddresses={walletAddresses}
+                  walletBalances={walletBalances}
+                  setActionNotice={setActionNotice}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

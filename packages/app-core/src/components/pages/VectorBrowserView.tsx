@@ -275,10 +275,10 @@ function VectorGraph({
     const withEmbeddings = memories.filter(hasEmbedding);
     return (
       <div className="text-center py-16">
-        <div className="text-[var(--muted)] text-sm mb-2">
+        <div className="text-muted text-sm mb-2">
           {t("vectorbrowserview.NotEnoughEmbedding")}
         </div>
-        <div className="text-[var(--muted)] text-xs">
+        <div className="text-muted text-xs">
           {t("vectorbrowserview.NeedAtLeast2Memo")} {withEmbeddings.length}.
         </div>
       </div>
@@ -287,13 +287,13 @@ function VectorGraph({
 
   return (
     <div ref={containerRef} className="w-full">
-      <div className="text-[11px] text-[var(--muted)] mb-2">
+      <div className="text-xs-tight text-muted mb-2">
         {graph.withEmbeddings.length}{" "}
         {t("vectorbrowserview.vectorsProjectedTo")}
       </div>
       <canvas
         ref={canvasRef}
-        className="w-full border border-[var(--border)] cursor-crosshair"
+        className="w-full border border-border cursor-crosshair"
         style={{ height: 500 }}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoveredIdx(null)}
@@ -734,10 +734,10 @@ export function VectorGraph3D({
   if (withEmbeddings.length < 2) {
     return (
       <div className="text-center py-16">
-        <div className="text-[var(--muted)] text-sm mb-2">
+        <div className="text-muted text-sm mb-2">
           {t("vectorbrowserview.NotEnoughEmbedding1")}
         </div>
-        <div className="text-[var(--muted)] text-xs">
+        <div className="text-muted text-xs">
           {t("vectorbrowserview.NeedAtLeast2Memo")} {withEmbeddings.length}.
         </div>
       </div>
@@ -746,13 +746,13 @@ export function VectorGraph3D({
 
   if (rendererUnavailable) {
     return (
-      <div className="border border-[var(--border)] bg-[var(--card)] px-4 py-10 text-center">
-        <div className="text-sm text-[var(--txt)]">
+      <div className="border border-border bg-card px-4 py-10 text-center">
+        <div className="text-sm text-txt">
           {t("vectorbrowserview.RendererUnavailable", {
             defaultValue: "3D view unavailable in this environment.",
           })}
         </div>
-        <div className="mt-2 text-xs text-[var(--muted)]">
+        <div className="mt-2 text-xs text-muted">
           {t("vectorbrowserview.RendererUnavailableDescription", {
             defaultValue:
               "The current runtime could not initialize a renderer.",
@@ -766,18 +766,18 @@ export function VectorGraph3D({
 
   return (
     <div className="relative">
-      <div className="text-[11px] text-[var(--muted)] mb-2">
+      <div className="text-xs-tight text-muted mb-2">
         {withEmbeddings.length} {t("vectorbrowserview.vectorsProjectedTo1")}
       </div>
       <div
         ref={containerRef}
-        className="w-full border border-[var(--border)] cursor-grab active:cursor-grabbing"
+        className="w-full border border-border cursor-grab active:cursor-grabbing"
         style={{ height: 550 }}
       />
       {/* Tooltip */}
       {hoveredMem && tooltipPos && (
         <div
-          className="absolute pointer-events-none bg-card/95 text-txt backdrop-blur-sm border border-border/30 rounded-lg text-[11px] px-3 py-2 max-w-[300px] z-10"
+          className="absolute pointer-events-none bg-card/95 text-txt backdrop-blur-sm border border-border/30 rounded-lg text-xs-tight px-3 py-2 max-w-[300px] z-10"
           style={{
             left: tooltipPos.x + 15,
             top: tooltipPos.y + 15,
@@ -786,20 +786,20 @@ export function VectorGraph3D({
         >
           <div className="font-medium mb-1 truncate">
             {hoveredMem.type && hoveredMem.type !== "undefined" && (
-              <span className="px-1.5 py-0.5 bg-[var(--accent)]/30 text-[var(--accent)] mr-2 text-[10px]">
+              <span className="px-1.5 py-0.5 bg-accent/30 text-accent mr-2 text-2xs">
                 {hoveredMem.type}
               </span>
             )}
             {hoveredMem.id.slice(0, 12)}...
           </div>
-          <div className="text-[var(--muted)] line-clamp-3">
+          <div className="text-muted line-clamp-3">
             {hoveredMem.content.slice(0, 150)}
             {hoveredMem.content.length > 150 ? "..." : ""}
           </div>
         </div>
       )}
       {/* Legend */}
-      <div className="flex flex-wrap gap-3 mt-2 text-[10px]">
+      <div className="flex flex-wrap gap-3 mt-2 text-2xs">
         {Object.entries(typeColors).map(
           ([type, color]) =>
             type &&
@@ -811,7 +811,7 @@ export function VectorGraph3D({
                     backgroundColor: `#${color.toString(16).padStart(6, "0")}`,
                   }}
                 />
-                <span className="text-[var(--muted)]">{type}</span>
+                <span className="text-muted">{type}</span>
               </div>
             ),
         )}
@@ -1118,7 +1118,7 @@ export function VectorBrowserView({
                   defaultValue: "Vectors",
                 })}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted/75">
+            <div className="mt-3 flex flex-wrap gap-2 text-2xs font-semibold uppercase tracking-[0.14em] text-muted/75">
               <MetaPill>
                 {viewMode === "list"
                   ? t("vectorbrowserview.ListView", {
@@ -1219,7 +1219,7 @@ export function VectorBrowserView({
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  className={`flex-1 h-10 rounded-[16px] border-border/40 bg-card/50 text-sm placeholder:text-muted/65 focus-visible:ring-accent/30 ${SETTINGS_COMPACT_INPUT_CLASSNAME}`}
+                  className={`flex-1 h-10 rounded-xl border-border/40 bg-card/50 text-sm placeholder:text-muted/65 focus-visible:ring-accent/30 ${SETTINGS_COMPACT_INPUT_CLASSNAME}`}
                 />
                 <Button variant="default" size="sm" onClick={handleSearch}>
                   {t("vectorbrowserview.Search")}
@@ -1228,7 +1228,7 @@ export function VectorBrowserView({
             ) : null}
 
             {stats ? (
-              <div className="rounded-2xl border border-border/35 bg-bg/35 px-3 py-3 text-[11px] text-muted">
+              <div className="rounded-2xl border border-border/35 bg-bg/35 px-3 py-3 text-xs-tight text-muted">
                 <div className="font-semibold text-txt">
                   {Number(stats.total).toLocaleString()}{" "}
                   {t("vectorbrowserview.memories")}
@@ -1322,7 +1322,7 @@ export function VectorBrowserView({
             >
               {t("vectorbrowserview.Prev")}
             </Button>
-            <span className="text-[11px] text-muted">
+            <span className="text-xs-tight text-muted">
               {t("vectorbrowserview.Page")} {page + 1} / {totalPages}
             </span>
             <Button

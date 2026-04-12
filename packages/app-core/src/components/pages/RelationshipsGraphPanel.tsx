@@ -430,7 +430,7 @@ function buildNodePositions(
 
 function GraphLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted">
+    <div className="flex flex-wrap items-center gap-3 text-xs-tight text-muted">
       <div className="flex items-center gap-1.5">
         <span className="h-2.5 w-2.5 rounded-full bg-[rgba(240,185,11,0.9)]" />
         People
@@ -477,12 +477,12 @@ function GraphTooltip({ state }: { state: TooltipState }) {
     return (
       <div
         style={style}
-        className="rounded-[14px] border border-border/40 bg-card/95 px-3 py-2.5 shadow-lg backdrop-blur-md"
+        className="rounded-xl border border-border/40 bg-card/95 px-3 py-2.5 shadow-lg backdrop-blur-md"
       >
         <div className="text-sm font-semibold text-txt">
           {person.displayName}
         </div>
-        <div className="mt-1 space-y-0.5 text-[11px] text-muted">
+        <div className="mt-1 space-y-0.5 text-xs-tight text-muted">
           <div>
             {person.memberEntityIds.length} identit
             {person.memberEntityIds.length === 1 ? "y" : "ies"} ·{" "}
@@ -503,12 +503,12 @@ function GraphTooltip({ state }: { state: TooltipState }) {
   return (
     <div
       style={style}
-      className="rounded-[14px] border border-border/40 bg-card/95 px-3 py-2.5 shadow-lg backdrop-blur-md"
+      className="rounded-xl border border-border/40 bg-card/95 px-3 py-2.5 shadow-lg backdrop-blur-md"
     >
       <div className="text-sm font-semibold text-txt">
         {edge.sourcePersonName} ↔ {edge.targetPersonName}
       </div>
-      <div className="mt-1 space-y-0.5 text-[11px] text-muted">
+      <div className="mt-1 space-y-0.5 text-xs-tight text-muted">
         <div>
           Strength {edge.strength.toFixed(2)} · {edge.sentiment} ·{" "}
           {edge.interactionCount} interactions
@@ -550,7 +550,7 @@ export function RelationshipsGraphPanel({
 
   if (!snapshot || !visibleGraph || snapshot.people.length === 0) {
     return (
-      <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-[22px] border border-border/28 bg-card/35 px-6 py-10 text-center">
+      <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-2xl border border-border/28 bg-card/35 px-6 py-10 text-center">
         <div className="text-sm font-semibold text-txt">
           No identities match the current filters.
         </div>
@@ -600,7 +600,7 @@ export function RelationshipsGraphPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted/70">
+          <div className="text-xs-tight font-semibold uppercase tracking-[0.16em] text-muted/70">
             Identity Graph
           </div>
           <div className="mt-2 text-xl font-semibold text-txt">
@@ -618,7 +618,7 @@ export function RelationshipsGraphPanel({
 
       {/* biome-ignore lint/a11y/noStaticElementInteractions: graph container handles tooltip dismiss on mouse leave */}
       <div
-        className="relative overflow-hidden rounded-[24px] border border-border/26 bg-[radial-gradient(circle_at_top,rgba(240,185,11,0.12),transparent_42%),linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_97%,transparent))]"
+        className="relative overflow-hidden rounded-3xl border border-border/26 bg-[radial-gradient(circle_at_top,rgba(240,185,11,0.12),transparent_42%),linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_97%,transparent))]"
         data-graph-container
         onMouseLeave={hideTooltip}
       >
@@ -752,14 +752,14 @@ export function RelationshipsGraphPanel({
                   <text
                     textAnchor="middle"
                     y={-3}
-                    className={`text-[12px] font-semibold ${isOwner ? "fill-white" : "fill-black"}`}
+                    className={`text-xs font-semibold ${isOwner ? "fill-white" : "fill-black"}`}
                   >
                     {shortLabel(person.displayName, 15)}
                   </text>
                   <text
                     textAnchor="middle"
                     y={12}
-                    className={`text-[9px] font-medium ${isOwner ? "fill-white/70" : "fill-black/70"}`}
+                    className={`text-3xs font-medium ${isOwner ? "fill-white/70" : "fill-black/70"}`}
                   >
                     {shortLabel(
                       person.relationshipCount > 0

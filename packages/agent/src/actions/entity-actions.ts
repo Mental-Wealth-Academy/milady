@@ -3,10 +3,12 @@ import type {
   HandlerOptions,
   IAgentRuntime,
   Memory,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey } from "./context-signal.js";
 import type {
   RelationshipsGraphService,
   RelationshipsPersonDetail,
@@ -158,9 +160,12 @@ export const searchEntityAction: Action = {
   description:
     "Search the Rolodex for a person by name, handle, or platform. " +
     "Returns matching contacts with their cross-platform identities. " +
-    "Results include line numbers for copying to scratchpad.",
+    "Results include line numbers for copying to clipboard.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "search_entity");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {
@@ -227,7 +232,7 @@ export const searchEntityAction: Action = {
 
       const header = `Search results for "${query}" | ${snapshot.people.length} contacts found`;
       const footer =
-        "\nUse READ_ENTITY with an entityId to see full details (facts, conversations, relationships).\nTo save results to scratchpad, use SCRATCHPAD_WRITE.";
+        "\nUse READ_ENTITY with an entityId to see full details (facts, conversations, relationships).\nTo save results to clipboard, use CLIPBOARD_WRITE.";
 
       return {
         text: `${header}\n${"─".repeat(60)}\n${lines.join("\n")}\n${footer}`,
@@ -302,9 +307,12 @@ export const readEntityAction: Action = {
   description:
     "Read full details about a person: identity, all facts, recent conversations, and relationships. " +
     "Look up by entity ID (from SEARCH_ENTITY results) or by name. " +
-    "Full output can be saved to scratchpad.",
+    "Full output can be saved to clipboard.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "search_entity");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {
@@ -374,7 +382,7 @@ export const readEntityAction: Action = {
       }
 
       const formatted = formatPersonDetail(detail);
-      const footer = "\nTo save this to scratchpad, use SCRATCHPAD_WRITE.";
+      const footer = "\nTo save this to clipboard, use CLIPBOARD_WRITE.";
 
       return {
         text: `${formatted}\n${footer}`,

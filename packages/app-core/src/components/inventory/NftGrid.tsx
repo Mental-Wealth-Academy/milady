@@ -54,7 +54,7 @@ export function NftGrid({
         return (
           <div
             key={key}
-            className="overflow-hidden rounded-[1.35rem] border border-border/40 bg-card/88 shadow-sm transition-transform hover:-translate-y-0.5"
+            className="overflow-hidden rounded-2xl border border-border/40 bg-card/88 shadow-sm transition-transform hover:-translate-y-0.5"
           >
             {showImage ? (
               <img
@@ -71,20 +71,20 @@ export function NftGrid({
                 }}
               />
             ) : (
-              <div className="flex h-[180px] w-full items-center justify-center bg-bg-muted text-[11px] text-muted">
+              <div className="flex h-[180px] w-full items-center justify-center bg-bg-muted text-xs-tight text-muted">
                 {t("wallet.noImage")}
               </div>
             )}
             <div className="px-3 py-3">
-              <div className="truncate text-[12px] font-semibold text-txt-strong">
+              <div className="truncate text-xs font-semibold text-txt-strong">
                 {nft.name}
               </div>
-              <div className="mt-1 truncate text-[10px] text-muted">
+              <div className="mt-1 truncate text-2xs text-muted">
                 {nft.collectionName}
               </div>
-              <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-border/45 bg-bg/25 px-2 py-1 text-[10px] text-muted">
+              <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-border/45 bg-bg/25 px-2 py-1 text-2xs text-muted">
                 <span
-                  className={`inline-block w-3 h-3 rounded-full text-center leading-3 text-[7px] font-bold font-mono text-white ${icon.cls}`}
+                  className={`inline-block w-3 h-3 rounded-full text-center leading-3 text-3xs font-bold font-mono text-white ${icon.cls}`}
                 >
                   {icon.code}
                 </span>

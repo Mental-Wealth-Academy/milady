@@ -5,7 +5,7 @@
  *   1. Extracts the command from the parameters, NL text, or MCP-style JSON
  *   2. POSTs to the local API server to execute it
  *   3. The API broadcasts output via WebSocket for real-time display
- *   4. Optionally captures the output and stores it in bounded scratchpad state
+ *   4. Optionally captures the output and stores it in bounded clipboard state
  *   5. Returns a descriptive text response
  *
  * @module actions/terminal
@@ -18,28 +18,89 @@ import type {
   Memory,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
+import {
+  getValidationKeywordTerms,
+  textIncludesKeywordTerm,
+} from "@miladyai/shared/validation-keywords";
 import { hasOwnerAccess } from "../security/access.js";
 
 /** API port for posting terminal requests. */
 const API_PORT = process.env.API_PORT || process.env.SERVER_PORT || "2138";
 
 const FAIL = { success: false, text: "" } as const;
+const TERMINAL_COMMAND_VERBS = getValidationKeywordTerms(
+  "action.terminal.commandVerb",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_COMMAND_FILLERS = getValidationKeywordTerms(
+  "action.terminal.commandFiller",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_UTILITY_TERMS = getValidationKeywordTerms(
+  "action.terminal.utility",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_BITCOIN_TERMS = getValidationKeywordTerms(
+  "action.terminal.cryptoBitcoin",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_ETHEREUM_TERMS = getValidationKeywordTerms(
+  "action.terminal.cryptoEthereum",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_SOLANA_TERMS = getValidationKeywordTerms(
+  "action.terminal.cryptoSolana",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_DISK_TERMS = getValidationKeywordTerms("action.terminal.disk", {
+  includeAllLocales: true,
+});
+const TERMINAL_UPTIME_TERMS = getValidationKeywordTerms(
+  "action.terminal.uptime",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_MEMORY_TERMS = getValidationKeywordTerms(
+  "action.terminal.memory",
+  {
+    includeAllLocales: true,
+  },
+);
+const TERMINAL_PROCESS_TERMS = getValidationKeywordTerms(
+  "action.terminal.process",
+  {
+    includeAllLocales: true,
+  },
+);
 
 type TerminalActionParameters = {
   arguments?: unknown;
   command?: unknown;
   shellCommand?: unknown;
-  addToScratchpad?: unknown;
-  persistToScratchpad?: unknown;
-  saveToScratchpad?: unknown;
-  scratchpadTitle?: unknown;
+  addToClipboard?: unknown;
+  persistToClipboard?: unknown;
+  saveToClipboard?: unknown;
+  clipboardTitle?: unknown;
   title?: unknown;
 };
 
 type TerminalActionInput = {
   command?: string;
-  addToScratchpad: boolean;
-  scratchpadTitle?: string;
+  addToClipboard: boolean;
+  clipboardTitle?: string;
 };
 
 type CapturedTerminalRun = {
@@ -53,7 +114,7 @@ type CapturedTerminalRun = {
   maxDurationMs?: number;
 };
 
-type ScratchpadStoreResult = {
+type ClipboardStoreResult = {
   requested?: boolean;
   stored: boolean;
   replaced?: boolean;
@@ -68,7 +129,7 @@ type ScratchpadStoreResult = {
   };
 };
 
-type ScratchpadStoreFn = (
+type ClipboardStoreFn = (
   runtime: IAgentRuntime,
   message: Memory,
   options: {
@@ -78,9 +139,9 @@ type ScratchpadStoreFn = (
     sourceId: string;
     sourceLabel: string;
   },
-) => Promise<ScratchpadStoreResult>;
+) => Promise<ClipboardStoreResult>;
 
-let cachedScratchpadStoreFn: ScratchpadStoreFn | null | undefined;
+let cachedClipboardStoreFn: ClipboardStoreFn | null | undefined;
 
 function parseBooleanFlag(value: unknown): boolean {
   if (value === true) {
@@ -94,6 +155,81 @@ function parseBooleanFlag(value: unknown): boolean {
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function escapePattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsKeywordTerm(text: string, terms: readonly string[]): boolean {
+  return terms.some((term) => textIncludesKeywordTerm(text, term));
+}
+
+function stripLeadingCommandFillers(value: string): string {
+  let trimmed = value.trim();
+  let changed = true;
+  const sortedFillers = [...TERMINAL_COMMAND_FILLERS].sort(
+    (left, right) => right.length - left.length,
+  );
+
+  while (changed && trimmed) {
+    changed = false;
+    for (const filler of sortedFillers) {
+      const pattern = new RegExp(
+        `^(?:the\\s+)?${escapePattern(filler).replace(/\\ /g, "\\s+")}\\s*(.*)$`,
+        "iu",
+      );
+      const match = trimmed.match(pattern);
+      if (!match?.[1]) {
+        continue;
+      }
+      trimmed = match[1].trim();
+      changed = true;
+      break;
+    }
+  }
+
+  return trimmed;
+}
+
+function extractTrailingCommandText(text: string): string | undefined {
+  const sortedTerms = [...TERMINAL_COMMAND_VERBS].sort(
+    (left, right) => right.length - left.length,
+  );
+  for (const term of sortedTerms) {
+    const pattern = new RegExp(
+      `${escapePattern(term).replace(/\\ /g, "\\s+")}\\s*(.+)$`,
+      "iu",
+    );
+    const match = text.match(pattern);
+    const remainder = match?.[1]?.trim();
+    if (!remainder) {
+      continue;
+    }
+
+    const trimmed = stripLeadingCommandFillers(remainder)
+      .replace(/[?.!]+$/g, "")
+      .replace(/\s+(?:in|on|from|to|for|at)\s+(?:the\s+)?[\w\s]+$/i, "")
+      .trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveCryptoCommand(text: string): string | undefined {
+  if (containsKeywordTerm(text, TERMINAL_BITCOIN_TERMS)) {
+    return 'curl -s "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true"';
+  }
+  if (containsKeywordTerm(text, TERMINAL_ETHEREUM_TERMS)) {
+    return 'curl -s "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true"';
+  }
+  if (containsKeywordTerm(text, TERMINAL_SOLANA_TERMS)) {
+    return 'curl -s "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true"';
+  }
+  return undefined;
 }
 
 function parseJsonArguments(
@@ -113,35 +249,35 @@ function parseJsonArguments(
   return undefined;
 }
 
-function resolveScratchpadRequested(
+function resolveClipboardRequested(
   params: TerminalActionParameters,
   argumentParams: Record<string, unknown> | undefined,
   message?: Memory,
 ): boolean {
   return [
-    params.addToScratchpad,
-    params.persistToScratchpad,
-    params.saveToScratchpad,
-    argumentParams?.addToScratchpad,
-    argumentParams?.persistToScratchpad,
-    argumentParams?.saveToScratchpad,
-    message?.content?.addToScratchpad,
-    message?.content?.persistToScratchpad,
-    message?.content?.saveToScratchpad,
+    params.addToClipboard,
+    params.persistToClipboard,
+    params.saveToClipboard,
+    argumentParams?.addToClipboard,
+    argumentParams?.persistToClipboard,
+    argumentParams?.saveToClipboard,
+    message?.content?.addToClipboard,
+    message?.content?.persistToClipboard,
+    message?.content?.saveToClipboard,
   ].some((value) => parseBooleanFlag(value));
 }
 
-function resolveScratchpadTitle(
+function resolveClipboardTitle(
   params: TerminalActionParameters,
   argumentParams: Record<string, unknown> | undefined,
   message?: Memory,
 ): string | undefined {
   return (
-    readStringValue(params.scratchpadTitle) ??
+    readStringValue(params.clipboardTitle) ??
     readStringValue(params.title) ??
-    readStringValue(argumentParams?.scratchpadTitle) ??
+    readStringValue(argumentParams?.clipboardTitle) ??
     readStringValue(argumentParams?.title) ??
-    readStringValue(message?.content?.scratchpadTitle) ??
+    readStringValue(message?.content?.clipboardTitle) ??
     readStringValue(message?.content?.title)
   );
 }
@@ -173,39 +309,29 @@ function getCommand(
 
   const text = message?.content?.text;
   if (typeof text === "string" && text.length > 0) {
-    const match = text.match(
-      /(?:run|execute|start|do)\s+(?:the\s+command\s+)?[`'"]*(.+?)[`'"]*[?.!]?\s*$/i,
-    );
-    if (match?.[1]) {
-      const trimmed = match[1]
-        .replace(/\s+(?:in|on|from|to|for|at)\s+(?:the\s+)?[\w\s]+$/i, "")
-        .trim();
-      if (trimmed) return trimmed;
+    const extracted = extractTrailingCommandText(text)
+      ?.replace(/^[`'"]+|[`'".!?]+$/g, "")
+      .trim();
+    if (extracted) {
+      return extracted;
     }
   }
 
-  const lower = (text ?? "").toLowerCase();
-  const cryptoMatch = lower.match(
-    /\b(bitcoin|btc|ethereum|eth|solana|sol)\b/,
-  );
-  if (cryptoMatch) {
-    const ids: Record<string, string> = {
-      bitcoin: "bitcoin",
-      btc: "bitcoin",
-      ethereum: "ethereum",
-      eth: "ethereum",
-      solana: "solana",
-      sol: "solana",
-    };
-    const id = ids[cryptoMatch[1]];
-    if (id) {
-      return `curl -s "https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true"`;
-    }
+  const rawText = text ?? "";
+  const cryptoCommand = resolveCryptoCommand(rawText);
+  if (cryptoCommand) {
+    return cryptoCommand;
   }
-  if (/\b(?:disk|space|storage)\b/i.test(lower)) return "df -h /home/milady";
-  if (/\b(?:uptime|load)\b/i.test(lower)) return "uptime";
-  if (/\b(?:memory|ram)\b/i.test(lower)) return "free -h";
-  if (/\b(?:process|top|memory.*usage)\b/i.test(lower)) {
+  if (containsKeywordTerm(rawText, TERMINAL_DISK_TERMS)) {
+    return "df -h /home/milady";
+  }
+  if (containsKeywordTerm(rawText, TERMINAL_UPTIME_TERMS)) {
+    return "uptime";
+  }
+  if (containsKeywordTerm(rawText, TERMINAL_MEMORY_TERMS)) {
+    return "free -h";
+  }
+  if (containsKeywordTerm(rawText, TERMINAL_PROCESS_TERMS)) {
     return "ps aux --sort=-rss | head -15";
   }
 
@@ -221,12 +347,12 @@ function resolveTerminalInput(
 
   return {
     command: getCommand(options, message),
-    addToScratchpad: resolveScratchpadRequested(
+    addToClipboard: resolveClipboardRequested(
       params,
       argumentParams,
       message,
     ),
-    scratchpadTitle: resolveScratchpadTitle(params, argumentParams, message),
+    clipboardTitle: resolveClipboardTitle(params, argumentParams, message),
   };
 }
 
@@ -252,33 +378,34 @@ function normalizeCapturedRun(
     timedOut: data.timedOut === true,
     truncated: data.truncated === true,
     maxDurationMs:
-      typeof data.maxDurationMs === "number" && Number.isFinite(data.maxDurationMs)
+      typeof data.maxDurationMs === "number" &&
+      Number.isFinite(data.maxDurationMs)
         ? data.maxDurationMs
         : undefined,
   };
 }
 
-async function getScratchpadStoreFn(): Promise<ScratchpadStoreFn | null> {
-  if (cachedScratchpadStoreFn !== undefined) {
-    return cachedScratchpadStoreFn;
+async function getClipboardStoreFn(): Promise<ClipboardStoreFn | null> {
+  if (cachedClipboardStoreFn !== undefined) {
+    return cachedClipboardStoreFn;
   }
 
   try {
-    const mod = (await import("@elizaos/plugin-scratchpad")) as {
-      maybeStoreTaskScratchpadItem?: ScratchpadStoreFn;
+    const mod = (await import("@elizaos/plugin-clipboard")) as {
+      maybeStoreTaskClipboardItem?: ClipboardStoreFn;
     };
-    cachedScratchpadStoreFn =
-      typeof mod.maybeStoreTaskScratchpadItem === "function"
-        ? mod.maybeStoreTaskScratchpadItem
+    cachedClipboardStoreFn =
+      typeof mod.maybeStoreTaskClipboardItem === "function"
+        ? mod.maybeStoreTaskClipboardItem
         : null;
   } catch (error) {
-    cachedScratchpadStoreFn = null;
+    cachedClipboardStoreFn = null;
     logger.warn(
-      `[terminal] Scratchpad plugin unavailable; shell output will not be persisted (${error instanceof Error ? error.message : String(error)})`,
+      `[terminal] Clipboard plugin unavailable; shell output will not be persisted (${error instanceof Error ? error.message : String(error)})`,
     );
   }
 
-  return cachedScratchpadStoreFn;
+  return cachedClipboardStoreFn;
 }
 
 function formatOutputBlock(content: string): string {
@@ -310,7 +437,7 @@ async function maybeStoreCommandOutput(
   input: TerminalActionInput,
   result: CapturedTerminalRun,
 ) {
-  if (!input.addToScratchpad) {
+  if (!input.addToClipboard) {
     return {
       requested: false,
       stored: false,
@@ -322,33 +449,33 @@ async function maybeStoreCommandOutput(
       requested: true,
       stored: false,
       reason:
-        "Runtime unavailable; command output could not be added to the scratchpad.",
+        "Runtime unavailable; command output could not be added to the clipboard.",
     } as const;
   }
 
-  const scratchpadMessage = {
+  const clipboardMessage = {
     ...message,
     content: {
       ...message.content,
-      addToScratchpad: true,
-      ...(input.scratchpadTitle
-        ? { scratchpadTitle: input.scratchpadTitle }
+      addToClipboard: true,
+      ...(input.clipboardTitle
+        ? { clipboardTitle: input.clipboardTitle }
         : {}),
     },
   } as Memory;
 
-  const storeScratchpadItem = await getScratchpadStoreFn();
-  if (!storeScratchpadItem) {
+  const storeClipboardItem = await getClipboardStoreFn();
+  if (!storeClipboardItem) {
     return {
       requested: true,
       stored: false,
       reason:
-        "Scratchpad plugin unavailable; command output could not be added to the scratchpad.",
+        "Clipboard plugin unavailable; command output could not be added to the clipboard.",
     } as const;
   }
 
-  return storeScratchpadItem(runtime, scratchpadMessage, {
-    fallbackTitle: input.scratchpadTitle ?? result.command,
+  return storeClipboardItem(runtime, clipboardMessage, {
+    fallbackTitle: input.clipboardTitle ?? result.command,
     content: buildCommandArtifactContent(result),
     sourceType: "command",
     sourceId: result.command,
@@ -358,11 +485,13 @@ async function maybeStoreCommandOutput(
 
 function buildCapturedResponseText(
   result: CapturedTerminalRun,
-  scratchpadResult: Awaited<ReturnType<typeof maybeStoreCommandOutput>>,
+  clipboardResult: Awaited<ReturnType<typeof maybeStoreCommandOutput>>,
 ): string {
-  const scratchpadItem = scratchpadResult.stored ? scratchpadResult.item : undefined;
-  const scratchpadSnapshot = scratchpadResult.stored
-    ? scratchpadResult.snapshot
+  const clipboardItem = clipboardResult.stored
+    ? clipboardResult.item
+    : undefined;
+  const clipboardSnapshot = clipboardResult.stored
+    ? clipboardResult.snapshot
     : undefined;
 
   return [
@@ -372,16 +501,16 @@ function buildCapturedResponseText(
       ? `Timed out${typeof result.maxDurationMs === "number" ? ` after ${result.maxDurationMs} ms` : ""}.`
       : "",
     result.truncated ? "Captured output truncated to 128 KB." : "",
-    scratchpadResult.requested
-      ? scratchpadResult.stored
-        ? `${scratchpadResult.replaced ? "Updated" : "Added"} scratchpad item ${scratchpadItem?.id ?? "unknown"}: ${scratchpadItem?.title ?? result.command}`
-        : `Scratchpad add skipped: ${scratchpadResult.reason}`
+    clipboardResult.requested
+      ? clipboardResult.stored
+        ? `${clipboardResult.replaced ? "Updated" : "Added"} clipboard item ${clipboardItem?.id ?? "unknown"}: ${clipboardItem?.title ?? result.command}`
+        : `Clipboard add skipped: ${clipboardResult.reason}`
       : "",
-    scratchpadSnapshot
-      ? `Scratchpad usage: ${scratchpadSnapshot.items.length}/${scratchpadSnapshot.maxItems}.`
+    clipboardSnapshot
+      ? `Clipboard usage: ${clipboardSnapshot.items.length}/${clipboardSnapshot.maxItems}.`
       : "",
-    scratchpadSnapshot
-      ? "Clear unused scratchpad state when it is no longer needed."
+    clipboardSnapshot
+      ? "Clear unused clipboard state when it is no longer needed."
       : "",
     "",
     "STDOUT:",
@@ -412,7 +541,7 @@ export const terminalAction: Action = {
     "Run a single explicit shell command that the user provided directly. " +
     "Only use when the user gives a specific command like 'run ls -la' or 'execute npm install'. " +
     "Do NOT use for building projects, creating websites, or multi-step work — use CREATE_TASK instead. " +
-    "Set addToScratchpad=true to capture the command output, return it inline, and store it in bounded scratchpad state.",
+    "Set addToClipboard=true to capture the command output, return it inline, and store it in bounded clipboard state.",
 
   validate: async (runtime, message) => {
     if (!(await hasOwnerAccess(runtime, message))) {
@@ -423,11 +552,18 @@ export const terminalAction: Action = {
     if (!text) return false;
     if (/`[^`]+`/.test(text)) return true;
     if (/```/.test(text)) return true;
-    if (/\b(?:run|execute)\s+\S/i.test(text)) return true;
+    if (extractTrailingCommandText(text)) return true;
+    if (containsKeywordTerm(text, TERMINAL_UTILITY_TERMS)) {
+      return true;
+    }
+    if (resolveCryptoCommand(text)) {
+      return true;
+    }
     if (
-      /\b(?:price|worth|cost|balance|disk|uptime|status|check|curl|fetch|tail|head|log)\b/i.test(
-        text,
-      )
+      containsKeywordTerm(text, TERMINAL_DISK_TERMS) ||
+      containsKeywordTerm(text, TERMINAL_UPTIME_TERMS) ||
+      containsKeywordTerm(text, TERMINAL_MEMORY_TERMS) ||
+      containsKeywordTerm(text, TERMINAL_PROCESS_TERMS)
     ) {
       return true;
     }
@@ -461,7 +597,7 @@ export const terminalAction: Action = {
           body: JSON.stringify({
             command,
             clientId: "runtime-terminal-action",
-            ...(input.addToScratchpad ? { captureOutput: true } : {}),
+            ...(input.addToClipboard ? { captureOutput: true } : {}),
           }),
         },
       );
@@ -470,7 +606,7 @@ export const terminalAction: Action = {
         return FAIL;
       }
 
-      if (!input.addToScratchpad) {
+      if (!input.addToClipboard) {
         return {
           text: `Running in terminal: \`${command}\``,
           success: true,
@@ -479,7 +615,7 @@ export const terminalAction: Action = {
       }
 
       const capturedRun = normalizeCapturedRun(command, await response.json());
-      const scratchpadResult = await maybeStoreCommandOutput(
+      const clipboardResult = await maybeStoreCommandOutput(
         runtime as IAgentRuntime | undefined,
         message as Memory,
         input,
@@ -487,11 +623,11 @@ export const terminalAction: Action = {
       );
 
       return {
-        text: buildCapturedResponseText(capturedRun, scratchpadResult),
+        text: buildCapturedResponseText(capturedRun, clipboardResult),
         success: true,
         data: {
           ...capturedRun,
-          scratchpad: scratchpadResult,
+          clipboard: clipboardResult,
         },
       };
     } catch {
@@ -507,16 +643,16 @@ export const terminalAction: Action = {
       schema: { type: "string" as const },
     },
     {
-      name: "addToScratchpad",
+      name: "addToClipboard",
       description:
-        "When true, wait for the command to finish, capture stdout/stderr, and store the result in bounded scratchpad state.",
+        "When true, wait for the command to finish, capture stdout/stderr, and store the result in bounded clipboard state.",
       required: false,
       schema: { type: "boolean" as const },
     },
     {
-      name: "scratchpadTitle",
+      name: "clipboardTitle",
       description:
-        "Optional scratchpad title to use when addToScratchpad=true.",
+        "Optional clipboard title to use when addToClipboard=true.",
       required: false,
       schema: { type: "string" as const },
     },

@@ -8,8 +8,8 @@
  *   and forces side effects (cloud login, finish, provider fill) to stay in
  *   AppContext where they already close over the right state.
  *
- * 2-step flow: identity → providers
- * Server selection is on the splash page. Permissions are requested lazily.
+ * 4-step flow: deployment → identity → providers → features
+ * Deployment absorbs the old splash server chooser. Features enables connectors.
  *
  * See: docs/guides/onboarding-ui-flow.md
  * Tests: tests/flow.test.ts
@@ -25,6 +25,10 @@ import { ONBOARDING_STEPS } from "../state/types";
 /** Linear step ids for the unified onboarding flow. */
 export function getStepOrder(): OnboardingStep[] {
   return ONBOARDING_STEPS.map((s) => s.id);
+}
+
+export function getOnboardingStepIndex(step: OnboardingStep): number {
+  return getStepOrder().indexOf(step);
 }
 
 /**
@@ -63,19 +67,22 @@ export function canRevertOnboardingTo(params: {
   current: OnboardingStep;
   target: OnboardingStep;
 }): boolean {
-  const order = getStepOrder();
-  const curIdx = order.indexOf(params.current);
-  const tgtIdx = order.indexOf(params.target);
+  const curIdx = getOnboardingStepIndex(params.current);
+  const tgtIdx = getOnboardingStepIndex(params.target);
   return tgtIdx >= 0 && curIdx >= 0 && tgtIdx < curIdx;
 }
 
 /**
  * Rows shown in OnboardingStepNav.
+ * Cloud-provisioned containers skip the deployment step since the target is predetermined.
  */
 export function getOnboardingNavMetas(
   _currentStep: OnboardingStep,
-  _cloudOnly: boolean,
+  cloudOnly: boolean,
 ): OnboardingStepMeta[] {
+  if (cloudOnly) {
+    return ONBOARDING_STEPS.filter((s) => s.id !== "deployment");
+  }
   return [...ONBOARDING_STEPS];
 }
 
@@ -83,7 +90,19 @@ export function shouldSkipConnectionStepsForCloudProvisionedContainer(args: {
   currentStep: OnboardingStep;
   cloudProvisionedContainer: boolean;
 }): boolean {
-  return args.cloudProvisionedContainer && args.currentStep === "identity";
+  return args.cloudProvisionedContainer && args.currentStep === "deployment";
+}
+
+/**
+ * Whether to skip the features step entirely.
+ * The current wizard always shows features so local capabilities such as
+ * Browser and Wallet can be chosen for local, remote, and cloud agents.
+ */
+export function shouldSkipFeaturesStep(args: {
+  onboardingServerTarget: string;
+}): boolean {
+  void args;
+  return false;
 }
 
 export function shouldUseCloudOnboardingFastTrack(args: {
@@ -113,6 +132,8 @@ export function getFlaminaTopicForOnboardingStep(
   switch (step) {
     case "providers":
       return "provider";
+    case "features":
+      return "features";
     default:
       return null;
   }

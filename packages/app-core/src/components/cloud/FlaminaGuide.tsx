@@ -50,6 +50,14 @@ const GUIDE_CONTENT: Record<FlaminaGuideTopic, GuideContent> = {
     characterImpactKey: "flaminaguide.voice.characterImpact",
     recommendedKey: "flaminaguide.voice.recommended",
   },
+  features: {
+    titleKey: "flaminaguide.features.title",
+    descriptionKey: "flaminaguide.features.description",
+    whenToUseKey: "flaminaguide.features.whenToUse",
+    skipEffectKey: "flaminaguide.features.skipEffect",
+    characterImpactKey: "flaminaguide.features.characterImpact",
+    recommendedKey: "flaminaguide.features.recommended",
+  },
 };
 
 type GuideLabel = {
@@ -62,6 +70,7 @@ const TASK_LABELS: Record<FlaminaGuideTopic, GuideLabel> = {
   rpc: { key: "flaminaguide.tasks.rpc.label" },
   permissions: { key: "flaminaguide.tasks.permissions.label" },
   voice: { key: "flaminaguide.tasks.voice.label" },
+  features: { key: "flaminaguide.tasks.features.label" },
 };
 
 const TASK_DESCRIPTIONS: Record<FlaminaGuideTopic, GuideLabel> = {
@@ -69,6 +78,7 @@ const TASK_DESCRIPTIONS: Record<FlaminaGuideTopic, GuideLabel> = {
   rpc: { key: "flaminaguide.tasks.rpc.description" },
   permissions: { key: "flaminaguide.tasks.permissions.description" },
   voice: { key: "flaminaguide.tasks.voice.description" },
+  features: { key: "flaminaguide.tasks.features.description" },
 };
 
 export function FlaminaGuideCard({
@@ -86,7 +96,7 @@ export function FlaminaGuideCard({
       className={`rounded-2xl border border-accent/25 bg-card/70 px-4 py-4 text-left shadow-[0_10px_30px_rgba(var(--accent-rgb),0.08)] backdrop-blur-sm ${className}`.trim()}
     >
       <div className="mb-2 flex items-center gap-2">
-        <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-txt">
+        <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-2xs font-semibold uppercase tracking-[0.16em] text-txt">
           Flamina
         </span>
         <h3 className="text-sm font-semibold text-txt-strong">
@@ -117,7 +127,7 @@ export function FlaminaGuideCard({
             defaultValue: guide.characterImpactDefault,
           })}
         </p>
-        <p className="rounded-xl border border-accent/20 bg-accent/5 px-3 py-2 text-[11px] text-txt">
+        <p className="rounded-xl border border-accent/20 bg-accent/5 px-3 py-2 text-xs-tight text-txt">
           {t(guide.recommendedKey, { defaultValue: guide.recommendedDefault })}
         </p>
       </div>
@@ -181,7 +191,7 @@ export function DeferredSetupChecklist({
         <Button
           variant="ghost"
           size="sm"
-          className="rounded-full text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
+          className="rounded-full text-xs-tight font-semibold uppercase tracking-[0.12em] text-muted"
           onClick={() => setState("postOnboardingChecklistDismissed", true)}
         >
           {t("flaminaguide.Dismiss")}
@@ -210,7 +220,7 @@ export function DeferredSetupChecklist({
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-full border-accent/30 bg-accent/10 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                className="rounded-full border-accent/30 bg-accent/10 text-xs-tight font-semibold uppercase tracking-[0.12em]"
                 onClick={() => onOpenTask?.(task)}
               >
                 {t("flaminaguide.Open")}
@@ -218,7 +228,7 @@ export function DeferredSetupChecklist({
               <Button
                 variant="ghost"
                 size="sm"
-                className="rounded-full text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
+                className="rounded-full text-xs-tight font-semibold uppercase tracking-[0.12em] text-muted"
                 onClick={() => markDone(task)}
               >
                 {t("flaminaguide.Done")}

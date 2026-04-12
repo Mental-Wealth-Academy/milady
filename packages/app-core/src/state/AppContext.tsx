@@ -812,6 +812,12 @@ function AppProviderInner({
       selectedChains: onboardingSelectedChains,
       rpcSelections: onboardingRpcSelections,
       rpcKeys: onboardingRpcKeys,
+      featureTelegram: onboardingFeatureTelegram,
+      featureDiscord: onboardingFeatureDiscord,
+      featurePhone: onboardingFeaturePhone,
+      featureCrypto: onboardingFeatureCrypto,
+      featureBrowser: onboardingFeatureBrowser,
+      featureOAuthPending: onboardingFeatureOAuthPending,
     },
     setStep: setOnboardingStep,
     setMode: setOnboardingMode,
@@ -870,6 +876,12 @@ function AppProviderInner({
     setOnboardingRpcSelections,
     setOnboardingRpcKeys,
     setOnboardingAvatar,
+    setOnboardingFeatureTelegram,
+    setOnboardingFeatureDiscord,
+    setOnboardingFeaturePhone,
+    setOnboardingFeatureCrypto,
+    setOnboardingFeatureBrowser,
+    setOnboardingFeatureOAuthPending,
     setOnboardingCloudProvisionedContainer,
     setPostOnboardingChecklistDismissed,
     setOnboardingDeferredTasks,
@@ -939,16 +951,25 @@ function AppProviderInner({
   // chatPendingImages now comes from useChatState
 
   // --- Admin ---
-  const [appsSubTab, setAppsSubTabRaw] = useState<"browse" | "running" | "games">(() => {
+  const [appsSubTab, setAppsSubTabRaw] = useState<
+    "browse" | "running" | "games"
+  >(() => {
     try {
       const stored = sessionStorage.getItem("eliza:appsSubTab");
-      if (stored === "browse" || stored === "running" || stored === "games") return stored;
-    } catch { /* ignore */ }
+      if (stored === "browse" || stored === "running" || stored === "games")
+        return stored;
+    } catch {
+      /* ignore */
+    }
     return "browse";
   });
   const setAppsSubTab = useCallback((v: "browse" | "running" | "games") => {
     setAppsSubTabRaw(v);
-    try { sessionStorage.setItem("eliza:appsSubTab", v); } catch { /* ignore */ }
+    try {
+      sessionStorage.setItem("eliza:appsSubTab", v);
+    } catch {
+      /* ignore */
+    }
   }, []);
   const [agentSubTab, setAgentSubTab] = useState<
     "character" | "inventory" | "knowledge"
@@ -1005,6 +1026,7 @@ function AppProviderInner({
   });
   const {
     state: {
+      browserEnabled,
       walletEnabled,
       walletAddresses,
       walletConfig,
@@ -1033,6 +1055,7 @@ function AppProviderInner({
       whitelistStatus,
       whitelistLoading,
     },
+    setBrowserEnabled,
     setWalletEnabled,
     setWalletAddresses,
     setInventoryView,
@@ -1319,6 +1342,7 @@ function AppProviderInner({
     restartBackend,
     relaunchDesktop,
     showDesktopNotification,
+    notifyAssistantEvent,
     notifyHeartbeatEvent,
     handleResetAppliedFromMain,
     handleReset,
@@ -1365,6 +1389,7 @@ function AppProviderInner({
     setOnboardingRemoteError,
     setOnboardingRemoteConnected,
     setPostOnboardingChecklistDismissed,
+    setBrowserEnabled,
     setOnboardingComplete,
     coordinatorOnboardingCompleteRef,
     initialTabSetRef,
@@ -1377,6 +1402,7 @@ function AppProviderInner({
     elizaCloudConnected,
     setActionNotice,
     retryStartup,
+    setWalletEnabled,
     forceLocalBootstrapRef,
     client,
   });
@@ -1430,6 +1456,7 @@ function AppProviderInner({
         logTagFilter: setLogTagFilter,
         logLevelFilter: setLogLevelFilter,
         logSourceFilter: setLogSourceFilter,
+        browserEnabled: setBrowserEnabled,
         walletEnabled: setWalletEnabled,
         inventoryView: setInventoryView,
         inventorySort: setInventorySort,
@@ -1478,6 +1505,12 @@ function AppProviderInner({
         onboardingElizaCloudTab: setOnboardingElizaCloudTab,
         onboardingRpcKeys: setOnboardingRpcKeys,
         onboardingAvatar: setOnboardingAvatar,
+        onboardingFeatureTelegram: setOnboardingFeatureTelegram,
+        onboardingFeatureDiscord: setOnboardingFeatureDiscord,
+        onboardingFeaturePhone: setOnboardingFeaturePhone,
+        onboardingFeatureCrypto: setOnboardingFeatureCrypto,
+        onboardingFeatureBrowser: setOnboardingFeatureBrowser,
+        onboardingFeatureOAuthPending: setOnboardingFeatureOAuthPending,
         elizaCloudEnabled: setElizaCloudEnabled,
         elizaCloudVoiceProxyAvailable: setElizaCloudVoiceProxyAvailable,
         cloudDashboardView: setCloudDashboardView,
@@ -1680,6 +1713,7 @@ function AppProviderInner({
     pollCloudCredits,
     fetchAutonomyReplay,
     appendAutonomousEvent,
+    notifyAssistantEvent,
     notifyHeartbeatEvent,
     setSelectedVrmIndex,
     setCustomVrmUrl,
@@ -1980,6 +2014,7 @@ function AppProviderInner({
       logLevelFilter,
       logSourceFilter,
       logLoadError,
+      browserEnabled,
       walletEnabled,
       walletAddresses,
       walletConfig,
@@ -2120,6 +2155,12 @@ function AppProviderInner({
       onboardingRpcSelections,
       onboardingRpcKeys,
       onboardingAvatar,
+      onboardingFeatureTelegram,
+      onboardingFeatureDiscord,
+      onboardingFeaturePhone,
+      onboardingFeatureCrypto,
+      onboardingFeatureBrowser,
+      onboardingFeatureOAuthPending,
       commandPaletteOpen,
       commandQuery,
       commandActiveIndex,
@@ -2370,6 +2411,7 @@ function AppProviderInner({
       logLevelFilter,
       logSourceFilter,
       logLoadError,
+      browserEnabled,
       walletEnabled,
       walletAddresses,
       walletConfig,
@@ -2509,6 +2551,12 @@ function AppProviderInner({
       onboardingRpcSelections,
       onboardingRpcKeys,
       onboardingAvatar,
+      onboardingFeatureTelegram,
+      onboardingFeatureDiscord,
+      onboardingFeaturePhone,
+      onboardingFeatureCrypto,
+      onboardingFeatureBrowser,
+      onboardingFeatureOAuthPending,
       commandPaletteOpen,
       commandQuery,
       commandActiveIndex,

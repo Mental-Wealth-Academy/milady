@@ -8,11 +8,13 @@ import type {
   UUID,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
+import { getValidationKeywordTerms } from "@miladyai/shared/validation-keywords";
 import {
   formatRelativeTimestamp,
   formatSpeakerLabel,
   roomSourceTag,
 } from "./conversation-utils.js";
+import { hasAdminAccess } from "../security/access.js";
 
 const MAX_RECENT_MESSAGES = 10;
 const MAX_ROOMS_TO_SCAN = 10;
@@ -23,23 +25,22 @@ export const recentConversationsProvider: Provider = {
     "Recent messages from the user's conversations across all connected platforms.",
   dynamic: true,
   position: 5,
-  relevanceKeywords: [
-    "recent",
-    "conversation",
-    "said",
-    "told",
-    "mentioned",
-    "earlier",
-    "before",
-    "chat",
-    "message",
-  ],
+  relevanceKeywords: getValidationKeywordTerms(
+    "provider.recentConversations.relevance",
+    {
+      includeAllLocales: true,
+    },
+  ),
 
   async get(
     runtime: IAgentRuntime,
     message: Memory,
     _state: State,
   ): Promise<ProviderResult> {
+    if (!(await hasAdminAccess(runtime, message))) {
+      return { text: "", values: {}, data: {} };
+    }
+
     const entityId = message.entityId as UUID | undefined;
     if (!entityId) {
       return { text: "", values: {}, data: {} };

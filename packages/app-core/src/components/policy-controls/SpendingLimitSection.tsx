@@ -12,9 +12,9 @@ function UsdInput({
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-[11px] text-muted">{label}</Label>
+      <Label className="text-xs-tight text-muted">{label}</Label>
       <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-muted pointer-events-none">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs-tight text-muted pointer-events-none">
           $
         </span>
         <Input
@@ -25,7 +25,7 @@ function UsdInput({
             const v = e.target.value;
             if (/^\d*\.?\d*$/.test(v)) onChange(v);
           }}
-          className="h-8 text-[13px] pl-7 tabular-nums"
+          className="h-8 text-sm pl-7 tabular-nums"
           placeholder="0"
         />
       </div>

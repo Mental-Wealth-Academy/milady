@@ -11,10 +11,208 @@ import { LifeOpsService } from "../src/lifeops/service";
 
 const AGENT_ID = "lifeops-life-chat-agent";
 
+function matchesPromptRequest(prompt: string, request: string): boolean {
+  const escaped = request.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(?:Current request|Resolved intent|User request):\\s*${JSON.stringify(request).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+    "i",
+  ).test(prompt) || new RegExp(escaped, "i").test(prompt);
+}
+
+function extractPromptFallback(prompt: string): string | null {
+  const match = prompt.match(
+    /Canonical fallback:\s*("(?:[^"\\]|\\.)*")/m,
+  );
+  if (!match) {
+    return null;
+  }
+  try {
+    return JSON.parse(match[1]) as string;
+  } catch {
+    return null;
+  }
+}
+
+function naturalizeLifeReply(prompt: string): string {
+  const fallback = extractPromptFallback(prompt) ?? "";
+  if (!fallback) {
+    return "Tell me a little more about what you want to set up.";
+  }
+  const previewDefinition = fallback.match(
+    /^I can save this as a \w+ named "([^"]+)" that happens (.+)\. Confirm/i,
+  );
+  if (previewDefinition) {
+    return `I can set up "${previewDefinition[1]}" for ${previewDefinition[2]}. If that looks right, I can save it.`;
+  }
+  const savedDefinition = fallback.match(/^Saved "([^"]+)" as (.+)\.$/i);
+  if (savedDefinition) {
+    return `Okay, I saved "${savedDefinition[1]}" for ${savedDefinition[2]}.`;
+  }
+  const previewGoal = fallback.match(/^I can save this goal as "([^"]+)"/i);
+  if (previewGoal) {
+    return `I can keep "${previewGoal[1]}" as the goal. If that looks right, I can save it.`;
+  }
+  const savedGoal = fallback.match(/^Saved goal "([^"]+)"\.$/i);
+  if (savedGoal) {
+    return `Okay, I saved the goal "${savedGoal[1]}".`;
+  }
+  if (/^What do you want the todo to be/i.test(fallback)) {
+    return "What do you want to add, and when do you want it to happen?";
+  }
+  return `Sure — ${fallback}`;
+}
+
 function createRuntimeForLifeChatTests(): AgentRuntime {
   return createLifeOpsChatTestRuntime({
     agentId: AGENT_ID,
-    useModel: async () => "<response></response>",
+    useModel: async (_modelType: unknown, params?: { prompt?: string }) => {
+      const prompt = String(params?.prompt ?? "");
+      const isVagueTodoRequest =
+        /Current request:\s*"lol yeah\. can you help me add a todo for my life\?"/i.test(
+          prompt,
+        ) ||
+        /User request:\s*"lol yeah\. can you help me add a todo for my life\?"/i.test(
+          prompt,
+        );
+      if (prompt.includes("Plan the LifeOps response for the current user request.")) {
+        if (isVagueTodoRequest) {
+          return JSON.stringify({
+            operation: "create_definition",
+            confidence: 0.86,
+            shouldAct: false,
+            missing: ["title", "schedule"],
+          });
+        }
+        if (
+          matchesPromptRequest(
+            prompt,
+            "Help me remember to brush my teeth in the morning and at night.",
+          ) ||
+          matchesPromptRequest(
+            prompt,
+            "Please remind me to drink water throughout the day.",
+          ) ||
+          matchesPromptRequest(
+            prompt,
+            "please set a reminder for april 17 2026 at 8pm pst to hug my wife",
+          )
+        ) {
+          return JSON.stringify({
+            operation: "create_definition",
+            confidence: 0.95,
+            shouldAct: true,
+            missing: [],
+          });
+        }
+        if (
+          matchesPromptRequest(
+            prompt,
+            "I want a goal called Stabilize sleep schedule.",
+          )
+        ) {
+          return JSON.stringify({
+            operation: "create_goal",
+            confidence: 0.95,
+            shouldAct: true,
+            missing: [],
+          });
+        }
+        return "<response></response>";
+      }
+      if (prompt.includes("Plan the next step for a LifeOps create_definition request.")) {
+        if (isVagueTodoRequest) {
+          return JSON.stringify({
+            mode: "respond",
+            response: "What do you want to add, and when do you want it to happen?",
+            requestKind: null,
+            title: null,
+            description: null,
+            cadenceKind: null,
+            windows: null,
+            weekdays: null,
+            timeOfDay: null,
+            everyMinutes: null,
+            timesPerDay: null,
+            priority: null,
+            durationMinutes: null,
+          });
+        }
+        if (
+          matchesPromptRequest(
+            prompt,
+            "Help me remember to brush my teeth in the morning and at night.",
+          )
+        ) {
+          return JSON.stringify({
+            mode: "create",
+            response: null,
+            requestKind: "reminder",
+            title: "Brush teeth",
+            description: null,
+            cadenceKind: "daily",
+            windows: ["morning", "night"],
+            weekdays: null,
+            timeOfDay: null,
+            timeZone: null,
+            everyMinutes: null,
+            timesPerDay: null,
+            priority: null,
+            durationMinutes: 5,
+          });
+        }
+        if (
+          matchesPromptRequest(
+            prompt,
+            "Please remind me to drink water throughout the day.",
+          )
+        ) {
+          return JSON.stringify({
+            mode: "create",
+            response: null,
+            requestKind: "reminder",
+            title: "Drink water",
+            description: null,
+            cadenceKind: "daily",
+            windows: ["morning", "afternoon", "evening"],
+            weekdays: null,
+            timeOfDay: null,
+            timeZone: null,
+            everyMinutes: null,
+            timesPerDay: null,
+            priority: null,
+            durationMinutes: null,
+          });
+        }
+        if (
+          matchesPromptRequest(
+            prompt,
+            "please set a reminder for april 17 2026 at 8pm pst to hug my wife",
+          )
+        ) {
+          return JSON.stringify({
+            mode: "create",
+            response: null,
+            requestKind: "reminder",
+            title: "Hug my wife",
+            description: null,
+            cadenceKind: "once",
+            windows: null,
+            weekdays: null,
+            timeOfDay: "20:00",
+            timeZone: "America/Los_Angeles",
+            everyMinutes: null,
+            timesPerDay: null,
+            priority: null,
+            durationMinutes: 30,
+          });
+        }
+        return "<response></response>";
+      }
+      if (prompt.includes("Write the assistant's user-facing reply for a LifeOps / todo interaction.")) {
+        return naturalizeLifeReply(prompt);
+      }
+      return "<response></response>";
+    },
     handleTurn: async ({ runtime, message, state }) => {
       const result = await lifeAction.handler?.(
         runtime,
@@ -79,14 +277,17 @@ describe("life-ops life chat transcripts", () => {
     expect(preview.status).toBe(200);
     const previewText = String(preview.data.text ?? "");
     expect(previewText).toContain("Brush teeth");
-    expect(previewText).toContain("Confirm");
+    expect(previewText.toLowerCase()).toContain("morning");
+    expect(previewText.toLowerCase()).toContain("night");
+    expect(previewText).not.toContain("Confirm and I'll save it");
 
     const confirm = await postConversationMessage(port, conversationId, {
       text: "yes, save that",
       source: "discord",
     });
     expect(confirm.status).toBe(200);
-    expect(String(confirm.data.text ?? "")).toContain('Saved "Brush teeth"');
+    expect(String(confirm.data.text ?? "")).toContain("Brush teeth");
+    expect(String(confirm.data.text ?? "")).not.toContain('Saved "Brush teeth"');
 
     const definition = (await service.listDefinitions()).find(
       (entry) => entry.definition.title === "Brush teeth",
@@ -116,6 +317,7 @@ describe("life-ops life chat transcripts", () => {
     const previewText = String(preview.data.text ?? "");
     expect(previewText).toContain("Stabilize Sleep Schedule");
     expect(previewText).toContain("goal");
+    expect(previewText).not.toContain("Confirm and I'll save it");
 
     const confirm = await postConversationMessage(port, conversationId, {
       text: "yes, save the goal",
@@ -123,6 +325,9 @@ describe("life-ops life chat transcripts", () => {
     });
     expect(confirm.status).toBe(200);
     expect(String(confirm.data.text ?? "")).toContain(
+      "Stabilize Sleep Schedule",
+    );
+    expect(String(confirm.data.text ?? "")).not.toContain(
       'Saved goal "Stabilize Sleep Schedule".',
     );
 
@@ -141,13 +346,17 @@ describe("life-ops life chat transcripts", () => {
 
     expect(preview.status).toBe(200);
     expect(String(preview.data.text ?? "")).toContain("Drink water");
+    expect(String(preview.data.text ?? "")).not.toContain(
+      "Confirm and I'll save it",
+    );
 
     const confirmCreate = await postConversationMessage(port, conversationId, {
       text: "yes, save it",
       source: "discord",
     });
     expect(confirmCreate.status).toBe(200);
-    expect(String(confirmCreate.data.text ?? "")).toContain(
+    expect(String(confirmCreate.data.text ?? "")).toContain("Drink water");
+    expect(String(confirmCreate.data.text ?? "")).not.toContain(
       'Saved "Drink water"',
     );
 
@@ -167,5 +376,37 @@ describe("life-ops life chat transcripts", () => {
       definition?.definition.id ?? null,
     );
     expect(preference.effective.intensity).toBe("minimal");
+  });
+
+  it("previews a one-off reminder with a Pacific timezone alias through chat without surfacing raw datetime errors", async () => {
+    const { response: preview } = await createConversationAndSend(
+      port,
+      "please set a reminder for april 17 2026 at 8pm pst to hug my wife",
+    );
+
+    expect(preview.status).toBe(200);
+    const previewText = String(preview.data.text ?? "");
+    expect(previewText.toLowerCase()).toContain("hug");
+    expect(previewText).not.toContain("UTC 'Z' suffix");
+    expect(previewText).not.toContain("local datetime without 'Z'");
+  });
+
+  it("asks a natural clarifying question instead of inventing a vague todo", async () => {
+    const definitionsBefore = (await service.listDefinitions()).length;
+
+    const { response } = await createConversationAndSend(
+      port,
+      "lol yeah. can you help me add a todo for my life?",
+    );
+
+    expect(response.status).toBe(200);
+    const text = String(response.data.text ?? "");
+    expect(text.toLowerCase()).toContain("what");
+    expect(text.toLowerCase()).toContain("when");
+    expect(text).not.toContain("Lol Yeah");
+    expect(text).not.toContain("Confirm and I'll save it");
+
+    const definitionsAfter = (await service.listDefinitions()).length;
+    expect(definitionsAfter).toBe(definitionsBefore);
   });
 });

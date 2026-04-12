@@ -16,15 +16,15 @@ export function CloudSourceModeToggle({
 }) {
   const resolvedCloudLabel = cloudLabel;
   return (
-    <div className="inline-flex overflow-hidden rounded-lg bg-[var(--bg-muted)] shadow-sm">
+    <div className="inline-flex overflow-hidden rounded-lg bg-bg-muted shadow-sm">
       <Button
         type="button"
         variant="ghost"
         size="sm"
         className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
           mode === "cloud"
-            ? "bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent)]/90 hover:text-[var(--accent-foreground)]"
-            : "bg-transparent text-[var(--muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+            ? "bg-accent text-accent-fg hover:bg-accent/90 hover:text-accent-fg"
+            : "bg-transparent text-muted hover:bg-bg-hover hover:text-txt"
         }`}
         onClick={() => onChange("cloud")}
       >
@@ -36,8 +36,8 @@ export function CloudSourceModeToggle({
         size="sm"
         className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
           mode === "own-key"
-            ? "bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent)]/90 hover:text-[var(--accent-foreground)]"
-            : "bg-transparent text-[var(--muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+            ? "bg-accent text-accent-fg hover:bg-accent/90 hover:text-accent-fg"
+            : "bg-transparent text-muted hover:bg-bg-hover hover:text-txt"
         }`}
         onClick={() => onChange("own-key")}
       >
@@ -70,7 +70,7 @@ export function CloudConnectionStatus({
         className="border-0 bg-transparent px-0 py-0 shadow-none"
       />
       <span
-        className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+        className={`rounded-full border px-1.5 py-0.5 text-2xs font-medium ${
           connected
             ? "border-ok/30 bg-ok-subtle text-txt"
             : "border-warn/35 bg-warn-subtle text-txt"

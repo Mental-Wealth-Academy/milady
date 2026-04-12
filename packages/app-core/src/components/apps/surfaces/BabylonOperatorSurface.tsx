@@ -125,23 +125,58 @@ function extractTradingBalance(value: unknown): number {
   return typeof balance === "number" ? balance : 0;
 }
 
-function formatCurrency(value: number): string {
-  return `$${value.toFixed(2)}`;
+function extractWallet(value: unknown): BabylonWallet | null {
+  const data = asRecord(value);
+  if (!data) return null;
+
+  const balance = asFiniteNumber(data.balance);
+  const transactions = Array.isArray(data.transactions)
+    ? (data.transactions as BabylonWallet["transactions"])
+    : [];
+
+  if (balance == null && !Array.isArray(data.transactions)) {
+    return null;
+  }
+
+  return {
+    balance: balance ?? 0,
+    transactions,
+  };
 }
 
-function formatPnL(value: number): string {
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}$${value.toFixed(2)}`;
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatDecimal(value: unknown, digits: number): string | null {
+  const parsed = asFiniteNumber(value);
+  return parsed == null ? null : parsed.toFixed(digits);
+}
+
+function formatCurrency(value: unknown): string {
+  const formatted = formatDecimal(value, 2);
+  return formatted == null ? "n/a" : `$${formatted}`;
+}
+
+function formatPnL(value: unknown): string {
+  const parsed = asFiniteNumber(value);
+  if (parsed == null) return "n/a";
+  const sign = parsed >= 0 ? "+" : "";
+  return `${sign}$${parsed.toFixed(2)}`;
 }
 
 function listPreview(items: BabylonPredictionMarket[]): string {
   if (items.length === 0) return "Market data is not available yet.";
   return items
     .slice(0, 3)
-    .map(
-      (market) =>
-        `${market.title} (${market.yesPrice.toFixed(2)}/${market.noPrice.toFixed(2)})`,
-    )
+    .map((market) => {
+      const yesPrice = formatDecimal(market.yesPrice, 2);
+      const noPrice = formatDecimal(market.noPrice, 2);
+      if (!yesPrice || !noPrice) {
+        return market.title;
+      }
+      return `${market.title} (${yesPrice}/${noPrice})`;
+    })
     .join(" · ");
 }
 
@@ -256,7 +291,7 @@ export function BabylonOperatorSurface({
         extractTeamConversations(conversationsRaw).conversations,
       );
       setAgentChatMessages(extractChatMessages(chatRaw));
-      setWallet(walletResponse);
+      setWallet(extractWallet(walletResponse));
       setTradingBalance(extractTradingBalance(tradingBalanceResponse));
       setStatusMessage(
         status.agentStatus
@@ -374,7 +409,7 @@ export function BabylonOperatorSurface({
       }
     >
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+        <div className="text-xs-tight font-semibold uppercase tracking-[0.18em] text-muted">
           {surfaceTitle}
         </div>
         <SurfaceBadge tone={toneForStatusText(run.status)}>
@@ -386,7 +421,7 @@ export function BabylonOperatorSurface({
         <SurfaceBadge tone={toneForHealthState(run.health.state)}>
           {run.health.state}
         </SurfaceBadge>
-        <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-muted">
+        <span className="ml-auto text-2xs uppercase tracking-[0.18em] text-muted">
           {matchingRuns.length} active run{matchingRuns.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -408,9 +443,12 @@ export function BabylonOperatorSurface({
               value={activeGoal?.description ?? "No active goal recorded."}
               subtitle={
                 activeGoal
-                  ? activeGoal.progress != null
-                    ? `${activeGoal.status} · ${activeGoal.progress.toFixed(0)}%`
-                    : activeGoal.status
+                  ? (() => {
+                      const progress = formatDecimal(activeGoal.progress, 0);
+                      return progress
+                        ? `${activeGoal.status} · ${progress}%`
+                        : activeGoal.status;
+                    })()
                   : undefined
               }
             />
@@ -435,7 +473,11 @@ export function BabylonOperatorSurface({
               }
               subtitle={
                 teamTotals
-                  ? `${formatCurrency(teamTotals.walletBalance)} wallet · ${teamTotals.openPositions} open positions`
+                  ? `${formatCurrency(teamTotals.walletBalance)} wallet${
+                      asFiniteNumber(teamTotals.openPositions) != null
+                        ? ` · ${teamTotals.openPositions} open positions`
+                        : ""
+                    }`
                   : "Team summary is not available yet."
               }
             />
@@ -507,7 +549,7 @@ export function BabylonOperatorSurface({
                 key={message.id}
                 className="rounded-xl border border-border/30 bg-bg/60 px-3 py-2"
               >
-                <div className="flex items-center gap-2 text-[10px] text-muted">
+                <div className="flex items-center gap-2 text-2xs text-muted">
                   <span className="uppercase">
                     {message.senderName ?? message.senderId}
                   </span>
@@ -515,13 +557,13 @@ export function BabylonOperatorSurface({
                     {formatDetailTimestamp(message.createdAt)}
                   </span>
                 </div>
-                <div className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-txt">
+                <div className="mt-1 whitespace-pre-wrap text-xs-tight leading-5 text-txt">
                   {message.content}
                 </div>
               </div>
             ))}
             {agentChatMessages.length === 0 ? (
-              <div className="rounded-xl border border-border/30 bg-bg/60 px-3 py-2 text-[11px] italic text-muted">
+              <div className="rounded-xl border border-border/30 bg-bg/60 px-3 py-2 text-xs-tight italic text-muted">
                 No agent chat history yet.
               </div>
             ) : null}
@@ -610,11 +652,11 @@ export function BabylonOperatorSurface({
       ) : null}
 
       {statusMessage ? (
-        <div className="rounded-2xl border border-border/35 bg-card/70 px-4 py-3 text-[11px] leading-5 text-muted-strong">
+        <div className="rounded-2xl border border-border/35 bg-card/70 px-4 py-3 text-xs-tight leading-5 text-muted-strong">
           {statusMessage}
         </div>
       ) : null}
-      <div className="text-[10px] uppercase tracking-[0.18em] text-muted">
+      <div className="text-2xs uppercase tracking-[0.18em] text-muted">
         {loading ? "Refreshing Babylon surface..." : "Babylon surface ready."}
       </div>
     </section>

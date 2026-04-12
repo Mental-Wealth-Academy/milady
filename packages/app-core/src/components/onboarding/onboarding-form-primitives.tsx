@@ -21,8 +21,8 @@ export const onboardingReadableTextSubtleClassName =
   "text-[var(--onboarding-text-subtle)] [text-shadow:var(--onboarding-text-shadow-muted)]";
 export const onboardingReadableTextFaintClassName =
   "text-[var(--onboarding-text-faint)] [text-shadow:var(--onboarding-text-shadow-muted)]";
-export const onboardingHelperTextClassName = `text-[12px] leading-relaxed ${onboardingReadableTextMutedClassName}`;
-export const onboardingSubtleTextClassName = `text-[11px] leading-relaxed ${onboardingReadableTextSubtleClassName}`;
+export const onboardingHelperTextClassName = `text-xs leading-relaxed ${onboardingReadableTextMutedClassName}`;
+export const onboardingSubtleTextClassName = `text-xs-tight leading-relaxed ${onboardingReadableTextSubtleClassName}`;
 export const onboardingFieldLabelClassName = `text-xs font-semibold uppercase tracking-[0.14em] ${onboardingReadableTextMutedClassName}`;
 export const onboardingInlineSupportClassName =
   "rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-1 py-0.5 backdrop-blur-[10px]";
@@ -40,14 +40,14 @@ export const onboardingInputSurfaceClassName =
   "border border-[var(--onboarding-input-border)] bg-[var(--onboarding-input-bg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]";
 export const onboardingInfoPanelClassName = `rounded-2xl px-4 py-4 backdrop-blur-[18px] backdrop-saturate-[1.15] ${onboardingCardSurfaceClassName}`;
 export const onboardingInputClassName = `h-12 w-full rounded-xl px-4 text-left ${onboardingReadableTextPrimaryClassName} transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-[var(--onboarding-text-subtle)] focus-visible:border-[var(--onboarding-field-focus-border)] focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:shadow-[var(--onboarding-field-focus-shadow)] ${onboardingInputSurfaceClassName}`;
-export const onboardingChoiceCardTitleClassName = `text-[12px] font-medium leading-[1.3] ${onboardingReadableTextPrimaryClassName}`;
-export const onboardingChoiceCardDescriptionClassName = `mt-1 text-[11px] leading-[1.35] ${onboardingReadableTextMutedClassName}`;
+export const onboardingChoiceCardTitleClassName = `text-xs font-medium leading-[1.3] ${onboardingReadableTextPrimaryClassName}`;
+export const onboardingChoiceCardDescriptionClassName = `mt-1 text-xs-tight leading-[1.35] ${onboardingReadableTextMutedClassName}`;
 export const onboardingChoiceCardBadgeClassName =
-  "ml-auto shrink-0 whitespace-nowrap rounded-full bg-[var(--onboarding-accent-bg)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--onboarding-accent-foreground)] [text-shadow:0_1px_6px_rgba(3,5,10,0.45)]";
+  "ml-auto shrink-0 whitespace-nowrap rounded-full bg-[var(--onboarding-accent-bg)] px-2 py-0.5 text-3xs font-semibold uppercase tracking-[0.08em] text-[var(--onboarding-accent-foreground)] [text-shadow:0_1px_6px_rgba(3,5,10,0.45)]";
 export const onboardingChoiceCardDetectedBadgeClassName =
-  "ml-auto shrink-0 whitespace-nowrap rounded-full bg-[rgba(34,197,94,0.2)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-[rgba(34,197,94,0.94)] [text-shadow:0_1px_6px_rgba(3,5,10,0.45)]";
+  "ml-auto shrink-0 whitespace-nowrap rounded-full bg-[rgba(34,197,94,0.2)] px-2 py-0.5 text-3xs font-semibold uppercase tracking-[0.08em] text-[rgba(34,197,94,0.94)] [text-shadow:0_1px_6px_rgba(3,5,10,0.45)]";
 export const onboardingChoiceCardRecommendedLabelClassName =
-  "ml-auto shrink-0 whitespace-nowrap text-[9px] font-medium uppercase tracking-[0.12em] text-accent";
+  "ml-auto shrink-0 whitespace-nowrap text-3xs font-medium uppercase tracking-[0.12em] text-accent";
 
 export function getOnboardingChoiceCardClassName({
   detected = false,
@@ -59,7 +59,7 @@ export function getOnboardingChoiceCardClassName({
   recommended?: boolean;
 }) {
   return cn(
-    "flex min-h-[60px] w-full items-center justify-between gap-3 rounded-[10px] px-3 py-3 text-left backdrop-blur-[18px] backdrop-saturate-[1.2] transition-[border-color,background-color,box-shadow] duration-200",
+    "flex min-h-[60px] w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left backdrop-blur-[18px] backdrop-saturate-[1.2] transition-[border-color,background-color,box-shadow] duration-200",
     recommended
       ? `${onboardingRecommendedSurfaceClassName} ${onboardingRecommendedSurfaceHoverClassName}`
       : `${onboardingCardSurfaceClassName} ${onboardingCardSurfaceHoverClassName}`,
@@ -169,9 +169,9 @@ export const OnboardingStatusBanner = React.forwardRef<
   const compactSuccess = tone === "success" && !action;
   const toneClass =
     tone === "success"
-      ? "border-[var(--ok-muted)] bg-[var(--ok-subtle)] text-[var(--ok)]"
+      ? "border-[var(--ok-muted)] bg-[var(--ok-subtle)] text-ok"
       : tone === "error"
-        ? "border-[color:color-mix(in_srgb,var(--danger)_38%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_12%,transparent)] text-[var(--danger)]"
+        ? "border-[color:color-mix(in_srgb,var(--danger)_38%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger"
         : `${onboardingCardSurfaceClassName} ${onboardingReadableTextMutedClassName}`;
 
   return (

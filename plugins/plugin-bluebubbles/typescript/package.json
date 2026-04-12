@@ -24,7 +24,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@elizaos/core": "2.0.0-alpha.3",
+		"@elizaos/core": "workspace:*",
 		"zod": "^4.3.6"
 	},
 	"devDependencies": {
@@ -62,6 +62,30 @@
 			"BLUEBUBBLES_WEBHOOK_PATH": {
 				"type": "string",
 				"description": "Webhook path",
+				"required": false,
+				"sensitive": false
+			},
+			"BLUEBUBBLES_AUTOSTART_COMMAND": {
+				"type": "string",
+				"description": "Optional command to launch the BlueBubbles server app/process",
+				"required": false,
+				"sensitive": false
+			},
+			"BLUEBUBBLES_AUTOSTART_ARGS": {
+				"type": "string",
+				"description": "Optional comma-separated or JSON array of BlueBubbles auto-start command arguments",
+				"required": false,
+				"sensitive": false
+			},
+			"BLUEBUBBLES_AUTOSTART_CWD": {
+				"type": "string",
+				"description": "Optional working directory for the BlueBubbles auto-start command",
+				"required": false,
+				"sensitive": false
+			},
+			"BLUEBUBBLES_AUTOSTART_WAIT_MS": {
+				"type": "number",
+				"description": "How long to wait for BlueBubbles to become reachable after auto-start",
 				"required": false,
 				"sensitive": false
 			},

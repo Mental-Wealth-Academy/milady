@@ -3,11 +3,7 @@ import { useCallback, useState } from "react";
 import { client } from "../../api";
 import { useApp } from "../../state";
 
-type TelegramSetupStatus =
-  | "idle"
-  | "validating"
-  | "connected"
-  | "error";
+type TelegramSetupStatus = "idle" | "validating" | "connected" | "error";
 
 type BotInfo = {
   id: number;
@@ -85,7 +81,7 @@ export function TelegramBotSetupPanel() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+            className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
             onClick={() => {
               void disconnect();
             }}
@@ -128,7 +124,8 @@ export function TelegramBotSetupPanel() {
           </li>
           <li>
             {t("pluginsview.TelegramStep2", {
-              defaultValue: "Send /newbot and follow the prompts to create your bot",
+              defaultValue:
+                "Send /newbot and follow the prompts to create your bot",
             })}
           </li>
           <li>
@@ -147,7 +144,7 @@ export function TelegramBotSetupPanel() {
               if (status === "error") setStatus("idle");
             }}
             placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-            className="h-8 flex-1 rounded-lg border border-border/50 bg-bg/70 px-3 text-[11px] text-txt placeholder:text-muted/50 focus:border-accent focus:outline-none"
+            className="h-8 flex-1 rounded-lg border border-border/50 bg-bg/70 px-3 text-xs-tight text-txt placeholder:text-muted/50 focus:border-accent focus:outline-none"
             onKeyDown={(e) => {
               if (e.key === "Enter") void validateAndSave();
             }}
@@ -155,7 +152,7 @@ export function TelegramBotSetupPanel() {
           <Button
             variant="default"
             size="sm"
-            className="h-8 rounded-xl px-4 text-[11px] font-semibold"
+            className="h-8 rounded-xl px-4 text-xs-tight font-semibold"
             onClick={() => {
               void validateAndSave();
             }}

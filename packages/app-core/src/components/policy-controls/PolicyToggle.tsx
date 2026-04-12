@@ -45,16 +45,16 @@ export function PolicyToggle({
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold text-txt truncate">
+            <div className="text-sm font-semibold text-txt truncate">
               {title}
             </div>
             {enabled && summary && !expanded && (
-              <div className="text-[11px] text-muted mt-0.5 truncate">
+              <div className="text-xs-tight text-muted mt-0.5 truncate">
                 {summary}
               </div>
             )}
             {!enabled && (
-              <div className="text-[11px] text-muted/60 mt-0.5">Off</div>
+              <div className="text-xs-tight text-muted/60 mt-0.5">Off</div>
             )}
           </div>
         </button>

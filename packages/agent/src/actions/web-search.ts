@@ -12,8 +12,10 @@
  * This action is registered as WEB_SEARCH in the ElizaOS action system.
  */
 
-import type { Action, HandlerOptions } from "@elizaos/core";
+import type { Action, HandlerOptions, Memory, State } from "@elizaos/core";
 import { logger } from "@elizaos/core";
+import { hasContextSignalSyncForKey, messageText } from "./context-signal.js";
+import { hasRoleAccess } from "../security/access.js";
 
 // ---------------------------------------------------------------------------
 // Brave Search API types
@@ -49,6 +51,13 @@ function resolveApiKey(runtime: unknown): string | undefined {
   if (typeof fromConfig === "string" && fromConfig) return fromConfig;
 
   return undefined;
+}
+
+function hasWebSearchContextSignal(
+  message: Memory,
+  state: State | undefined,
+): boolean {
+  return hasContextSignalSyncForKey(message, state, "web_search");
 }
 
 function resolveMaxResults(runtime: unknown): number {
@@ -133,9 +142,11 @@ export const webSearchAction: Action = {
     "Search the web for current information using the Brave Search API. " +
     "Use when you need real-time or recent information that may not be in your training data.",
 
-  validate: async (runtime) => {
+  validate: async (runtime, message, state) => {
+    if (!(await hasRoleAccess(runtime, message, "USER"))) return false;
     const key = resolveApiKey(runtime);
-    return !!key;
+    if (!key) return false;
+    return hasWebSearchContextSignal(message, state);
   },
 
   handler: async (runtime, message, _state, options) => {

@@ -38,6 +38,7 @@ const NAV_LABEL_I18N_KEY: Record<string, string> = {
 
 interface HeaderProps {
   mobileLeft?: ReactNode;
+  pageRightExtras?: ReactNode;
   transparent?: boolean;
   hideCloudCredits?: boolean;
   tasksEventsPanelOpen?: boolean;
@@ -45,13 +46,13 @@ interface HeaderProps {
 }
 
 const HEADER_NAV_BUTTON_BASE_CLASSNAME =
-  "relative z-10 min-h-[44px] shrink-0 rounded-xl border border-transparent px-3 py-2.5 text-[12px] transition-all duration-200 md:px-3.5 xl:px-4";
+  "relative z-10 min-h-touch shrink-0 rounded-xl border border-transparent px-3 py-2.5 text-xs transition-all duration-200 md:px-3.5 xl:px-4";
 const HEADER_NAV_BUTTON_ACTIVE_CLASSNAME =
   "border-accent/30 bg-accent/12 text-txt font-semibold shadow-[0_2px_10px_rgba(3,5,10,0.08)] ring-1 ring-inset ring-accent/18 dark:shadow-[0_0_0_1px_rgba(var(--accent-rgb),0.14),0_0_14px_rgba(var(--accent-rgb),0.14)]";
 const HEADER_NAV_BUTTON_INACTIVE_CLASSNAME =
   "text-muted hover:border-border/45 hover:bg-bg-hover/70 hover:text-txt";
 const HEADER_MOBILE_NAV_BUTTON_BASE_CLASSNAME =
-  "flex min-h-[48px] w-full rounded-xl border px-3 py-3 text-[14px] font-medium transition-all duration-200";
+  "flex min-h-[48px] w-full rounded-xl border px-3 py-3 text-sm font-medium transition-all duration-200";
 const HEADER_MOBILE_NAV_BUTTON_ACTIVE_CLASSNAME =
   "border-accent/30 bg-accent/12 text-txt shadow-[0_2px_10px_rgba(3,5,10,0.08)] ring-1 ring-inset ring-accent/18 dark:shadow-[0_0_0_1px_rgba(var(--accent-rgb),0.14),0_0_14px_rgba(var(--accent-rgb),0.14)]";
 const HEADER_MOBILE_NAV_BUTTON_INACTIVE_CLASSNAME =
@@ -59,6 +60,7 @@ const HEADER_MOBILE_NAV_BUTTON_INACTIVE_CLASSNAME =
 
 export function Header({
   mobileLeft,
+  pageRightExtras,
   transparent: _transparent = false,
   hideCloudCredits = false,
   tasksEventsPanelOpen = false,
@@ -76,6 +78,7 @@ export function Header({
     setTab,
     setState,
     plugins,
+    browserEnabled,
     walletEnabled,
     loadDropStatus,
     uiLanguage,
@@ -116,8 +119,8 @@ export function Header({
     [plugins],
   );
   const tabGroups = useMemo(
-    () => getTabGroups(streamingEnabled, walletEnabled),
-    [streamingEnabled, walletEnabled],
+    () => getTabGroups(streamingEnabled, walletEnabled, browserEnabled),
+    [streamingEnabled, walletEnabled, browserEnabled],
   );
   const activeTabGroup = useMemo(
     () =>
@@ -218,9 +221,7 @@ export function Header({
         style={{ WebkitUserSelect: "none", userSelect: "none" }}
         data-no-camera-drag="true"
       >
-        <div
-          className="px-2 py-1"
-        >
+        <div className="px-2 py-1">
           <div
             className={`pointer-events-auto relative mx-auto w-full rounded-[20px] border bg-clip-padding transition-all sm:rounded-[22px] ${headerFrameClassName} ${headerShellClassName}`}
             data-testid="header-glass-shell"
@@ -242,6 +243,7 @@ export function Header({
               themeToggleWrapperTestId="header-theme-toggle-desktop"
               rightExtras={
                 <>
+                  {pageRightExtras}
                   {onToggleTasksPanel ? (
                     <Button
                       size="icon"
@@ -401,7 +403,7 @@ export function Header({
                             {t(NAV_LABEL_I18N_KEY[group.label] ?? group.label)}
                           </div>
                           {group.description && (
-                            <div className="text-[11px] text-muted mt-0.5">
+                            <div className="text-xs-tight text-muted mt-0.5">
                               {group.description}
                             </div>
                           )}

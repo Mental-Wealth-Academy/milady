@@ -865,13 +865,28 @@ export class DiscordLocalService extends Service {
     while (this.readBuffer.length >= 8) {
       const op = this.readBuffer.readInt32LE(0);
       const length = this.readBuffer.readInt32LE(4);
+      if (length < 0) {
+        logger.warn(
+          "[discord-local] Discarding malformed IPC frame with negative payload length",
+        );
+        this.readBuffer = Buffer.alloc(0);
+        return;
+      }
       if (this.readBuffer.length < 8 + length) {
         return;
       }
 
       const body = this.readBuffer.subarray(8, 8 + length);
       this.readBuffer = this.readBuffer.subarray(8 + length);
-      const payload = JSON.parse(body.toString("utf8")) as DiscordLocalRpcPayload;
+      let payload: DiscordLocalRpcPayload;
+      try {
+        payload = JSON.parse(body.toString("utf8")) as DiscordLocalRpcPayload;
+      } catch {
+        logger.warn(
+          "[discord-local] Discarding malformed IPC frame with invalid JSON payload",
+        );
+        continue;
+      }
       this.handleRpcPayload(op, payload);
     }
   }
@@ -1027,6 +1042,14 @@ export class DiscordLocalService extends Service {
       message.author?.username ||
       `Discord ${channelId}`;
 
+    // `roomName` is accepted by the local `./eliza` source but not by
+    // the npm alpha dist-tag of `@elizaos/core`. Cast around the
+    // excess-property check so the call works under both resolutions;
+    // the runtime itself reads `roomName` in both versions, the type
+    // just lags in the published package.
+    type EnsureConnectionArg = Parameters<
+      typeof this.runtime.ensureConnection
+    >[0] & { roomName?: string };
     await this.runtime.ensureConnection({
       entityId,
       roomId,
@@ -1043,7 +1066,7 @@ export class DiscordLocalService extends Service {
         discordChannelId: channelId,
         ...(guildId ? { discordServerId: guildId } : {}),
       },
-    });
+    } as EnsureConnectionArg);
 
     const attachments: Media[] = (message.attachments ?? []).flatMap(
       (attachment) => {

@@ -12,11 +12,12 @@
 
 import crypto from "node:crypto";
 import path from "node:path";
+import type { IAgentRuntime, Memory, ModelType, State } from "@elizaos/core";
 import { describe, expect, it } from "vitest";
-import { ModelType, type IAgentRuntime, type Memory, type State } from "@elizaos/core";
-import { extractLifeOperationWithLlm } from "../src/actions/life.extractor.js";
-import { extractGmailPlanWithLlm } from "../src/actions/gmail.js";
 import { extractCalendarPlanWithLlm } from "../src/actions/calendar.js";
+import { extractGmailPlanWithLlm } from "../src/actions/gmail.js";
+import { extractLifeOperationWithLlm } from "../src/actions/life.extractor.js";
+import { extractTaskCreatePlanWithLlm } from "../src/actions/life-param-extractor.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 try {
@@ -56,7 +57,8 @@ function selectProvider(): ProviderConfig | null {
     return {
       name: "openai",
       apiKey: openaiKey,
-      baseUrl: process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
+      baseUrl:
+        process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
       model: process.env.OPENAI_SMALL_MODEL?.trim() || "gpt-5.4-mini",
     };
   }
@@ -67,7 +69,9 @@ function selectProvider(): ProviderConfig | null {
       name: "anthropic",
       apiKey: anthropicKey,
       baseUrl: "https://api.anthropic.com",
-      model: process.env.ANTHROPIC_SMALL_MODEL?.trim() || "claude-haiku-4-5-20251001",
+      model:
+        process.env.ANTHROPIC_SMALL_MODEL?.trim() ||
+        "claude-haiku-4-5-20251001",
     };
   }
 
@@ -107,9 +111,7 @@ if (!LIVE_ENABLED || !provider) {
   ]
     .filter(Boolean)
     .join(" | ");
-  console.info(
-    `[lifeops-llm-extraction] skipped: ${reasons}`,
-  );
+  console.info(`[lifeops-llm-extraction] skipped: ${reasons}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,9 +227,7 @@ function createUseModel(config: ProviderConfig) {
 // Minimal runtime stub
 // ---------------------------------------------------------------------------
 
-function createMinimalRuntime(
-  config: ProviderConfig,
-): IAgentRuntime {
+function createMinimalRuntime(config: ProviderConfig): IAgentRuntime {
   const useModel = createUseModel(config);
   return {
     agentId: crypto.randomUUID(),
@@ -271,12 +271,27 @@ const TEST_TIMEOUT = 30_000;
 const describeIfLive = LIVE_ENABLED && provider ? describe : describe.skip;
 
 describeIfLive("LLM plan extraction (live)", () => {
-  const runtime = provider ? createMinimalRuntime(provider) : (null as unknown as IAgentRuntime);
+  const runtime = provider
+    ? createMinimalRuntime(provider)
+    : (null as unknown as IAgentRuntime);
 
   describe("extractLifeOperationWithLlm", () => {
     const cases = [
       { intent: "I brushed my teeth", expected: "complete_occurrence" },
-      { intent: "remind me to take vitamins every morning", expected: "create_definition" },
+      {
+        intent: "remind me to take vitamins every morning",
+        expected: "create_definition",
+      },
+      {
+        intent:
+          "recuérdame cepillarme los dientes por la mañana y por la noche",
+        expected: "create_definition",
+      },
+      {
+        intent:
+          "Please remind me to brush my teeth in the morning and again at bedtime",
+        expected: "create_definition",
+      },
       { intent: "less reminders please", expected: "set_reminder_preference" },
       { intent: "how am I doing on my marathon goal", expected: "review_goal" },
       { intent: "skip workout today", expected: "skip_occurrence" },
@@ -303,10 +318,75 @@ describeIfLive("LLM plan extraction (live)", () => {
     }
   });
 
+  describe("extractTaskCreatePlanWithLlm", () => {
+    const cases = [
+      {
+        intent: "make sure I brush my teeth when I wake up and before bed",
+        expectedMode: "create",
+        expectedCadenceKind: "daily",
+        expectedWindows: ["morning", "night"],
+      },
+      {
+        intent:
+          "recuérdame cepillarme los dientes por la mañana y por la noche",
+        expectedMode: "create",
+        expectedCadenceKind: "daily",
+        expectedWindows: ["morning", "night"],
+      },
+      {
+        intent:
+          "set a reminder for april 17 at 8pm mountain time to hug my wife",
+        expectedMode: "create",
+        expectedCadenceKind: "once",
+        expectedTimeOfDay: "20:00",
+        expectedTimeZone: "America/Denver",
+      },
+      {
+        intent: "please remind me to shave twice a week",
+        expectedMode: "create",
+        expectedCadenceKind: "weekly",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      it(
+        `extracts a task-create plan for "${testCase.intent}"`,
+        async () => {
+          const plan = await extractTaskCreatePlanWithLlm({
+            runtime,
+            intent: testCase.intent,
+            state: makeState(),
+            message: makeMessage(testCase.intent),
+          });
+          expect(plan?.mode).toBe(testCase.expectedMode);
+          expect(plan?.cadenceKind).toBe(testCase.expectedCadenceKind);
+          if ("expectedWindows" in testCase && testCase.expectedWindows) {
+            expect(plan?.windows).toEqual(
+              expect.arrayContaining(testCase.expectedWindows),
+            );
+          }
+          if ("expectedTimeOfDay" in testCase && testCase.expectedTimeOfDay) {
+            expect(plan?.timeOfDay).toBe(testCase.expectedTimeOfDay);
+          }
+          if ("expectedTimeZone" in testCase && testCase.expectedTimeZone) {
+            expect(plan?.timeZone).toBe(testCase.expectedTimeZone);
+          }
+          expect(String(plan?.title ?? "").trim().length).toBeGreaterThan(0);
+        },
+        TEST_TIMEOUT,
+      );
+    }
+  });
+
   describe("extractGmailPlanWithLlm", () => {
     const cases = [
       {
         intent: "who emailed me today",
+        expectedSubaction: "search",
+        expectQueries: true,
+      },
+      {
+        intent: "busca en mi correo si Suran me escribio hoy",
         expectedSubaction: "search",
         expectQueries: true,
       },
@@ -331,25 +411,43 @@ describeIfLive("LLM plan extraction (live)", () => {
         expectQueries: false,
       },
       {
+        intent:
+          "enviale un correo a maria@example.com con asunto hola y cuerpo nos vemos manana",
+        expectedSubaction: "send_message",
+        expectQueries: false,
+        expectedTo: "maria@example.com",
+      },
+      {
         intent: "send that reply now",
         expectedSubaction: "send_reply",
         expectQueries: false,
+        recentMessages:
+          "user: draft a reply to John's email\nassistant: I drafted a reply to John's email. Want me to send it?",
       },
     ] as const;
 
-    for (const { intent, expectedSubaction, expectQueries } of cases) {
+    for (const {
+      intent,
+      expectedSubaction,
+      expectQueries,
+      expectedTo,
+      recentMessages,
+    } of cases) {
       it(
         `classifies "${intent}" as ${expectedSubaction}`,
         async () => {
           const plan = await extractGmailPlanWithLlm(
             runtime,
             makeMessage(intent),
-            makeState(),
+            makeState(recentMessages),
             intent,
           );
           expect(plan.subaction).toBe(expectedSubaction);
           if (expectQueries) {
             expect(plan.queries.length).toBeGreaterThan(0);
+          }
+          if (expectedTo) {
+            expect(plan.to ?? []).toContain(expectedTo);
           }
         },
         TEST_TIMEOUT,

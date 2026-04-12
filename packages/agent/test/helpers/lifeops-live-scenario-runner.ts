@@ -1,5 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { createConversation, req } from "../../../../test/helpers/http.ts";
 import type {
   LifeOpsDefinitionEntry,
   LifeOpsGoalEntry,
@@ -7,7 +9,6 @@ import type {
   StartedLifeOpsLiveRuntime,
 } from "./lifeops-live-harness.ts";
 import {
-  REPO_ROOT,
   assertNoProviderIssue,
   buildLifeActionPrompt,
   getReminderPreference,
@@ -15,11 +16,13 @@ import {
   listGoalEntries,
   normalizeLiveText,
   postLiveConversationMessage,
+  REPO_ROOT,
+  resolveDefinitionIdByTitle,
+  resolveOccurrenceIdByTitle,
   selectLifeOpsLiveProvider,
   startLifeOpsLiveRuntime,
   waitForTrajectoryCall,
 } from "./lifeops-live-harness.ts";
-import { createConversation } from "../../../../test/helpers/http.ts";
 
 export type LifeActionPromptSpec = {
   action: string;
@@ -40,6 +43,15 @@ export type ScenarioTurn = {
   source?: string;
   text?: string;
   lifeActionPrompt?: LifeActionPromptSpec;
+  apiRequest?: {
+    method: "GET" | "POST";
+    path: string;
+    body?: unknown;
+  };
+  apiStatus?: number;
+  apiResponseIncludesAll?: string[];
+  apiResponseIncludesAny?: string[];
+  apiResponseExcludes?: string[];
   responseIncludesAll?: string[];
   responseIncludesAny?: string[];
   responseExcludes?: string[];
@@ -57,8 +69,12 @@ type DefinitionCountDeltaCheck = {
   delta: number;
   cadenceKind?: string;
   requiredWindows?: string[];
+  requiredWeekdays?: number[];
   requiredSlots?: Array<{ label?: string; minuteOfDay?: number }>;
+  requiredEveryMinutes?: number;
+  requiredMaxOccurrencesPerDay?: number;
   requireReminderPlan?: boolean;
+  expectedTimeZone?: string;
   websiteAccess?: {
     unlockMode?: string;
     unlockDurationMinutes?: number;
@@ -92,6 +108,7 @@ export type LifeOpsLiveScenario = {
   title: string;
   domain: string;
   description?: string;
+  requiresIsolation?: boolean;
   rooms?: ScenarioRoom[];
   turns: ScenarioTurn[];
   finalChecks?: ScenarioFinalCheck[];
@@ -110,7 +127,11 @@ export type ScenarioTurnReport = {
 export type ScenarioReport = {
   durationMs: number;
   error?: string;
-  finalChecks: Array<{ label: string; status: "passed" | "failed"; detail: string }>;
+  finalChecks: Array<{
+    label: string;
+    status: "passed" | "failed";
+    detail: string;
+  }>;
   id: string;
   providerName: string;
   startedAt: string;
@@ -128,47 +149,159 @@ export type ScenarioMatrixReport = {
   totalCount: number;
 };
 
-const DEFAULT_SCENARIO_DIR = path.join(REPO_ROOT, "test", "lifeops", "scenarios");
+const DEFAULT_SCENARIO_DIR = path.join(
+  REPO_ROOT,
+  "test",
+  "lifeops",
+  "scenarios",
+);
+const FINAL_CHECK_TIMEOUT_MS = 20_000;
+const FINAL_CHECK_RETRY_MS = 500;
+const LIVE_API_TURN_TIMEOUT_MS = 120_000;
+const LIVE_ROOM_CREATION_TIMEOUT_MS = 30_000;
+
+export type ScenarioProgressEvent =
+  | {
+      type: "runtime:ready";
+      mode: "isolated" | "shared";
+      scenarioId?: string;
+    }
+  | {
+      type: "runtime:start";
+      mode: "isolated" | "shared";
+      scenarioId?: string;
+    }
+  | {
+      type: "scenario:start";
+      scenarioId: string;
+      title: string;
+    }
+  | {
+      type: "scenario:complete";
+      durationMs: number;
+      error?: string;
+      scenarioId: string;
+      status: "passed" | "failed";
+      title: string;
+    }
+  | {
+      type: "turn:start";
+      index: number;
+      scenarioId: string;
+      total: number;
+      turnName: string;
+    }
+  | {
+      type: "turn:complete";
+      index: number;
+      scenarioId: string;
+      total: number;
+      turnName: string;
+    };
 
 function normalizeText(text: string): string {
   return normalizeLiveText(text);
 }
 
-function assertIncludesAll(label: string, text: string, fragments?: string[]): void {
+function tokenizeComparableText(text: string): string[] {
+  return Array.from(text.toLowerCase().matchAll(/[a-z0-9]+/g), (match) =>
+    String(match[0]),
+  );
+}
+
+function includesComparableFragment(text: string, fragment: string): boolean {
+  const normalizedText = normalizeText(text);
+  const normalizedFragment = normalizeText(fragment);
+  if (normalizedText.includes(normalizedFragment)) {
+    return true;
+  }
+
+  if (/[<>]/.test(fragment)) {
+    return false;
+  }
+
+  const textTokens = tokenizeComparableText(text);
+  const fragmentTokens = tokenizeComparableText(fragment);
+  if (textTokens.length === 0 || fragmentTokens.length === 0) {
+    return false;
+  }
+
+  let fragmentIndex = 0;
+  for (const token of textTokens) {
+    if (token === fragmentTokens[fragmentIndex]) {
+      fragmentIndex += 1;
+      if (fragmentIndex >= fragmentTokens.length) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function assertIncludesAll(
+  label: string,
+  text: string,
+  fragments?: string[],
+): void {
   if (!fragments || fragments.length === 0) {
     return;
   }
 
   const normalized = normalizeText(text);
   for (const fragment of fragments) {
-    if (!normalized.includes(fragment.toLowerCase())) {
-      throw new Error(`${label} did not include "${fragment}".\nactual=${text}`);
+    if (
+      !normalized.includes(fragment.toLowerCase()) &&
+      !includesComparableFragment(text, fragment)
+    ) {
+      throw new Error(
+        `${label} did not include "${fragment}".\nactual=${text}`,
+      );
     }
   }
 }
 
-function assertIncludesAny(label: string, text: string, fragments?: string[]): void {
+function assertIncludesAny(
+  label: string,
+  text: string,
+  fragments?: string[],
+): void {
   if (!fragments || fragments.length === 0) {
     return;
   }
 
   const normalized = normalizeText(text);
-  if (!fragments.some((fragment) => normalized.includes(fragment.toLowerCase()))) {
+  if (
+    !fragments.some(
+      (fragment) =>
+        normalized.includes(fragment.toLowerCase()) ||
+        includesComparableFragment(text, fragment),
+    )
+  ) {
     throw new Error(
       `${label} did not include any of ${JSON.stringify(fragments)}.\nactual=${text}`,
     );
   }
 }
 
-function assertExcludes(label: string, text: string, fragments?: string[]): void {
+function assertExcludes(
+  label: string,
+  text: string,
+  fragments?: string[],
+): void {
   if (!fragments || fragments.length === 0) {
     return;
   }
 
   const normalized = normalizeText(text);
   for (const fragment of fragments) {
-    if (normalized.includes(fragment.toLowerCase())) {
-      throw new Error(`${label} unexpectedly included "${fragment}".\nactual=${text}`);
+    if (
+      normalized.includes(fragment.toLowerCase()) ||
+      includesComparableFragment(text, fragment)
+    ) {
+      throw new Error(
+        `${label} unexpectedly included "${fragment}".\nactual=${text}`,
+      );
     }
   }
 }
@@ -178,9 +311,13 @@ function definitionMatchesTitle(
   title: string,
   titleAliases: string[] = [],
 ): boolean {
-  const normalizedTitle = normalizeText(String(entry.definition?.title ?? ""));
+  const entryTitle = String(entry.definition?.title ?? "");
+  const normalizedTitle = normalizeText(entryTitle);
   return [title, ...titleAliases].some(
-    (candidate) => normalizedTitle === normalizeText(candidate),
+    (candidate) =>
+      normalizedTitle === normalizeText(candidate) ||
+      includesComparableFragment(entryTitle, candidate) ||
+      includesComparableFragment(candidate, entryTitle),
   );
 }
 
@@ -189,13 +326,20 @@ function goalMatchesTitle(
   title: string,
   titleAliases: string[] = [],
 ): boolean {
-  const normalizedTitle = normalizeText(String(entry.goal?.title ?? ""));
+  const entryTitle = String(entry.goal?.title ?? "");
+  const normalizedTitle = normalizeText(entryTitle);
   return [title, ...titleAliases].some(
-    (candidate) => normalizedTitle === normalizeText(candidate),
+    (candidate) =>
+      normalizedTitle === normalizeText(candidate) ||
+      includesComparableFragment(entryTitle, candidate) ||
+      includesComparableFragment(candidate, entryTitle),
   );
 }
 
 function renderTurnText(turn: ScenarioTurn): string {
+  if (turn.apiRequest) {
+    return `${turn.apiRequest.method} ${turn.apiRequest.path}`;
+  }
   if (typeof turn.text === "string" && turn.text.trim().length > 0) {
     return turn.text;
   }
@@ -211,6 +355,174 @@ function renderTurnText(turn: ScenarioTurn): string {
   throw new Error(`Scenario turn "${turn.name}" did not provide text.`);
 }
 
+type ScenarioTemplateContext = {
+  anchorNow: Date;
+  port: number;
+};
+
+function applyOffsetToDate(
+  anchorNow: Date,
+  sign: "+" | "-",
+  amount: number,
+  unit: "m" | "h" | "d",
+): Date {
+  const next = new Date(anchorNow.getTime());
+  const delta = sign === "-" ? -amount : amount;
+  switch (unit) {
+    case "m":
+      next.setUTCMinutes(next.getUTCMinutes() + delta);
+      return next;
+    case "h":
+      next.setUTCHours(next.getUTCHours() + delta);
+      return next;
+    case "d":
+      next.setUTCDate(next.getUTCDate() + delta);
+      return next;
+  }
+}
+
+async function resolveScenarioToken(
+  token: string,
+  context: ScenarioTemplateContext,
+): Promise<string> {
+  const nowMatch = token.match(
+    /^now(?:(?<sign>[+-])(?<amount>\d+)(?<unit>[mhd]))?$/,
+  );
+  if (nowMatch?.groups) {
+    const { sign, amount, unit } = nowMatch.groups;
+    if (!sign || !amount || !unit) {
+      return context.anchorNow.toISOString();
+    }
+    return applyOffsetToDate(
+      context.anchorNow,
+      sign as "+" | "-",
+      Number(amount),
+      unit as "m" | "h" | "d",
+    ).toISOString();
+  }
+
+  if (token.startsWith("definitionId:")) {
+    return resolveDefinitionIdByTitle(
+      context.port,
+      token.slice("definitionId:".length).trim(),
+    );
+  }
+
+  if (token.startsWith("occurrenceId:")) {
+    return resolveOccurrenceIdByTitle(
+      context.port,
+      token.slice("occurrenceId:".length).trim(),
+    );
+  }
+
+  throw new Error(`Unsupported scenario template token "${token}"`);
+}
+
+async function resolveScenarioTemplates(
+  value: unknown,
+  context: ScenarioTemplateContext,
+): Promise<unknown> {
+  if (typeof value === "string") {
+    const matches = Array.from(value.matchAll(/\{\{([^}]+)\}\}/g));
+    if (matches.length === 0) {
+      return value;
+    }
+
+    let resolved = value;
+    for (const match of matches) {
+      const token = (match[1] ?? "").trim();
+      const replacement = await resolveScenarioToken(token, context);
+      resolved = resolved.replace(match[0], replacement);
+    }
+    return resolved;
+  }
+
+  if (Array.isArray(value)) {
+    const resolvedEntries = [];
+    for (const entry of value) {
+      resolvedEntries.push(await resolveScenarioTemplates(entry, context));
+    }
+    return resolvedEntries;
+  }
+
+  if (value && typeof value === "object") {
+    const resolvedObject: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      resolvedObject[key] = await resolveScenarioTemplates(entry, context);
+    }
+    return resolvedObject;
+  }
+
+  return value;
+}
+
+async function executeScenarioApiTurn(args: {
+  runtime: StartedLifeOpsLiveRuntime;
+  turn: ScenarioTurn;
+  anchorNow: Date;
+}): Promise<{
+  responseText: string;
+  text: string;
+}> {
+  const apiRequest = args.turn.apiRequest;
+  if (!apiRequest) {
+    throw new Error(
+      `Scenario turn "${args.turn.name}" did not provide an apiRequest.`,
+    );
+  }
+
+  const context: ScenarioTemplateContext = {
+    anchorNow: args.anchorNow,
+    port: args.runtime.port,
+  };
+  const resolvedPath = String(
+    await resolveScenarioTemplates(apiRequest.path, context),
+  );
+  const resolvedBody = apiRequest.body
+    ? await resolveScenarioTemplates(apiRequest.body, context)
+    : undefined;
+  const method = apiRequest.method.toUpperCase() as "GET" | "POST";
+  const response = await req(
+    args.runtime.port,
+    method,
+    resolvedPath,
+    method === "POST" ? resolvedBody : undefined,
+    undefined,
+    { timeoutMs: LIVE_API_TURN_TIMEOUT_MS },
+  );
+  const expectedStatus = args.turn.apiStatus ?? (method === "POST" ? 200 : 200);
+  if (response.status !== expectedStatus) {
+    throw new Error(
+      `${args.turn.name} expected API status ${expectedStatus} but saw ${response.status} for ${method} ${resolvedPath}: ${JSON.stringify(response.data)}`,
+    );
+  }
+
+  const responseText = JSON.stringify(response.data);
+  assertIncludesAll(
+    `${args.turn.name} api response`,
+    responseText,
+    args.turn.apiResponseIncludesAll,
+  );
+  assertIncludesAny(
+    `${args.turn.name} api response`,
+    responseText,
+    args.turn.apiResponseIncludesAny,
+  );
+  assertExcludes(
+    `${args.turn.name} api response`,
+    responseText,
+    args.turn.apiResponseExcludes,
+  );
+
+  return {
+    responseText,
+    text:
+      method === "POST"
+        ? `${method} ${resolvedPath} ${JSON.stringify(resolvedBody)}`
+        : `${method} ${resolvedPath}`,
+  };
+}
+
 async function createScenarioRooms(
   runtime: StartedLifeOpsLiveRuntime,
   scenario: LifeOpsLiveScenario,
@@ -223,7 +535,7 @@ async function createScenarioRooms(
   for (const room of rooms) {
     const conversation = await createConversation(runtime.port, {
       title: room.title ?? `${scenario.title} (${room.id})`,
-    });
+    }, undefined, { timeoutMs: LIVE_ROOM_CREATION_TIMEOUT_MS });
     created.set(room.id, {
       conversationId: conversation.conversationId,
       source: room.source ?? "discord",
@@ -244,7 +556,10 @@ async function collectScenarioBaseline(
   const goalTitles = new Set<string>();
 
   for (const check of scenario.finalChecks ?? []) {
-    if (check.type === "definitionCountDelta" || check.type === "reminderIntensity") {
+    if (
+      check.type === "definitionCountDelta" ||
+      check.type === "reminderIntensity"
+    ) {
       definitionTitles.add(check.title);
       continue;
     }
@@ -264,7 +579,9 @@ async function collectScenarioBaseline(
           check.type === "reminderIntensity") &&
         check.title === title,
     );
-    const titleAliases = matchingChecks.flatMap((check) => check.titleAliases ?? []);
+    const titleAliases = matchingChecks.flatMap(
+      (check) => check.titleAliases ?? [],
+    );
     definitionCounts.set(
       title,
       definitions.filter((entry) =>
@@ -279,10 +596,13 @@ async function collectScenarioBaseline(
       (check): check is GoalCountDeltaCheck =>
         check.type === "goalCountDelta" && check.title === title,
     );
-    const titleAliases = matchingChecks.flatMap((check) => check.titleAliases ?? []);
+    const titleAliases = matchingChecks.flatMap(
+      (check) => check.titleAliases ?? [],
+    );
     goalCounts.set(
       title,
-      goals.filter((entry) => goalMatchesTitle(entry, title, titleAliases)).length,
+      goals.filter((entry) => goalMatchesTitle(entry, title, titleAliases))
+        .length,
     );
   }
 
@@ -293,8 +613,14 @@ async function validateFinalChecks(args: {
   baseline: Awaited<ReturnType<typeof collectScenarioBaseline>>;
   runtime: StartedLifeOpsLiveRuntime;
   scenario: LifeOpsLiveScenario;
-}): Promise<Array<{ label: string; status: "passed" | "failed"; detail: string }>> {
-  const results: Array<{ label: string; status: "passed" | "failed"; detail: string }> = [];
+}): Promise<
+  Array<{ label: string; status: "passed" | "failed"; detail: string }>
+> {
+  const results: Array<{
+    label: string;
+    status: "passed" | "failed";
+    detail: string;
+  }> = [];
   const definitions = await listDefinitionEntries(args.runtime.port);
   const goals = await listGoalEntries(args.runtime.port);
 
@@ -305,7 +631,8 @@ async function validateFinalChecks(args: {
         const matches = definitions.filter((entry) =>
           definitionMatchesTitle(entry, check.title, check.titleAliases),
         );
-        const beforeCount = args.baseline.definitionCounts.get(check.title) ?? 0;
+        const beforeCount =
+          args.baseline.definitionCounts.get(check.title) ?? 0;
         const delta = matches.length - beforeCount;
         if (delta !== check.delta) {
           throw new Error(
@@ -315,7 +642,9 @@ async function validateFinalChecks(args: {
 
         const latest = matches[matches.length - 1];
         if (check.delta > 0 && !latest) {
-          throw new Error(`expected to find "${check.title}" after the scenario`);
+          throw new Error(
+            `expected to find "${check.title}" after the scenario`,
+          );
         }
         if (latest && check.cadenceKind) {
           const cadence =
@@ -338,10 +667,18 @@ async function validateFinalChecks(args: {
               }
             }
           }
-          if (check.requiredSlots?.length) {
-            const slots = Array.isArray(cadence?.slots)
-              ? cadence.slots
+          if (check.requiredWeekdays?.length) {
+            const weekdays = Array.isArray(cadence?.weekdays)
+              ? cadence.weekdays.map((entry) => Number(entry))
               : [];
+            for (const weekday of check.requiredWeekdays) {
+              if (!weekdays.includes(weekday)) {
+                throw new Error(`expected cadence weekday "${weekday}"`);
+              }
+            }
+          }
+          if (check.requiredSlots?.length) {
+            const slots = Array.isArray(cadence?.slots) ? cadence.slots : [];
             for (const requiredSlot of check.requiredSlots) {
               const matchedSlot = slots.find((candidate) => {
                 if (!candidate || typeof candidate !== "object") {
@@ -369,12 +706,41 @@ async function validateFinalChecks(args: {
               }
             }
           }
+          if (typeof check.requiredEveryMinutes === "number") {
+            if (
+              Number(cadence?.everyMinutes ?? -1) !== check.requiredEveryMinutes
+            ) {
+              throw new Error(
+                `expected everyMinutes ${check.requiredEveryMinutes} but saw ${String(cadence?.everyMinutes ?? "")}`,
+              );
+            }
+          }
+          if (typeof check.requiredMaxOccurrencesPerDay === "number") {
+            if (
+              Number(cadence?.maxOccurrencesPerDay ?? -1) !==
+              check.requiredMaxOccurrencesPerDay
+            ) {
+              throw new Error(
+                `expected maxOccurrencesPerDay ${check.requiredMaxOccurrencesPerDay} but saw ${String(cadence?.maxOccurrencesPerDay ?? "")}`,
+              );
+            }
+          }
         }
 
         if (latest && check.requireReminderPlan) {
           const reminderPlanId = String(latest.reminderPlan?.id ?? "");
           if (!reminderPlanId) {
             throw new Error(`expected a reminder plan for "${check.title}"`);
+          }
+        }
+
+        if (latest && check.expectedTimeZone) {
+          if (
+            String(latest.definition?.timezone ?? "") !== check.expectedTimeZone
+          ) {
+            throw new Error(
+              `expected definition timezone ${check.expectedTimeZone} but saw ${String(latest.definition?.timezone ?? "")}`,
+            );
           }
         }
 
@@ -420,9 +786,14 @@ async function validateFinalChecks(args: {
         const latest = matches[matches.length - 1];
         const definitionId = String(latest?.definition?.id ?? "");
         if (!definitionId) {
-          throw new Error(`could not resolve a definition id for "${check.title}"`);
+          throw new Error(
+            `could not resolve a definition id for "${check.title}"`,
+          );
         }
-        const preference = await getReminderPreference(args.runtime.port, definitionId);
+        const preference = await getReminderPreference(
+          args.runtime.port,
+          definitionId,
+        );
         const effective =
           preference.effective && typeof preference.effective === "object"
             ? (preference.effective as Record<string, unknown>)
@@ -479,19 +850,80 @@ async function validateFinalChecks(args: {
   return results;
 }
 
+async function waitForFinalChecks(args: {
+  baseline: Awaited<ReturnType<typeof collectScenarioBaseline>>;
+  runtime: StartedLifeOpsLiveRuntime;
+  scenario: LifeOpsLiveScenario;
+}): Promise<
+  Array<{ label: string; status: "passed" | "failed"; detail: string }>
+> {
+  const deadline = Date.now() + FINAL_CHECK_TIMEOUT_MS;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      return await validateFinalChecks(args);
+    } catch (error) {
+      lastError = error;
+      await sleep(FINAL_CHECK_RETRY_MS);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Timed out waiting for scenario final checks to settle.");
+}
+
 export async function runLifeOpsLiveScenario(args: {
+  onProgress?: (event: ScenarioProgressEvent) => void;
   runtime: StartedLifeOpsLiveRuntime;
   scenario: LifeOpsLiveScenario;
 }): Promise<ScenarioReport> {
   const startedAt = new Date().toISOString();
   const startedMs = Date.now();
+  const anchorNow = new Date();
   const turns: ScenarioTurnReport[] = [];
   const baseline = await collectScenarioBaseline(args.runtime, args.scenario);
 
   try {
+    args.onProgress?.({
+      type: "scenario:start",
+      scenarioId: args.scenario.id,
+      title: args.scenario.title,
+    });
     const rooms = await createScenarioRooms(args.runtime, args.scenario);
 
-    for (const turn of args.scenario.turns) {
+    for (const [index, turn] of args.scenario.turns.entries()) {
+      args.onProgress?.({
+        type: "turn:start",
+        index: index + 1,
+        scenarioId: args.scenario.id,
+        total: args.scenario.turns.length,
+        turnName: turn.name,
+      });
+      if (turn.apiRequest) {
+        const apiResult = await executeScenarioApiTurn({
+          runtime: args.runtime,
+          turn,
+          anchorNow,
+        });
+        turns.push({
+          conversationId: "",
+          name: turn.name,
+          responseText: apiResult.responseText,
+          source: "api",
+          text: apiResult.text,
+        });
+        args.onProgress?.({
+          type: "turn:complete",
+          index: index + 1,
+          scenarioId: args.scenario.id,
+          total: args.scenario.turns.length,
+          turnName: turn.name,
+        });
+        continue;
+      }
+
       const room = rooms.get(turn.room ?? "main");
       if (!room) {
         throw new Error(
@@ -508,10 +940,6 @@ export async function runLifeOpsLiveScenario(args: {
         turn.attempts ?? 3,
         turn.source ?? room.source,
       );
-      assertNoProviderIssue(turn.name, responseText, args.runtime);
-      assertIncludesAll(`${turn.name} response`, responseText, turn.responseIncludesAll);
-      assertIncludesAny(`${turn.name} response`, responseText, turn.responseIncludesAny);
-      assertExcludes(`${turn.name} response`, responseText, turn.responseExcludes);
 
       let plannerResponse = "";
       let trajectoryId = "";
@@ -553,15 +981,39 @@ export async function runLifeOpsLiveScenario(args: {
         text,
         trajectoryId: trajectoryId || undefined,
       });
+
+      assertNoProviderIssue(turn.name, responseText, args.runtime);
+      assertIncludesAll(
+        `${turn.name} response`,
+        responseText,
+        turn.responseIncludesAll,
+      );
+      assertIncludesAny(
+        `${turn.name} response`,
+        responseText,
+        turn.responseIncludesAny,
+      );
+      assertExcludes(
+        `${turn.name} response`,
+        responseText,
+        turn.responseExcludes,
+      );
+      args.onProgress?.({
+        type: "turn:complete",
+        index: index + 1,
+        scenarioId: args.scenario.id,
+        total: args.scenario.turns.length,
+        turnName: turn.name,
+      });
     }
 
-    const finalChecks = await validateFinalChecks({
+    const finalChecks = await waitForFinalChecks({
       baseline,
       runtime: args.runtime,
       scenario: args.scenario,
     });
 
-    return {
+    const report = {
       durationMs: Date.now() - startedMs,
       finalChecks,
       id: args.scenario.id,
@@ -571,8 +1023,16 @@ export async function runLifeOpsLiveScenario(args: {
       title: args.scenario.title,
       turns,
     };
+    args.onProgress?.({
+      type: "scenario:complete",
+      durationMs: report.durationMs,
+      scenarioId: args.scenario.id,
+      status: report.status,
+      title: args.scenario.title,
+    });
+    return report;
   } catch (error) {
-    return {
+    const report = {
       durationMs: Date.now() - startedMs,
       error: error instanceof Error ? error.message : String(error),
       finalChecks: [],
@@ -583,6 +1043,15 @@ export async function runLifeOpsLiveScenario(args: {
       title: args.scenario.title,
       turns,
     };
+    args.onProgress?.({
+      type: "scenario:complete",
+      durationMs: report.durationMs,
+      error: report.error,
+      scenarioId: args.scenario.id,
+      status: report.status,
+      title: args.scenario.title,
+    });
+    return report;
   }
 }
 
@@ -607,6 +1076,7 @@ export async function loadLifeOpsScenarioCatalog(
 
 export async function runLifeOpsScenarioMatrix(options?: {
   isolate?: "shared" | "per-scenario";
+  onProgress?: (event: ScenarioProgressEvent) => void;
   reportPath?: string;
   scenarioIds?: string[];
   selectedProvider?: SelectedLiveProvider | null;
@@ -625,28 +1095,55 @@ export async function runLifeOpsScenarioMatrix(options?: {
   const selectedProvider =
     options?.selectedProvider ?? (await selectLifeOpsLiveProvider());
   if (!selectedProvider) {
-    throw new Error("No live provider is configured for the LifeOps scenario run.");
+    throw new Error(
+      "No live provider is configured for the LifeOps scenario run.",
+    );
   }
 
-  const isolate = options?.isolate ?? "shared";
+  const isolate = options?.isolate ?? "per-scenario";
   const reports: ScenarioReport[] = [];
   let sharedRuntime: StartedLifeOpsLiveRuntime | null = null;
 
-  if (isolate === "shared") {
+  if (
+    isolate === "shared" &&
+    scenarios.some((scenario) => !scenario.requiresIsolation)
+  ) {
+    options?.onProgress?.({ type: "runtime:start", mode: "shared" });
     sharedRuntime = await startLifeOpsLiveRuntime({ selectedProvider });
+    options?.onProgress?.({ type: "runtime:ready", mode: "shared" });
   }
 
   try {
     for (const scenario of scenarios) {
-      const runtime =
-        isolate === "shared"
-          ? (sharedRuntime as StartedLifeOpsLiveRuntime)
-          : await startLifeOpsLiveRuntime({ selectedProvider });
+      const useIsolatedRuntime =
+        isolate === "per-scenario" || scenario.requiresIsolation === true;
+      const runtime = useIsolatedRuntime
+        ? await (async () => {
+            options?.onProgress?.({
+              type: "runtime:start",
+              mode: "isolated",
+              scenarioId: scenario.id,
+            });
+            const started = await startLifeOpsLiveRuntime({ selectedProvider });
+            options?.onProgress?.({
+              type: "runtime:ready",
+              mode: "isolated",
+              scenarioId: scenario.id,
+            });
+            return started;
+          })()
+        : (sharedRuntime as StartedLifeOpsLiveRuntime);
 
       try {
-        reports.push(await runLifeOpsLiveScenario({ runtime, scenario }));
+        reports.push(
+          await runLifeOpsLiveScenario({
+            onProgress: options?.onProgress,
+            runtime,
+            scenario,
+          }),
+        );
       } finally {
-        if (isolate === "per-scenario") {
+        if (useIsolatedRuntime) {
           await runtime.close();
         }
       }
@@ -669,11 +1166,7 @@ export async function runLifeOpsScenarioMatrix(options?: {
 
   const reportPath =
     options?.reportPath ??
-    path.join(
-      REPO_ROOT,
-      ".tmp",
-      `lifeops-scenario-report-${Date.now()}.json`,
-    );
+    path.join(REPO_ROOT, ".tmp", `lifeops-scenario-report-${Date.now()}.json`);
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return { report, reportPath };

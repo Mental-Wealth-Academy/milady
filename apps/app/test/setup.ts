@@ -10,8 +10,6 @@ import { vi } from "vitest";
 import {
   createMockStorage,
   hasStorageApi,
-  installCanvasMocks,
-  installMediaElementMocks,
   suppressReactTestConsoleErrors,
 } from "../../../test/helpers/browser-mocks";
 
@@ -26,7 +24,24 @@ globalThis.React = React;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 suppressReactTestConsoleErrors();
-installMediaElementMocks();
+
+function ensureStorage(
+  target: Record<string, unknown>,
+  key: "localStorage" | "sessionStorage",
+  fallback?: Storage,
+): Storage {
+  const existing = target[key];
+  if (hasStorageApi(existing)) {
+    return existing;
+  }
+  const storage = fallback ?? createMockStorage();
+  Object.defineProperty(target, key, {
+    value: storage,
+    writable: true,
+    configurable: true,
+  });
+  return storage;
+}
 
 // ---------------------------------------------------------------------------
 // Mock @miladyai/app-core bridge modules — the real electrobun RPC module
@@ -391,20 +406,14 @@ if (typeof globalThis.document === "undefined") {
   });
 }
 
-if (!hasStorageApi(globalThis.localStorage)) {
-  Object.defineProperty(globalThis, "localStorage", {
-    value: createMockStorage(),
-    writable: true,
-    configurable: true,
-  });
-}
-if (!hasStorageApi(globalThis.sessionStorage)) {
-  Object.defineProperty(globalThis, "sessionStorage", {
-    value: createMockStorage(),
-    writable: true,
-    configurable: true,
-  });
-}
+const sharedLocalStorage = ensureStorage(
+  globalThis as Record<string, unknown>,
+  "localStorage",
+);
+const sharedSessionStorage = ensureStorage(
+  globalThis as Record<string, unknown>,
+  "sessionStorage",
+);
 
 if (typeof globalThis.window === "undefined") {
   Object.defineProperty(globalThis, "window", {
@@ -419,8 +428,8 @@ if (typeof globalThis.window === "undefined") {
       outerHeight: 1080,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      localStorage: globalThis.localStorage,
-      sessionStorage: globalThis.sessionStorage,
+      localStorage: sharedLocalStorage,
+      sessionStorage: sharedSessionStorage,
       navigator: globalThis.navigator,
     },
     writable: true,
@@ -428,20 +437,8 @@ if (typeof globalThis.window === "undefined") {
   });
 } else {
   const win = globalThis.window as Record<string, unknown>;
-  if (!hasStorageApi(win.sessionStorage)) {
-    Object.defineProperty(win, "sessionStorage", {
-      value: globalThis.sessionStorage,
-      writable: true,
-      configurable: true,
-    });
-  }
-  if (!hasStorageApi(win.localStorage)) {
-    Object.defineProperty(win, "localStorage", {
-      value: globalThis.localStorage,
-      writable: true,
-      configurable: true,
-    });
-  }
+  ensureStorage(win, "sessionStorage", sharedSessionStorage);
+  ensureStorage(win, "localStorage", sharedLocalStorage);
   if (!win.navigator) {
     Object.defineProperty(win, "navigator", {
       value: globalThis.navigator,
@@ -450,8 +447,6 @@ if (typeof globalThis.window === "undefined") {
     });
   }
 }
-
-installCanvasMocks();
 
 if (typeof globalThis.WebSocket === "undefined") {
   class MockWebSocket {

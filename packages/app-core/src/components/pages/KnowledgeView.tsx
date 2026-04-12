@@ -94,7 +94,7 @@ function SearchResultListItem({
     >
       <SidebarContent.ItemIcon
         active={active}
-        className="text-[10px] font-semibold"
+        className="text-2xs font-semibold"
       >
         {(result.similarity * 100).toFixed(0)}%
       </SidebarContent.ItemIcon>
@@ -108,7 +108,7 @@ function SearchResultListItem({
         <SidebarContent.ItemDescription className="line-clamp-2">
           {result.text}
         </SidebarContent.ItemDescription>
-        <span className="mt-2 block text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-fg/85">
+        <span className="mt-2 block text-2xs font-semibold uppercase tracking-[0.12em] text-accent-fg/85">
           {(result.similarity * 100).toFixed(0)}% {t("knowledgeview.Match")}
         </span>
       </SidebarContent.ItemBody>
@@ -149,7 +149,7 @@ function DocumentListItem({
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span
-              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wider ${
+              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-3xs font-bold uppercase leading-none tracking-wider ${
                 active
                   ? "border-accent/30 bg-accent/18 text-txt-strong"
                   : "border-border/45 bg-bg/30 text-muted/80"
@@ -157,10 +157,10 @@ function DocumentListItem({
             >
               {getKnowledgeTypeLabel(doc.contentType)}
             </span>
-            <span className="inline-flex items-center rounded-md border border-border/45 bg-bg/30 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wider text-muted/80">
+            <span className="inline-flex items-center rounded-md border border-border/45 bg-bg/30 px-1.5 py-0.5 text-3xs font-bold uppercase leading-none tracking-wider text-muted/80">
               {getKnowledgeSourceLabel(doc.source, t)}
             </span>
-            <span className="text-[10px] text-muted/50 opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="text-2xs text-muted/50 opacity-0 transition-opacity group-hover:opacity-100">
               {formatShortDate(doc.createdAt, { fallback: "—" })}
             </span>
           </div>
@@ -168,9 +168,9 @@ function DocumentListItem({
       </SidebarContent.ItemButton>
       <span className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <ConfirmDeleteControl
-          triggerClassName="h-7 rounded-lg border border-transparent px-2 text-[10px] font-bold !bg-transparent text-danger/70 transition-all hover:!bg-danger/12 hover:border-danger/25 hover:text-danger"
-          confirmClassName="h-7 rounded-lg border border-danger/25 bg-danger/14 px-2 text-[10px] font-bold text-danger transition-all hover:bg-danger/20"
-          cancelClassName="h-7 rounded-lg border border-border/35 px-2 text-[10px] font-bold text-muted-strong transition-all hover:border-border-strong hover:text-txt"
+          triggerClassName="h-7 rounded-lg border border-transparent px-2 text-2xs font-bold !bg-transparent text-danger/70 transition-all hover:!bg-danger/12 hover:border-danger/25 hover:text-danger"
+          confirmClassName="h-7 rounded-lg border border-danger/25 bg-danger/14 px-2 text-2xs font-bold text-danger transition-all hover:bg-danger/20"
+          cancelClassName="h-7 rounded-lg border border-border/35 px-2 text-2xs font-bold text-muted-strong transition-all hover:border-border-strong hover:text-txt"
           disabled={deleting}
           busyLabel="..."
           onConfirm={() => onDelete(doc.id)}
@@ -182,7 +182,13 @@ function DocumentListItem({
 
 /* ── Main KnowledgeView Component ───────────────────────────────────── */
 
-export function KnowledgeView({ inModal }: { inModal?: boolean } = {}) {
+export function KnowledgeView({
+  inModal,
+  embedded,
+}: {
+  inModal?: boolean;
+  embedded?: boolean;
+} = {}) {
   const { t } = useApp();
   const { setActionNotice } = useApp();
   const setActionNoticeRef = useRef(setActionNotice);
@@ -777,188 +783,182 @@ export function KnowledgeView({ inModal }: { inModal?: boolean } = {}) {
     return () => window.clearTimeout(timer);
   }, [handleSearch, searchQuery, searchResults]);
 
-  return (
-    <PageLayout
-      className={inModal ? "min-h-0" : undefined}
-      sidebar={
-        <Sidebar
-          testId="knowledge-sidebar"
-          contentIdentity="knowledge"
-          header={
-            <SidebarHeader
-              search={{
-                placeholder: t("knowledge.ui.searchPlaceholder"),
-                value: searchQuery,
-                onChange: (e) => {
-                  setSearchQuery(e.target.value);
-                  if (isShowingSearchResults) {
-                    setSearchResults(null);
+  const knowledgeSidebar = (
+    <Sidebar
+      testId="knowledge-sidebar"
+      contentIdentity="knowledge"
+      className={embedded ? "!mt-0 !h-full" : undefined}
+      header={
+        <SidebarHeader
+          search={{
+            placeholder: t("knowledge.ui.searchPlaceholder"),
+            value: searchQuery,
+            onChange: (e) => {
+              setSearchQuery(e.target.value);
+              if (isShowingSearchResults) {
+                setSearchResults(null);
+              }
+            },
+            onClear: () => {
+              setSearchQuery("");
+              setSearchResults(null);
+            },
+            loading: searching,
+            clearLabel: t("common.clear", { defaultValue: "Clear" }),
+            autoComplete: "off",
+            spellCheck: false,
+          }}
+        />
+      }
+      collapsedRailItems={
+        isShowingSearchResults
+          ? visibleSearchResults.map((result) => {
+              const resultLabel =
+                result.documentTitle ||
+                t("knowledgeview.UnknownDocument", {
+                  defaultValue: "Unknown Document",
+                });
+              return (
+                <SidebarContent.RailItem
+                  key={result.id}
+                  aria-label={resultLabel}
+                  title={resultLabel}
+                  active={selectedDocId === (result.documentId || result.id)}
+                  onClick={() =>
+                    setSelectedDocId(result.documentId || result.id)
                   }
-                },
-                onClear: () => {
-                  setSearchQuery("");
-                  setSearchResults(null);
-                },
-                loading: searching,
-                clearLabel: t("common.clear", { defaultValue: "Clear" }),
-                autoComplete: "off",
-                spellCheck: false,
-              }}
-            />
-          }
-          collapsedRailItems={
-            isShowingSearchResults
-              ? visibleSearchResults.map((result) => {
-                  const resultLabel =
-                    result.documentTitle ||
-                    t("knowledgeview.UnknownDocument", {
-                      defaultValue: "Unknown Document",
-                    });
-                  return (
-                    <SidebarContent.RailItem
+                >
+                  {getRailMonogram(resultLabel)}
+                </SidebarContent.RailItem>
+              );
+            })
+          : filteredDocuments.map((doc) => (
+              <SidebarContent.RailItem
+                key={doc.id}
+                aria-label={doc.filename}
+                title={doc.filename}
+                active={selectedDocId === doc.id}
+                onClick={() => setSelectedDocId(doc.id)}
+              >
+                {getRailMonogram(doc.filename)}
+              </SidebarContent.RailItem>
+            ))
+      }
+    >
+      <SidebarScrollRegion>
+        <SidebarPanel>
+          <div className="space-y-4">
+            <PagePanel variant="inset" className="p-4">
+              <UploadZone
+                onFilesUpload={handleFilesUpload}
+                onUrlUpload={handleUrlUpload}
+                uploading={uploading}
+                uploadStatus={uploadStatus}
+              />
+            </PagePanel>
+
+            <div className="flex flex-wrap gap-2 px-1">
+              <PagePanel.Meta compact>
+                {t("knowledgeview.DocumentsCount", {
+                  defaultValue: "{{count}} docs",
+                  count: documents.length,
+                })}
+              </PagePanel.Meta>
+              <PagePanel.Meta compact tone="strong">
+                {t("knowledgeview.TotalFragmentsCount", {
+                  defaultValue: "{{count}} fragments",
+                  count: totalFragments,
+                })}
+              </PagePanel.Meta>
+            </div>
+
+            <div className="space-y-1.5">
+              {loading && !isShowingSearchResults && documents.length === 0 && (
+                <PagePanel.Empty
+                  variant="inset"
+                  className="px-4 py-10 text-center text-sm font-medium"
+                  title={t("knowledgeview.LoadingDocuments")}
+                >
+                  {t("knowledgeview.LoadingDocuments")}
+                </PagePanel.Empty>
+              )}
+
+              {!loading &&
+                !isShowingSearchResults &&
+                documents.length === 0 && (
+                  <PagePanel.Empty
+                    variant="inset"
+                    className="min-h-[12rem] px-4 py-8"
+                    description={t("knowledgeview.UploadFilesOrImpo")}
+                    title={t("knowledgeview.NoDocumentsYet")}
+                  />
+                )}
+
+              {!loading &&
+                !isShowingSearchResults &&
+                documents.length > 0 &&
+                filteredDocuments.length === 0 && (
+                  <PagePanel.Empty
+                    variant="inset"
+                    className="min-h-[12rem] px-4 py-8"
+                    description={t("knowledgeview.SearchTips", {
+                      defaultValue:
+                        "Try a filename, topic, or phrase from the document body.",
+                    })}
+                    title={t("knowledgeview.NoMatchingDocuments", {
+                      defaultValue: "No matching documents",
+                    })}
+                  />
+                )}
+
+              {isShowingSearchResults && visibleSearchResults.length === 0 && (
+                <PagePanel.Empty
+                  variant="inset"
+                  className="min-h-[12rem] px-4 py-8"
+                  description={t("knowledgeview.SearchTips", {
+                    defaultValue:
+                      "Try a filename, topic, or phrase from the document body.",
+                  })}
+                  title={t("knowledgeview.NoResultsFound")}
+                />
+              )}
+
+              {isShowingSearchResults
+                ? visibleSearchResults.map((result) => (
+                    <SearchResultListItem
                       key={result.id}
-                      aria-label={resultLabel}
-                      title={resultLabel}
+                      result={result}
                       active={
                         selectedDocId === (result.documentId || result.id)
                       }
-                      onClick={() =>
-                        setSelectedDocId(result.documentId || result.id)
-                      }
-                    >
-                      {getRailMonogram(resultLabel)}
-                    </SidebarContent.RailItem>
-                  );
-                })
-              : filteredDocuments.map((doc) => (
-                  <SidebarContent.RailItem
-                    key={doc.id}
-                    aria-label={doc.filename}
-                    title={doc.filename}
-                    active={selectedDocId === doc.id}
-                    onClick={() => setSelectedDocId(doc.id)}
-                  >
-                    {getRailMonogram(doc.filename)}
-                  </SidebarContent.RailItem>
-                ))
-          }
-        >
-          <SidebarScrollRegion>
-            <SidebarPanel>
-              <div className="space-y-4">
-                <PagePanel variant="inset" className="p-4">
-                  <UploadZone
-                    onFilesUpload={handleFilesUpload}
-                    onUrlUpload={handleUrlUpload}
-                    uploading={uploading}
-                    uploadStatus={uploadStatus}
-                  />
-                </PagePanel>
+                      onSelect={setSelectedDocId}
+                    />
+                  ))
+                : filteredDocuments.map((doc) => (
+                    <DocumentListItem
+                      key={doc.id}
+                      doc={doc}
+                      active={selectedDocId === doc.id}
+                      onSelect={setSelectedDocId}
+                      onDelete={handleDelete}
+                      deleting={deleting === doc.id}
+                    />
+                  ))}
+            </div>
+          </div>
+        </SidebarPanel>
+      </SidebarScrollRegion>
+    </Sidebar>
+  );
 
-                <div className="flex flex-wrap gap-2 px-1">
-                  <PagePanel.Meta compact>
-                    {t("knowledgeview.DocumentsCount", {
-                      defaultValue: "{{count}} docs",
-                      count: documents.length,
-                    })}
-                  </PagePanel.Meta>
-                  <PagePanel.Meta compact tone="strong">
-                    {t("knowledgeview.TotalFragmentsCount", {
-                      defaultValue: "{{count}} fragments",
-                      count: totalFragments,
-                    })}
-                  </PagePanel.Meta>
-                </div>
-
-                <div className="space-y-1.5">
-                  {loading &&
-                    !isShowingSearchResults &&
-                    documents.length === 0 && (
-                      <PagePanel.Empty
-                        variant="inset"
-                        className="px-4 py-10 text-center text-sm font-medium"
-                        title={t("knowledgeview.LoadingDocuments")}
-                      >
-                        {t("knowledgeview.LoadingDocuments")}
-                      </PagePanel.Empty>
-                    )}
-
-                  {!loading &&
-                    !isShowingSearchResults &&
-                    documents.length === 0 && (
-                      <PagePanel.Empty
-                        variant="inset"
-                        className="min-h-[12rem] px-4 py-8"
-                        description={t("knowledgeview.UploadFilesOrImpo")}
-                        title={t("knowledgeview.NoDocumentsYet")}
-                      />
-                    )}
-
-                  {!loading &&
-                    !isShowingSearchResults &&
-                    documents.length > 0 &&
-                    filteredDocuments.length === 0 && (
-                      <PagePanel.Empty
-                        variant="inset"
-                        className="min-h-[12rem] px-4 py-8"
-                        description={t("knowledgeview.SearchTips", {
-                          defaultValue:
-                            "Try a filename, topic, or phrase from the document body.",
-                        })}
-                        title={t("knowledgeview.NoMatchingDocuments", {
-                          defaultValue: "No matching documents",
-                        })}
-                      />
-                    )}
-
-                  {isShowingSearchResults &&
-                    visibleSearchResults.length === 0 && (
-                      <PagePanel.Empty
-                        variant="inset"
-                        className="min-h-[12rem] px-4 py-8"
-                        description={t("knowledgeview.SearchTips", {
-                          defaultValue:
-                            "Try a filename, topic, or phrase from the document body.",
-                        })}
-                        title={t("knowledgeview.NoResultsFound")}
-                      />
-                    )}
-
-                  {isShowingSearchResults
-                    ? visibleSearchResults.map((result) => (
-                        <SearchResultListItem
-                          key={result.id}
-                          result={result}
-                          active={
-                            selectedDocId === (result.documentId || result.id)
-                          }
-                          onSelect={setSelectedDocId}
-                        />
-                      ))
-                    : filteredDocuments.map((doc) => (
-                        <DocumentListItem
-                          key={doc.id}
-                          doc={doc}
-                          active={selectedDocId === doc.id}
-                          onSelect={setSelectedDocId}
-                          onDelete={handleDelete}
-                          deleting={deleting === doc.id}
-                        />
-                      ))}
-                </div>
-              </div>
-            </SidebarPanel>
-          </SidebarScrollRegion>
-        </Sidebar>
-      }
-      contentInnerClassName="mx-auto w-full max-w-[78rem]"
-    >
+  const knowledgeContent = (
+    <>
       {isServiceLoading && (
         <PagePanel
           variant="inset"
           className="mb-4 flex items-center gap-2 px-4 py-3 text-sm text-muted-strong"
         >
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
           {t("knowledgeview.KnowledgeServiceIs")}
         </PagePanel>
       )}
@@ -985,6 +985,25 @@ export function KnowledgeView({ inModal }: { inModal?: boolean } = {}) {
       <div className="mt-4">
         <DocumentViewer documentId={selectedDocId} />
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="flex flex-1 min-h-0 min-w-0 flex-col gap-4 md:flex-row md:gap-6">
+        {knowledgeSidebar}
+        <div className="flex min-w-0 flex-1 flex-col">{knowledgeContent}</div>
+      </div>
+    );
+  }
+
+  return (
+    <PageLayout
+      className={inModal ? "min-h-0" : undefined}
+      sidebar={knowledgeSidebar}
+      contentInnerClassName="mx-auto w-full max-w-[78rem]"
+    >
+      {knowledgeContent}
     </PageLayout>
   );
 }

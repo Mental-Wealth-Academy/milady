@@ -6,13 +6,7 @@
  */
 
 import { Button, StatusBadge } from "@miladyai/ui";
-import {
-  Activity,
-  Pause,
-  Play,
-  RefreshCw,
-  Settings2,
-} from "lucide-react";
+import { Activity, Pause, Play, RefreshCw, Settings2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { VincentStrategy } from "./useVincentDashboard";
 
@@ -51,9 +45,9 @@ export function TradingStrategyPanel({
   onStrategyChange,
   setActionNotice,
 }: TradingStrategyPanelProps) {
-  const [actionInFlight, setActionInFlight] = useState<
-    "start" | "stop" | null
-  >(null);
+  const [actionInFlight, setActionInFlight] = useState<"start" | "stop" | null>(
+    null,
+  );
 
   const handleStart = useCallback(async () => {
     setActionInFlight("start");
@@ -95,7 +89,7 @@ export function TradingStrategyPanel({
   const paramEntries = Object.entries(params);
 
   return (
-    <div className="rounded-[28px] border border-border/18 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_98%,transparent))] px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] space-y-4">
+    <div className="rounded-3xl border border-border/18 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_92%,transparent),color-mix(in_srgb,var(--bg)_98%,transparent))] px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -106,10 +100,7 @@ export function TradingStrategyPanel({
         </div>
         <div className="flex items-center gap-2">
           {strategyName && (
-            <StatusBadge
-              label={STRATEGY_LABELS[strategyName]}
-              tone="muted"
-            />
+            <StatusBadge label={STRATEGY_LABELS[strategyName]} tone="muted" />
           )}
           {strategy !== null && (
             <StatusBadge
@@ -134,7 +125,7 @@ export function TradingStrategyPanel({
             <div className="rounded-xl border border-border/20 bg-card/40 overflow-hidden">
               <div className="flex items-center gap-1.5 border-b border-border/20 px-4 py-2">
                 <Settings2 className="h-3 w-3 text-muted" />
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted/70">
+                <span className="text-xs-tight font-semibold uppercase tracking-wider text-muted/70">
                   Parameters
                 </span>
               </div>
@@ -189,7 +180,7 @@ export function TradingStrategyPanel({
               <Button
                 variant="default"
                 size="sm"
-                className="h-9 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white shadow-sm hover:bg-emerald-500"
+                className="h-9 rounded-xl bg-ok px-4 text-xs font-semibold text-white shadow-sm hover:bg-ok"
                 onClick={() => void handleStart()}
                 disabled={actionInFlight !== null}
               >

@@ -1,23 +1,31 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   LOCAL_APP_DEFAULT_SANDBOX,
   resolveAppOverride,
   sanitizeSandbox,
 } from "./registry-client-app-meta.js";
 
-vi.mock("@elizaos/core", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
-}));
+/**
+ * registry-client-app-meta tests — pure data transformation, no mocks needed.
+ */
 
 describe("agent registry-client-app-meta", () => {
   it("keeps the shared sandbox allowlist behavior", () => {
     expect(sanitizeSandbox(undefined)).toBe(LOCAL_APP_DEFAULT_SANDBOX);
   });
 
-  it("keeps supplemental Hyperscape host overrides off standalone metadata", () => {
-    expect(
-      resolveAppOverride("@hyperscape/plugin-hyperscape", undefined),
-    ).toBeUndefined();
+  it("applies standalone Hyperscape host overrides for embedded host surfaces", () => {
+    const result = resolveAppOverride(
+      "@hyperscape/plugin-hyperscape",
+      undefined,
+    );
+
+    expect(result?.displayName).toBe("Hyperscape");
+    expect(result?.launchUrl).toBe("{HYPERSCAPE_CLIENT_URL}");
+    expect(result?.uiExtension?.detailPanelId).toBe(
+      "hyperscape-embedded-agents",
+    );
+    expect(result?.viewer?.url).toBe("{HYPERSCAPE_CLIENT_URL}");
   });
 
   it("registers standalone host-owned detail panels when overrides define app metadata", () => {

@@ -6,10 +6,12 @@ import type {
   State,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
+import { getValidationKeywordTerms } from "@miladyai/shared/validation-keywords";
 import type {
   RelationshipsGraphService,
   RelationshipsPersonSummary,
 } from "../services/relationships-graph.js";
+import { hasAdminAccess } from "../security/access.js";
 
 const MAX_CONTACTS = 10;
 
@@ -42,24 +44,19 @@ export const rolodexProvider: Provider = {
     "Known contacts and relationships across all connected platforms (the Rolodex).",
   dynamic: true,
   position: 7,
-  relevanceKeywords: [
-    "who",
-    "contact",
-    "reach",
-    "rolodex",
-    "know",
-    "relationship",
-    "person",
-    "people",
-    "friend",
-    "user",
-  ],
+  relevanceKeywords: getValidationKeywordTerms("provider.rolodex.relevance", {
+    includeAllLocales: true,
+  }),
 
   async get(
     runtime: IAgentRuntime,
     _message: Memory,
     _state: State,
   ): Promise<ProviderResult> {
+    if (!(await hasAdminAccess(runtime, _message))) {
+      return { text: "", values: {}, data: {} };
+    }
+
     try {
       const graphService = runtime.getService(
         "RELATIONSHIPS_GRAPH",

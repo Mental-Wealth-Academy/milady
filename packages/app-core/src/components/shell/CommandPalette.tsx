@@ -256,7 +256,7 @@ export function CommandPalette() {
           ref={inputRef}
           id="command-palette-search"
           type="text"
-          className="w-full px-4 py-3.5 bg-transparent text-[15px] outline-none font-body"
+          className="w-full px-4 py-3.5 bg-transparent text-sm outline-none font-body"
           style={{
             borderBottom: "1px solid var(--border)",
             color: "var(--text)",
@@ -281,7 +281,7 @@ export function CommandPalette() {
             <div
               role="status"
               aria-live="polite"
-              className="py-5 text-center text-[13px]"
+              className="py-5 text-center text-sm"
               style={{ color: "var(--muted)" }}
             >
               {t("commandpalette.NoCommandsFound")}

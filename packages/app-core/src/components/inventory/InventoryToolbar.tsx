@@ -73,7 +73,7 @@ export function InventoryToolbar({
     <div className="space-y-2 border-b border-border pb-3">
       <div className="flex flex-wrap items-center gap-2">
         <div
-          className="mr-auto text-[22px] font-bold text-txt-strong"
+          className="mr-auto text-xl font-bold text-txt-strong"
           data-testid="wallet-balance-value"
         >
           {totalUsd > 0
@@ -178,7 +178,7 @@ export function InventoryToolbar({
           className="flex flex-wrap items-center gap-2"
           data-testid="wallet-address-copy-row"
         >
-          <span className="text-[11px] text-muted w-full sm:w-auto">
+          <span className="text-xs-tight text-muted w-full sm:w-auto">
             {t("wallet.receiveHint")}
           </span>
           <div className="flex flex-wrap items-center gap-2">

@@ -350,7 +350,7 @@ export function CodingAgentSettingsSection() {
 
   if (loading || !activeTab) {
     return (
-      <div className="py-4 text-center text-[var(--muted)] text-xs">
+      <div className="py-4 text-center text-muted text-xs">
         {t("codingagentsettingssection.LoadingCodingAgent")}
       </div>
     );
@@ -372,10 +372,10 @@ export function CodingAgentSettingsSection() {
   if (preflightLoaded && installedAgents.length === 0) {
     return (
       <div className="flex flex-col gap-2 text-xs">
-        <div className="text-[var(--muted)]">
+        <div className="text-muted">
           {t("codingagentsettingssection.NoSupportedCLIs")}
         </div>
-        <div className="flex flex-col gap-1 text-[11px] text-[var(--muted)]">
+        <div className="flex flex-col gap-1 text-xs-tight text-muted">
           {AGENT_TABS.map((agent) => {
             const preflight = preflightByAgent[agent];
             return (
@@ -400,7 +400,7 @@ export function CodingAgentSettingsSection() {
       {autoSaveError && (
         <div
           role="alert"
-          className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500"
+          className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger"
         >
           {t("codingagentsettingssection.AutoSaveFailed", {
             defaultValue: "Failed to save settings: {{error}}",

@@ -35,6 +35,12 @@ const SUBMODULE_READINESS_MARKERS = {
 // available via npm in the meantime.
 const SKIP_SUBMODULES = new Set(["plugins/plugin-openrouter"]);
 
+// Submodules whose own nested submodules should NOT be recursively initialized.
+// eliza's nested plugins/plugin-sql points to an internal commit that is not
+// publicly reachable, so --recursive would always fail on CI. We only need the
+// top-level eliza source tree (packages/typescript) for the build.
+const NO_RECURSE_SUBMODULES = new Set(["eliza"]);
+
 function getSubmoduleSkipReason(
   submodulePath,
   { skipLocal = skipLocalUpstreams } = {},
@@ -208,10 +214,41 @@ export function runInitSubmodules({
       }...`,
     );
     try {
-      exec(`git submodule update --init --recursive "${submodule.path}"`, {
-        cwd: rootDir,
-        stdio: "inherit",
-      });
+      const recurseFlag = NO_RECURSE_SUBMODULES.has(submodule.path)
+        ? ""
+        : " --recursive";
+      try {
+        exec(`git submodule update --init${recurseFlag} "${submodule.path}"`, {
+          cwd: rootDir,
+          stdio: "inherit",
+        });
+      } catch (_shallowErr) {
+        // Shallow clones (common in CI) may fail to fetch the pinned SHA.
+        // Retry: register the submodule, fetch all refs deeply, then update.
+        log(
+          `[init-submodules] Shallow init failed for ${submodule.name}, retrying with full fetch...`,
+        );
+        try {
+          exec(`git submodule init "${submodule.path}"`, {
+            cwd: rootDir,
+            stdio: "inherit",
+          });
+        } catch {
+          // init may already have been done by the first attempt
+        }
+        const smRoot = resolve(rootDir, submodule.path);
+        if (exists(smRoot) && exists(resolve(smRoot, ".git"))) {
+          exec("git fetch --unshallow || git fetch --all", {
+            cwd: smRoot,
+            stdio: "inherit",
+            shell: true,
+          });
+        }
+        exec(`git submodule update${recurseFlag} "${submodule.path}"`, {
+          cwd: rootDir,
+          stdio: "inherit",
+        });
+      }
       if (
         !isSubmoduleCheckoutReady(submodule.path, {
           rootDir,

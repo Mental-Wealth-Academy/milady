@@ -25,7 +25,7 @@ import {
   matchEntityToConnectorAdminWhitelist,
   resolveWorldForMessage,
   setEntityRole,
-} from "@elizaos/core/roles";
+} from "@elizaos/core";
 import { loadElizaConfig } from "../config/config.js";
 
 /**

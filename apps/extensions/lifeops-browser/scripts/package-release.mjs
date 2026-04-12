@@ -4,18 +4,32 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildGitHubReleaseAssetDownloadUrl,
+  buildGitHubReleasePageUrl,
   buildLifeOpsBrowserReleaseMetadata,
+  resolveLifeOpsBrowserReleaseRepository,
   resolveLifeOpsBrowserReleaseVersion,
+  resolveLifeOpsBrowserStoreUrls,
   versionedArtifactName,
 } from "./release-version.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const extensionRoot = path.resolve(scriptDir, "..");
 const artifactsDir = path.join(extensionRoot, "dist", "artifacts");
-const appName = "LifeOps Browser";
-const bundleIdentifier = "ai.milady.lifeopsbrowser";
 const release = resolveLifeOpsBrowserReleaseVersion();
+const repository = resolveLifeOpsBrowserReleaseRepository();
+const storeUrls = resolveLifeOpsBrowserStoreUrls();
 const metadata = buildLifeOpsBrowserReleaseMetadata(release);
+const chromeAssetName = versionedArtifactName(
+  "lifeops-browser-chrome",
+  "zip",
+  release,
+);
+const safariAssetName = versionedArtifactName(
+  "lifeops-browser-safari",
+  "zip",
+  release,
+);
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -49,29 +63,43 @@ await fs.mkdir(artifactsDir, { recursive: true });
 
 const manifest = {
   ...metadata,
+  schema: "lifeops_browser_release_v2",
+  repository,
+  releasePageUrl: buildGitHubReleasePageUrl(repository, release),
   generatedAt: new Date().toISOString(),
   chrome: {
-    bundleKind: "chrome-extension",
-    packagePath: path.join(artifactsDir, "lifeops-browser-chrome.zip"),
-    releaseAssetPath: path.join(
-      artifactsDir,
-      versionedArtifactName("lifeops-browser-chrome", "zip", release),
-    ),
+    installKind: storeUrls.chromeWebStoreUrl
+      ? "chrome_web_store"
+      : "github_release",
+    installUrl:
+      storeUrls.chromeWebStoreUrl ??
+      buildGitHubReleaseAssetDownloadUrl(repository, release, chromeAssetName),
+    storeListingUrl: storeUrls.chromeWebStoreUrl,
+    asset: {
+      fileName: chromeAssetName,
+      downloadUrl: buildGitHubReleaseAssetDownloadUrl(
+        repository,
+        release,
+        chromeAssetName,
+      ),
+    },
   },
   safari: {
-    bundleKind: "safari-web-extension",
-    appName,
-    bundleIdentifier,
-    appBundlePath: path.join(artifactsDir, `${appName}.app`),
-    packagePath: path.join(artifactsDir, "lifeops-browser-safari.zip"),
-    releaseAssetPath: path.join(
-      artifactsDir,
-      versionedArtifactName("lifeops-browser-safari", "zip", release),
-    ),
-    projectAssetPath: path.join(
-      artifactsDir,
-      versionedArtifactName("lifeops-browser-safari-project", "zip", release),
-    ),
+    installKind: storeUrls.safariAppStoreUrl
+      ? "apple_app_store"
+      : "github_release",
+    installUrl:
+      storeUrls.safariAppStoreUrl ??
+      buildGitHubReleaseAssetDownloadUrl(repository, release, safariAssetName),
+    storeListingUrl: storeUrls.safariAppStoreUrl,
+    asset: {
+      fileName: safariAssetName,
+      downloadUrl: buildGitHubReleaseAssetDownloadUrl(
+        repository,
+        release,
+        safariAssetName,
+      ),
+    },
   },
 };
 

@@ -109,9 +109,7 @@ export const CompanionHeader = memo(function CompanionHeader(
       className="absolute inset-x-0 top-0 z-10 overflow-visible"
       data-no-camera-drag="true"
     >
-      <div
-        className="px-2 py-1"
-      >
+      <div className="px-2 py-1">
         <div
           className="pointer-events-auto relative mx-auto w-full rounded-[20px] border border-transparent bg-transparent shadow-none ring-0 backdrop-blur-none bg-clip-padding transition-all sm:rounded-[22px] px-2.5 py-2 sm:px-4 sm:py-3"
           data-testid="companion-header-shell"
@@ -144,7 +142,7 @@ export const CompanionHeader = memo(function CompanionHeader(
                       size="icon"
                       onClick={onClick}
                       onPointerDown={(event) => event.stopPropagation()}
-                      className={`h-11 min-h-[44px] min-w-[44px] px-3 transition-all duration-200 ${edgeClass} ${
+                      className={`h-11 min-h-touch min-w-touch px-3 transition-all duration-200 ${edgeClass} ${
                         selected
                           ? SHELL_SEGMENT_ACTIVE_CLASSNAME
                           : SHELL_SEGMENT_INACTIVE_CLASSNAME
@@ -227,7 +225,7 @@ export const CompanionHeader = memo(function CompanionHeader(
                   setUiTheme={setUiTheme}
                   t={t}
                   variant="companion"
-                  className="!h-11 !w-11 !min-h-[44px] !min-w-[44px]"
+                  className="!h-11 !w-11 !min-h-touch !min-w-touch"
                 />
               </div>
             </div>

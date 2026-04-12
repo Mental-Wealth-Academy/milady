@@ -52,14 +52,14 @@ export function TypingIndicator({
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-accent-subtle text-[11px] font-bold text-accent">
+          <div className="flex h-full w-full items-center justify-center bg-accent-subtle text-xs-tight font-bold text-accent">
             {agentInitial}
           </div>
         )}
       </div>
 
       <div className="min-w-0 max-w-[88%] sm:max-w-[80%]">
-        <div className="mb-1 text-[12px] font-semibold text-accent">
+        <div className="mb-1 text-xs font-semibold text-accent">
           {agentName}
         </div>
         <div className="rounded-2xl rounded-bl-md border border-border bg-bg-accent px-4 py-3">

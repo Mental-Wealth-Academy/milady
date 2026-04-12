@@ -40,7 +40,6 @@ import {
   HeartbeatsDesktopShell,
   HeartbeatsView,
   InventoryView,
-  KnowledgeView,
   LifeOpsPageView,
   LogsPageView,
   MemoryViewerView,
@@ -118,7 +117,11 @@ function TabContentView({ children }: { children: ReactNode }) {
   );
 }
 
-function ViewRouter() {
+function ViewRouter({
+  onCharacterHeaderActionsChange,
+}: {
+  onCharacterHeaderActionsChange?: (actions: ReactNode | null) => void;
+}) {
   const { tab } = useApp();
   const view = (() => {
     switch (tab) {
@@ -152,21 +155,18 @@ function ViewRouter() {
         );
       case "character":
       case "character-select":
+      case "knowledge":
         return (
-          <TabScrollView>
-            <CharacterEditor />
-          </TabScrollView>
+          <TabContentView>
+            <CharacterEditor
+              onHeaderActionsChange={onCharacterHeaderActionsChange}
+            />
+          </TabContentView>
         );
       case "inventory":
         return (
           <TabScrollView>
             <InventoryView />
-          </TabScrollView>
-        );
-      case "knowledge":
-        return (
-          <TabScrollView>
-            <KnowledgeView />
           </TabScrollView>
         );
       case "connectors":
@@ -322,12 +322,15 @@ export function App() {
   );
   const [mobileConversationsOpen, setMobileConversationsOpen] = useState(false);
   const [desktopShuttingDown, setDesktopShuttingDown] = useState(false);
+  const [characterHeaderActions, setCharacterHeaderActions] =
+    useState<ReactNode | null>(null);
 
   const isCompanionTab = tab === "companion";
   const isChat = tab === "chat";
+  const isCharacterPage =
+    tab === "character" || tab === "character-select" || tab === "knowledge";
   const isWallets = tab === "inventory";
   const isHeartbeats = tab === "triggers";
-  const isKnowledge = tab === "knowledge";
   const isSettingsPage =
     tab === "settings" || tab === "voice" || tab === "connectors";
   const isAppsToolPage = isAppsToolTab(tab);
@@ -340,7 +343,7 @@ export function App() {
           <Button
             variant="outline"
             size="sm"
-            className={`inline-flex items-center gap-2 px-3 py-2 text-[12px] font-semibold transition-all cursor-pointer ${
+            className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold transition-all cursor-pointer ${
               mobileConversationsOpen
                 ? "border-accent bg-accent-subtle text-txt"
                 : "border-border bg-card text-txt hover:border-accent hover:text-txt"
@@ -366,7 +369,7 @@ export function App() {
             </svg>
             {t("conversations.chats")}
             {unreadCount > 0 && (
-              <span className="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-accent text-accent-fg text-[10px] font-bold px-1">
+              <span className="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-accent text-accent-fg text-2xs font-bold px-1">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -641,16 +644,6 @@ export function App() {
             <HeartbeatsDesktopShell key="heartbeats-view-desktop" />
           </div>
         </div>
-      ) : isKnowledge ? (
-        <div
-          key="knowledge-shell"
-          className="flex flex-col flex-1 min-h-0 w-full font-body text-txt bg-bg"
-        >
-          <Header />
-          <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-            <KnowledgeView />
-          </div>
-        </div>
       ) : isSettingsPage ? (
         <div
           key={`settings-shell-${tab}`}
@@ -686,6 +679,18 @@ export function App() {
             <InventoryView />
           </div>
         </div>
+      ) : isCharacterPage ? (
+        <div
+          key={`character-shell-${tab}`}
+          className="flex flex-col flex-1 min-h-0 w-full font-body text-txt bg-bg"
+        >
+          <Header pageRightExtras={characterHeaderActions} />
+          <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+            <ViewRouter
+              onCharacterHeaderActionsChange={setCharacterHeaderActions}
+            />
+          </div>
+        </div>
       ) : isAppsToolPage ? (
         <div
           key={`apps-tool-shell-${tab}`}
@@ -711,9 +716,13 @@ export function App() {
           key={`tab-shell-${tab}`}
           className="flex flex-col flex-1 min-h-0 w-full font-body text-txt bg-bg"
         >
-          <Header />
+          <Header
+            pageRightExtras={isCharacterPage ? characterHeaderActions : null}
+          />
           <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden px-3 xl:px-5 py-4 xl:py-6">
-            <ViewRouter />
+            <ViewRouter
+              onCharacterHeaderActionsChange={setCharacterHeaderActions}
+            />
           </main>
         </div>
       ),
@@ -723,8 +732,8 @@ export function App() {
       isCompanionTab,
       actionNotice,
       isChat,
+      isCharacterPage,
       isHeartbeats,
-      isKnowledge,
       isSettingsPage,
       isWallets,
       isAppsToolPage,
@@ -732,11 +741,13 @@ export function App() {
       isChatMobileLayout,
       mobileConversationsOpen,
       mobileChatControls,
+      characterHeaderActions,
       tasksEventsPanelOpen,
       handleDeferredTaskOpen,
       activityEvents,
       clearActivityEvents,
       customActionsPanelOpen,
+      setCharacterHeaderActions,
       settingsInitialSection,
       t,
     ],

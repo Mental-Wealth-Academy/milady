@@ -5,11 +5,13 @@ import type {
   IAgentRuntime,
   Memory,
   Room,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger } from "@elizaos/core";
 import { formatSpeakerLabel } from "../providers/conversation-utils.js";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey } from "./context-signal.js";
 
 type ReadChannelParams = {
   source?: string;
@@ -105,9 +107,12 @@ export const readChannelAction: Action = {
   description:
     "Read messages from a channel on any connected platform. " +
     "Default: recent messages. Supports date ranges and message limits. " +
-    "Results include line numbers for easy reference when copying to scratchpad.",
+    "Results include line numbers for easy reference when copying to clipboard.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "read_channel");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {
@@ -186,7 +191,7 @@ export const readChannelAction: Action = {
       const roomRecord = room as Room & { name?: string; source?: string };
       const header = `Channel: ${roomRecord.name ?? channel} (${roomRecord.source ?? room.type ?? "chat"}) | ${memories.length} messages`;
       const footer =
-        "\nTo save relevant sections to scratchpad, use SCRATCHPAD_WRITE with the line range (e.g. lines 12-25).";
+        "\nTo save relevant sections to clipboard, use CLIPBOARD_WRITE with the line range (e.g. lines 12-25).";
 
       return {
         text: `${header}\n${"─".repeat(60)}\n${formatted}\n${footer}`,

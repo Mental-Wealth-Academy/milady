@@ -13,7 +13,7 @@ export function SidebarSectionLabel({
     <div
       data-sidebar-section-label
       className={cn(
-        "text-[11px] font-semibold uppercase tracking-[0.16em] text-txt-strong drop-shadow-[0_1px_0_rgba(255,255,255,0.14)] dark:drop-shadow-[0_1px_12px_rgba(0,0,0,0.34)]",
+        "text-xs-tight font-semibold uppercase tracking-[0.16em] text-txt-strong drop-shadow-[0_1px_0_rgba(255,255,255,0.14)] dark:drop-shadow-[0_1px_12px_rgba(0,0,0,0.34)]",
         className,
       )}
       {...props}
@@ -39,7 +39,7 @@ export function SidebarSectionHeader({
       {...props}
     >
       {children}
-      {meta ? <div className="text-[10px] text-muted/50">{meta}</div> : null}
+      {meta ? <div className="text-2xs text-muted/50">{meta}</div> : null}
     </div>
   );
 }
@@ -58,7 +58,7 @@ export function SidebarEmptyState({
     <div
       data-sidebar-empty-state
       className={cn(
-        "rounded-[20px] border px-4 py-8 text-center text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_16px_24px_-22px_rgba(15,23,42,0.16)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_26px_-22px_rgba(0,0,0,0.28)]",
+        "rounded-2xl border px-4 py-8 text-center text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_16px_24px_-22px_rgba(15,23,42,0.16)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_26px_-22px_rgba(0,0,0,0.28)]",
         variant === "game-modal"
           ? "border-white/10 bg-black/15 font-medium italic text-[color:var(--onboarding-text-muted)] shadow-none"
           : "border-border/24 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_64%,transparent),color-mix(in_srgb,var(--bg)_92%,transparent))] text-muted",
@@ -157,7 +157,7 @@ export const SidebarItem = React.forwardRef<HTMLElement, SidebarItemProps>(
     ref,
   ) {
     const sharedClassName = cn(
-      "group flex h-auto w-full min-w-0 items-start justify-start gap-3 rounded-[18px] border px-3.5 py-3 text-left transition-[border-color,background-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35",
+      "group flex h-auto w-full min-w-0 items-start justify-start gap-3 rounded-2xl border px-3.5 py-3 text-left transition-[border-color,background-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35",
       active
         ? "border-accent/26 bg-[linear-gradient(180deg,rgba(var(--accent-rgb),0.18),rgba(var(--accent-rgb),0.08))] text-txt shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_18px_24px_-22px_rgba(var(--accent-rgb),0.22)] ring-1 ring-inset ring-accent/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_18px_28px_-22px_rgba(0,0,0,0.26),0_0_0_1px_rgba(var(--accent-rgb),0.12)]"
         : variant === "accent-soft"
@@ -280,7 +280,7 @@ export function SidebarItemDescription({
     <span
       data-sidebar-item-description
       className={cn(
-        "mt-1 block whitespace-normal break-words [overflow-wrap:anywhere] text-[11px] leading-relaxed text-muted/85",
+        "mt-1 block whitespace-normal break-words [overflow-wrap:anywhere] text-xs-tight leading-relaxed text-muted/85",
         className,
       )}
       {...props}
@@ -326,7 +326,7 @@ export const SidebarRailItem = React.forwardRef<
       type="button"
       data-sidebar-rail-item
       className={cn(
-        "relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border text-[12px] font-semibold tracking-[0.02em] transition-[border-color,background-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 active:scale-[0.98]",
+        "relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-xs font-semibold tracking-[0.02em] transition-[border-color,background-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 active:scale-[0.98]",
         active
           ? "border-accent/26 bg-[linear-gradient(180deg,rgba(var(--accent-rgb),0.18),rgba(var(--accent-rgb),0.08))] text-txt shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_16px_22px_-18px_rgba(var(--accent-rgb),0.2)] ring-1 ring-inset ring-accent/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_18px_24px_-20px_rgba(0,0,0,0.24),0_0_0_1px_rgba(var(--accent-rgb),0.12)]"
           : "border-border/24 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_82%,transparent),color-mix(in_srgb,var(--bg)_92%,transparent))] text-muted-strong shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_16px_-16px_rgba(15,23,42,0.14)] hover:border-border/38 hover:text-txt hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_12px_18px_-16px_rgba(15,23,42,0.18)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_18px_-16px_rgba(0,0,0,0.28)]",
@@ -363,7 +363,7 @@ export function SidebarItemAction({
       type="button"
       data-sidebar-item-action
       className={cn(
-        "absolute right-1.5 top-1.5 rounded bg-bg/80 px-1.5 py-0.5 text-[10px] text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger",
+        "absolute right-1.5 top-1.5 rounded bg-bg/80 px-1.5 py-0.5 text-2xs text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger",
         className,
       )}
       {...props}

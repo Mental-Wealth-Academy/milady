@@ -26,18 +26,11 @@ import type { ShopifyProduct } from "./useShopifyDashboard";
 
 // ── Status badge ──────────────────────────────────────────────────────────
 
-function ProductStatusBadge({
-  status,
-}: {
-  status: ShopifyProduct["status"];
-}) {
+function ProductStatusBadge({ status }: { status: ShopifyProduct["status"] }) {
   const styles = {
-    ACTIVE:
-      "bg-green-500/15 text-green-400 border border-green-500/20",
-    DRAFT:
-      "bg-bg-accent text-muted border border-border/30",
-    ARCHIVED:
-      "bg-red-500/15 text-red-400 border border-red-500/20",
+    ACTIVE: "bg-ok/15 text-ok border border-ok/20",
+    DRAFT: "bg-bg-accent text-muted border border-border/30",
+    ARCHIVED: "bg-danger/15 text-danger border border-danger/20",
   } satisfies Record<ShopifyProduct["status"], string>;
 
   const labels: Record<ShopifyProduct["status"], string> = {
@@ -48,7 +41,7 @@ function ProductStatusBadge({
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${styles[status]}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.1em] ${styles[status]}`}
     >
       {labels[status]}
     </span>
@@ -126,7 +119,10 @@ function CreateProductDialog({ open, onClose }: CreateProductDialogProps) {
         </DialogHeader>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-strong" htmlFor="product-title">
+            <label
+              className="text-xs font-semibold text-muted-strong"
+              htmlFor="product-title"
+            >
               Title <span className="text-danger">*</span>
             </label>
             <Input
@@ -138,7 +134,10 @@ function CreateProductDialog({ open, onClose }: CreateProductDialogProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-strong" htmlFor="product-vendor">
+            <label
+              className="text-xs font-semibold text-muted-strong"
+              htmlFor="product-vendor"
+            >
               Vendor
             </label>
             <Input
@@ -149,7 +148,10 @@ function CreateProductDialog({ open, onClose }: CreateProductDialogProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-strong" htmlFor="product-type">
+            <label
+              className="text-xs font-semibold text-muted-strong"
+              htmlFor="product-type"
+            >
               Product type
             </label>
             <Input
@@ -160,7 +162,10 @@ function CreateProductDialog({ open, onClose }: CreateProductDialogProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-strong" htmlFor="product-price">
+            <label
+              className="text-xs font-semibold text-muted-strong"
+              htmlFor="product-price"
+            >
               Base price
             </label>
             <Input
@@ -175,7 +180,7 @@ function CreateProductDialog({ open, onClose }: CreateProductDialogProps) {
           </div>
 
           {submitError ? (
-            <div className="rounded-[14px] border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+            <div className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
               {submitError}
             </div>
           ) : null}
@@ -203,7 +208,7 @@ function ProductRow({ product }: { product: ShopifyProduct }) {
       : `${product.priceRange.min} – ${product.priceRange.max}`;
 
   return (
-    <div className="flex items-center gap-3 rounded-[16px] border border-border/20 bg-card/30 px-3 py-3 transition-colors hover:bg-card/50">
+    <div className="flex items-center gap-3 rounded-xl border border-border/20 bg-card/30 px-3 py-3 transition-colors hover:bg-card/50">
       {/* Thumbnail */}
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/20 bg-bg-accent overflow-hidden">
         {product.imageUrl ? (
@@ -222,7 +227,7 @@ function ProductRow({ product }: { product: ShopifyProduct }) {
         <div className="truncate text-sm font-semibold text-txt">
           {product.title}
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs-tight text-muted">
           {product.vendor ? <span>{product.vendor}</span> : null}
           {product.vendor && product.productType ? <span>·</span> : null}
           {product.productType ? <span>{product.productType}</span> : null}
@@ -232,7 +237,7 @@ function ProductRow({ product }: { product: ShopifyProduct }) {
       {/* Price */}
       <div className="shrink-0 text-right">
         <div className="text-sm font-semibold text-txt">{priceLabel}</div>
-        <div className="mt-0.5 text-[11px] text-muted">
+        <div className="mt-0.5 text-xs-tight text-muted">
           {product.totalInventory.toLocaleString()} in stock
         </div>
       </div>
@@ -302,7 +307,7 @@ export function ProductsPanel({
 
       {/* Error */}
       {error ? (
-        <div className="rounded-[14px] border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+        <div className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
           {error}
         </div>
       ) : null}
@@ -311,11 +316,11 @@ export function ProductsPanel({
       {loading && products.length === 0 ? (
         <div className="space-y-2">
           {Array.from({ length: 6 }, (_, i) => i).map((i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-[16px]" />
+            <Skeleton key={i} className="h-16 w-full rounded-xl" />
           ))}
         </div>
       ) : products.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-[18px] border border-border/20 bg-card/20 py-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/20 bg-card/20 py-12 text-center">
           <Package className="h-8 w-8 text-muted/40" />
           <div className="text-sm text-muted">
             {search ? "No products match your search." : "No products found."}

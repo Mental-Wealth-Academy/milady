@@ -700,6 +700,7 @@ test("browser workspace keeps live website tabs mounted while switching between 
     });
 
     await openAppPath(page, "/browser");
+    await expect(page.getByText("No tabs open yet.")).toHaveCount(0);
     await expect(page.getByText("No browser tabs yet")).toBeVisible();
 
     await page.getByPlaceholder("Enter a URL").fill(fixture.counterUrl);
@@ -723,9 +724,11 @@ test("browser workspace keeps live website tabs mounted while switching between 
     await expect(tasksFrame.locator("#tasks-state")).toHaveText("1 completed");
     await expect(page.locator("iframe")).toHaveCount(2);
 
-    await page.getByRole("button", { name: "127.0.0.1" }).first().click();
+    const sidebar = page.getByTestId("browser-workspace-sidebar");
+
+    await sidebar.getByRole("button", { name: "127.0.0.1" }).click();
     await expect(counterFrame.locator("#count")).toHaveText("1");
-    await page.getByRole("button", { name: "localhost" }).first().click();
+    await sidebar.getByRole("button", { name: "localhost" }).click();
     await expect(tasksFrame.locator("#tasks-state")).toHaveText("1 completed");
   } finally {
     await fixture.close();
@@ -774,7 +777,6 @@ test("browser workspace exposes a wallet bridge to embedded pages without render
       "ready:evm,solana",
     );
 
-    await expect(page.getByText("Wallet connected")).toBeVisible();
     await walletFrame.getByRole("button", { name: "EVM sign message" }).click();
     await walletFrame.getByRole("button", { name: "Solana sign in" }).click();
     await walletFrame

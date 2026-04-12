@@ -5,11 +5,13 @@ import type {
   HandlerOptions,
   IAgentRuntime,
   Memory,
+  State,
   UUID,
 } from "@elizaos/core";
 import { logger, stringToUuid } from "@elizaos/core";
-import { resolveCanonicalOwnerIdForMessage } from "@elizaos/core/roles";
+import { resolveCanonicalOwnerIdForMessage } from "@elizaos/core";
 import { hasAdminAccess } from "../security/access.js";
+import { hasContextSignalSyncForKey, messageText } from "./context-signal.js";
 
 type MessageTransportService = {
   sendDirectMessage?: (
@@ -142,7 +144,10 @@ export const sendMessageAction: Action = {
     "Supports urgency levels for admin messages (normal, important, urgent). " +
     "Urgent admin messages trigger multi-channel escalation.",
 
-  validate: async (runtime, message) => hasAdminAccess(runtime, message),
+  validate: async (runtime, message, state) => {
+    if (!(await hasAdminAccess(runtime, message))) return false;
+    return hasContextSignalSyncForKey(message, state, "send_message");
+  },
 
   handler: async (runtime, message, _state, options) => {
     if (!(await hasAdminAccess(runtime, message))) {

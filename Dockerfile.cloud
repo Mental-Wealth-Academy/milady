@@ -29,7 +29,8 @@ COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 COPY packages/vrm-utils/package.json ./packages/vrm-utils/package.json
 COPY apps/app/package.json ./apps/app/package.json
-COPY apps/app/electrobun/package.json ./apps/app/electrobun/package.json
+# apps/app/electrobun is in .dockerignore, create stub for workspace resolution
+RUN mkdir -p apps/app/electrobun && echo '{"name":"@miladyai/electrobun","private":true,"version":"0.0.0"}' > apps/app/electrobun/package.json
 COPY apps/app/plugins/agent/package.json ./apps/app/plugins/agent/package.json
 COPY apps/app/plugins/camera/package.json ./apps/app/plugins/camera/package.json
 COPY apps/app/plugins/canvas/package.json ./apps/app/plugins/canvas/package.json
@@ -39,12 +40,134 @@ COPY apps/app/plugins/location/package.json ./apps/app/plugins/location/package.
 COPY apps/app/plugins/screencapture/package.json ./apps/app/plugins/screencapture/package.json
 COPY apps/app/plugins/swabble/package.json ./apps/app/plugins/swabble/package.json
 COPY apps/app/plugins/talkmode/package.json ./apps/app/plugins/talkmode/package.json
+COPY apps/app/plugins/mobile-signals/package.json ./apps/app/plugins/mobile-signals/package.json
+COPY apps/app/plugins/websiteblocker/package.json ./apps/app/plugins/websiteblocker/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY deploy/cloud-agent-template/package.json ./deploy/cloud-agent-template/package.json
 
-ENV NODE_LLAMA_CPP_SKIP_DOWNLOAD=true
-RUN bun install --frozen-lockfile --ignore-scripts --no-progress
+# Additional workspace packages (plugins, eliza core, etc.)
+COPY packages/plugin-music-library/package.json ./packages/plugin-music-library/package.json
+COPY packages/plugin-music-player/package.json ./packages/plugin-music-player/package.json
+COPY packages/plugin-shopify/package.json ./packages/plugin-shopify/package.json
 
+# plugins/* (root package.json files for workspace resolution)
+COPY plugins/app-babylon/package.json ./plugins/app-babylon/package.json
+COPY plugins/app-defense-of-the-agents/package.json ./plugins/app-defense-of-the-agents/package.json
+COPY plugins/app-scape/package.json ./plugins/app-scape/package.json
+COPY plugins/client-telegram-account/package.json ./plugins/client-telegram-account/package.json
+COPY plugins/plugin-2004scape/package.json ./plugins/plugin-2004scape/package.json
+COPY plugins/plugin-agent-orchestrator/package.json ./plugins/plugin-agent-orchestrator/package.json
+COPY plugins/plugin-agent-skills/package.json ./plugins/plugin-agent-skills/package.json
+COPY plugins/plugin-anthropic/package.json ./plugins/plugin-anthropic/package.json
+COPY plugins/plugin-coding-agent/package.json ./plugins/plugin-coding-agent/package.json
+COPY plugins/plugin-commands/package.json ./plugins/plugin-commands/package.json
+COPY plugins/plugin-cron/package.json ./plugins/plugin-cron/package.json
+COPY plugins/plugin-discord/package.json ./plugins/plugin-discord/package.json
+COPY plugins/plugin-edge-tts/package.json ./plugins/plugin-edge-tts/package.json
+COPY plugins/plugin-elizacloud/package.json ./plugins/plugin-elizacloud/package.json
+COPY plugins/plugin-evm/package.json ./plugins/plugin-evm/package.json
+COPY plugins/plugin-experience/package.json ./plugins/plugin-experience/package.json
+COPY plugins/plugin-form/package.json ./plugins/plugin-form/package.json
+COPY plugins/plugin-google-genai/package.json ./plugins/plugin-google-genai/package.json
+COPY plugins/plugin-knowledge/package.json ./plugins/plugin-knowledge/package.json
+COPY plugins/plugin-lifeops-browser/package.json ./plugins/plugin-lifeops-browser/package.json
+COPY plugins/plugin-local-embedding/package.json ./plugins/plugin-local-embedding/package.json
+COPY plugins/plugin-milady-browser/package.json ./plugins/plugin-milady-browser/package.json
+COPY plugins/plugin-ollama/package.json ./plugins/plugin-ollama/package.json
+COPY plugins/plugin-openai/package.json ./plugins/plugin-openai/package.json
+COPY plugins/plugin-openrouter/package.json ./plugins/plugin-openrouter/package.json
+COPY plugins/plugin-pdf/package.json ./plugins/plugin-pdf/package.json
+COPY plugins/plugin-personality/package.json ./plugins/plugin-personality/package.json
+COPY plugins/plugin-pi-ai/package.json ./plugins/plugin-pi-ai/package.json
+COPY plugins/plugin-plugin-manager/package.json ./plugins/plugin-plugin-manager/package.json
+COPY plugins/plugin-scratchpad/package.json ./plugins/plugin-scratchpad/package.json
+COPY plugins/plugin-secrets-manager/package.json ./plugins/plugin-secrets-manager/package.json
+COPY plugins/plugin-shell/package.json ./plugins/plugin-shell/package.json
+COPY plugins/plugin-solana/package.json ./plugins/plugin-solana/package.json
+COPY plugins/plugin-sql/package.json ./plugins/plugin-sql/package.json
+COPY plugins/plugin-telegram/package.json ./plugins/plugin-telegram/package.json
+COPY plugins/plugin-trust/package.json ./plugins/plugin-trust/package.json
+COPY plugins/plugin-whatsapp/package.json ./plugins/plugin-whatsapp/package.json
+
+# plugins/plugin-*/typescript/ (actual workspace packages)
+COPY plugins/plugin-agent-skills/typescript/package.json ./plugins/plugin-agent-skills/typescript/package.json
+COPY plugins/plugin-anthropic/typescript/package.json ./plugins/plugin-anthropic/typescript/package.json
+COPY plugins/plugin-bluebubbles/typescript/package.json ./plugins/plugin-bluebubbles/typescript/package.json
+COPY plugins/plugin-commands/typescript/package.json ./plugins/plugin-commands/typescript/package.json
+COPY plugins/plugin-cron/typescript/package.json ./plugins/plugin-cron/typescript/package.json
+COPY plugins/plugin-discord/typescript/package.json ./plugins/plugin-discord/typescript/package.json
+COPY plugins/plugin-edge-tts/typescript/package.json ./plugins/plugin-edge-tts/typescript/package.json
+COPY plugins/plugin-elizacloud/typescript/package.json ./plugins/plugin-elizacloud/typescript/package.json
+COPY plugins/plugin-evm/typescript/package.json ./plugins/plugin-evm/typescript/package.json
+COPY plugins/plugin-experience/typescript/package.json ./plugins/plugin-experience/typescript/package.json
+COPY plugins/plugin-form/typescript/package.json ./plugins/plugin-form/typescript/package.json
+COPY plugins/plugin-google-genai/typescript/package.json ./plugins/plugin-google-genai/typescript/package.json
+COPY plugins/plugin-knowledge/typescript/package.json ./plugins/plugin-knowledge/typescript/package.json
+COPY plugins/plugin-local-embedding/typescript/package.json ./plugins/plugin-local-embedding/typescript/package.json
+COPY plugins/plugin-ollama/typescript/package.json ./plugins/plugin-ollama/typescript/package.json
+COPY plugins/plugin-openai/typescript/package.json ./plugins/plugin-openai/typescript/package.json
+COPY plugins/plugin-openrouter/typescript/package.json ./plugins/plugin-openrouter/typescript/package.json
+COPY plugins/plugin-pdf/typescript/package.json ./plugins/plugin-pdf/typescript/package.json
+COPY plugins/plugin-personality/typescript/package.json ./plugins/plugin-personality/typescript/package.json
+COPY plugins/plugin-plugin-manager/typescript/package.json ./plugins/plugin-plugin-manager/typescript/package.json
+COPY plugins/plugin-scratchpad/typescript/package.json ./plugins/plugin-scratchpad/typescript/package.json
+COPY plugins/plugin-secrets-manager/typescript/package.json ./plugins/plugin-secrets-manager/typescript/package.json
+COPY plugins/plugin-shell/typescript/package.json ./plugins/plugin-shell/typescript/package.json
+COPY plugins/plugin-signal/typescript/package.json ./plugins/plugin-signal/typescript/package.json
+COPY plugins/plugin-solana/typescript/package.json ./plugins/plugin-solana/typescript/package.json
+COPY plugins/plugin-sql/typescript/package.json ./plugins/plugin-sql/typescript/package.json
+COPY plugins/plugin-trust/typescript/package.json ./plugins/plugin-trust/typescript/package.json
+COPY plugins/plugin-whatsapp/typescript/package.json ./plugins/plugin-whatsapp/typescript/package.json
+
+# eliza/packages/* (core framework workspace packages)
+COPY eliza/packages/daemon/package.json ./eliza/packages/daemon/package.json
+COPY eliza/packages/docs/package.json ./eliza/packages/docs/package.json
+COPY eliza/packages/elizaos/package.json ./eliza/packages/elizaos/package.json
+COPY eliza/packages/interop/package.json ./eliza/packages/interop/package.json
+COPY eliza/packages/prompts/package.json ./eliza/packages/prompts/package.json
+COPY eliza/packages/python/package.json ./eliza/packages/python/package.json
+COPY eliza/packages/rust/package.json ./eliza/packages/rust/package.json
+COPY eliza/packages/schemas/package.json ./eliza/packages/schemas/package.json
+COPY eliza/packages/skills/package.json ./eliza/packages/skills/package.json
+COPY eliza/packages/typescript/package.json ./eliza/packages/typescript/package.json
+
+ENV NODE_LLAMA_CPP_SKIP_DOWNLOAD=true
+RUN bun install --ignore-scripts --no-progress
+
+# Copy sources for compilation
+COPY eliza/packages/typescript ./eliza/packages/typescript
+COPY plugins ./plugins
+COPY packages ./packages
+COPY prebuilt/elizaos-core-dist ./prebuilt/elizaos-core-dist
+COPY prebuilt/elizaos-core-generated ./prebuilt/elizaos-core-generated
+
+# Install prebuilt @elizaos/core dist
+RUN mkdir -p /src/eliza/packages/typescript/dist && \
+    cp -a /src/prebuilt/elizaos-core-dist/* /src/eliza/packages/typescript/dist/
+
+RUN mkdir -p /src/eliza/packages/typescript/src/types/generated && \
+    cp -a /src/prebuilt/elizaos-core-generated/* /src/eliza/packages/typescript/src/types/generated/
+# Build workspace plugins (compiled dist needed at runtime)
+RUN for plugin_dir in plugins/*/typescript; do \
+      if [ -f "$plugin_dir/package.json" ]; then \
+        echo "Building $plugin_dir..."; \
+        cd /src/$plugin_dir; \
+        ln -sf /src/node_modules node_modules 2>/dev/null; \
+        (bun run build 2>/dev/null || true); \
+        cd /src; \
+      fi; \
+    done
+
+# Build workspace packages
+RUN for pkg_dir in packages/shared packages/plugin-selfcontrol packages/agent packages/ui; do \
+      if [ -f "$pkg_dir/package.json" ]; then \
+        echo "Building $pkg_dir..."; \
+        cd /src/$pkg_dir; \
+        ln -sf /src/node_modules node_modules 2>/dev/null; \
+        (bun run build 2>/dev/null || bun run build:dist 2>/dev/null || true); \
+        cd /src; \
+      fi; \
+    done
 FROM node:${NODE_VERSION}-slim AS tsx
 RUN npm install --prefix /opt/tsx --ignore-scripts --no-save tsx@4.21.0 \
   && npm cache clean --force
@@ -56,6 +179,7 @@ ARG VERSION_CLEAN
 ARG VITE_ASSET_BASE_URL=""
 ENV VITE_ASSET_BASE_URL=${VITE_ASSET_BASE_URL}
 
+COPY patches/discord-plugin-patched.js ./discord-plugin-patched.js
 COPY --from=deps /src/node_modules ./node_modules
 COPY dist ./dist
 COPY apps/app/dist ./apps/app/dist
@@ -65,28 +189,186 @@ COPY packages/plugin-selfcontrol ./packages/plugin-selfcontrol
 COPY packages/shared ./packages/shared
 COPY packages/ui ./packages/ui
 COPY packages/vrm-utils ./packages/vrm-utils
+COPY packages/plugin-music-library ./packages/plugin-music-library
+COPY packages/plugin-music-player ./packages/plugin-music-player
+COPY packages/plugin-shopify ./packages/plugin-shopify
+COPY eliza/packages/typescript ./eliza/packages/typescript
+# Overlay core dist from deps stage (built or prebuilt fallback)
+COPY eliza/packages/interop ./eliza/packages/interop
+COPY eliza/packages/schemas ./eliza/packages/schemas
+COPY eliza/packages/prompts ./eliza/packages/prompts
+COPY eliza/packages/elizaos ./eliza/packages/elizaos
+COPY plugins/plugin-agent-skills ./plugins/plugin-agent-skills
+COPY plugins/plugin-anthropic ./plugins/plugin-anthropic
+COPY plugins/plugin-bluebubbles ./plugins/plugin-bluebubbles
+COPY plugins/plugin-commands ./plugins/plugin-commands
+COPY plugins/plugin-cron ./plugins/plugin-cron
+COPY plugins/plugin-discord ./plugins/plugin-discord
+COPY plugins/plugin-edge-tts ./plugins/plugin-edge-tts
+COPY plugins/plugin-elizacloud ./plugins/plugin-elizacloud
+COPY plugins/plugin-evm ./plugins/plugin-evm
+COPY plugins/plugin-experience ./plugins/plugin-experience
+COPY plugins/plugin-form ./plugins/plugin-form
+COPY plugins/plugin-google-genai ./plugins/plugin-google-genai
+COPY plugins/plugin-knowledge ./plugins/plugin-knowledge
+COPY plugins/plugin-local-embedding ./plugins/plugin-local-embedding
+COPY plugins/plugin-ollama ./plugins/plugin-ollama
+COPY plugins/plugin-openai ./plugins/plugin-openai
+COPY plugins/plugin-openrouter ./plugins/plugin-openrouter
+COPY plugins/plugin-pdf ./plugins/plugin-pdf
+COPY plugins/plugin-personality ./plugins/plugin-personality
+COPY plugins/plugin-plugin-manager ./plugins/plugin-plugin-manager
+COPY plugins/plugin-scratchpad ./plugins/plugin-scratchpad
+COPY plugins/plugin-secrets-manager ./plugins/plugin-secrets-manager
+COPY plugins/plugin-shell ./plugins/plugin-shell
+COPY plugins/plugin-signal ./plugins/plugin-signal
+COPY plugins/plugin-solana ./plugins/plugin-solana
+COPY plugins/plugin-sql ./plugins/plugin-sql
+COPY plugins/plugin-trust ./plugins/plugin-trust
+COPY plugins/plugin-whatsapp ./plugins/plugin-whatsapp
+# Overlay compiled dist from deps stage (plugins + packages + eliza core)
+COPY --from=deps /src/plugins ./plugins
+COPY --from=deps /src/packages ./packages
+COPY --from=deps /src/eliza/packages/typescript/dist ./eliza/packages/typescript/dist
+COPY patches ./patches
 COPY milady.mjs package.json plugins.json ./
 COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 
-RUN set -eux; \
+RUN set -ux; \
   mkdir -p /runtime/node_modules /runtime/apps/app /runtime/scripts; \
+  \
+  # --- Apply targeted patches to bun-installed packages BEFORE copying ---
+  # FIX: @elizaos/plugin-pdf has broken 'default2 as default' export (bundler bug)
+  # Resolve through bun symlink chain directly instead of find -L (avoids circular symlinks).
+  pdf_js="$(readlink -f node_modules/@elizaos/plugin-pdf/dist/node/index.node.js 2>/dev/null)"; \
+  if [ -n "$pdf_js" ] && [ -f "$pdf_js" ]; then \
+    sed -i 's/default2 as default,/pdfPlugin as default,/' "$pdf_js"; \
+  fi; \
+  # FIX: @elizaos/core exports ./roles pointing to dist/browser/roles.js which was never compiled.
+  # Create a shim that re-exports from the TypeScript source (tsx transpiles at runtime).
+  # Follow the bun symlink chain to find the real @elizaos/core directory.
+  if [ -d node_modules/@elizaos/core/dist ] || [ -L node_modules/@elizaos/core ]; then \
+    core_real="$(cd node_modules/@elizaos/core && pwd -P)"; \
+    mkdir -p "${core_real}/dist/browser"; \
+    echo 'export * from "../../src/roles.ts";' > "${core_real}/dist/browser/roles.js"; \
+  fi; \
+  # FIX: getCatalogStats may not exist in older plugin-agent-skills builds
+  skills_js="$(readlink -f node_modules/@elizaos/plugin-agent-skills/dist/index.js 2>/dev/null)"; \
+  if [ -n "$skills_js" ] && [ -f "$skills_js" ]; then \
+    sed -i 's/const stats = service.getCatalogStats();/const stats = typeof service.getCatalogStats === "function" ? service.getCatalogStats() : { loaded: 0, total: 0, storageType: "unknown" };/g' "$skills_js"; \
+  fi; \
+  \
   # Keep bun's symlink structure intact — cp -rL breaks transitive dep resolution.
+  # NO overlay loop — bun's .bun store packages are the correct versions.
   cp -a node_modules/. /runtime/node_modules/; \
-  # Overlay workspace packages with full source (not just the symlinked dist).
-  for dir in packages/agent packages/app-core packages/plugin-selfcontrol packages/shared packages/ui packages/vrm-utils; do \
-    name="$(node -p "require('./${dir}/package.json').name")"; \
-    target="/runtime/node_modules/${name}"; \
-    rm -rf "$target"; \
-    mkdir -p "$(dirname "$target")"; \
-    cp -a "$dir" "$target"; \
-    find "$target" -type d \( -name node_modules -o -name coverage -o -name .turbo -o -name .vite \) -prune -exec rm -rf {} +; \
-    rm -rf "$target/dist" "$target/test" "$target/tests" "$target/__tests__" 2>/dev/null || true; \
+  # Replace @elizaos/core workspace symlink with prebuilt dist-only package
+  rm -rf /runtime/node_modules/@elizaos/core; \
+  mkdir -p /runtime/node_modules/@elizaos/core/dist; \
+  cp /src/eliza/packages/typescript/package.json /runtime/node_modules/@elizaos/core/; \
+  cp -a /src/eliza/packages/typescript/dist/* /runtime/node_modules/@elizaos/core/dist/; \
+  mkdir -p /runtime/node_modules/@elizaos/core/src; \
+  cp -a /src/eliza/packages/typescript/src/* /runtime/node_modules/@elizaos/core/src/ 2>/dev/null || true; \
+  \
+  # Hoist all non-hoisted bun packages to top-level node_modules
+  for pkg in /runtime/node_modules/.bun/node_modules/*/; do \
+    name=$(basename "$pkg"); \
+    [ ! -e "/runtime/node_modules/$name" ] && [ "$name" != ".cache" ] && ln -sf ".bun/node_modules/$name" "/runtime/node_modules/$name" 2>/dev/null || true; \
   done; \
+  for scope in /runtime/node_modules/.bun/node_modules/@*/; do \
+    scopename=$(basename "$scope"); \
+    for pkg in "$scope"*/; do \
+      pkgname=$(basename "$pkg"); \
+      [ ! -e "/runtime/node_modules/$scopename/$pkgname" ] && mkdir -p "/runtime/node_modules/$scopename" && ln -sf "../.bun/node_modules/$scopename/$pkgname" "/runtime/node_modules/$scopename/$pkgname" 2>/dev/null || true; \
+    done; \
+  done; \
+  \
+  # Copy workspace packages/ so bun's symlinks in node_modules/@miladyai/* resolve.
+  # These packages export raw .ts (transpiled by tsx at runtime), no compiled dist/.
+  cp -a packages /runtime/packages; \
+  # Copy eliza/ and plugins/ workspace packages so bun symlinks resolve.
+  # @elizaos/core -> ../../eliza/packages/typescript
+  # @elizaos/plugin-* -> ../../plugins/plugin-*/typescript
+  cp -a eliza /runtime/eliza; \
+  # Remove raw TypeScript source from @elizaos/core to prevent tsx from loading it
+  # (compiled bundles in dist/ are sufficient, src/ has missing proto generated files)
+  # Repoint nested @elizaos/core symlinks to the prebuilt top-level package
+  find /runtime -path "*/node_modules/@elizaos/core" -type l -delete 2>/dev/null; \
+  cp -a plugins /runtime/plugins; \
+  # Recreate bun workspace symlinks that Docker COPY drops (targets outside copied dir).
+  # Top-level: ensure all @miladyai/* workspace packages are linked.
+  for pkg in /runtime/packages/*/; do \
+    name="$(node -p "JSON.parse(require('fs').readFileSync('${pkg}package.json','utf8')).name" 2>/dev/null)"; \
+    if [ -n "$name" ] && echo "$name" | grep -q "^@miladyai/"; then \
+      target="/runtime/node_modules/${name}"; \
+      if [ ! -e "$target" ]; then \
+        mkdir -p "$(dirname "$target")"; \
+        ln -s "../../packages/$(basename $pkg)" "$target"; \
+      fi; \
+    fi; \
+  done; \
+  # Nested: recreate cross-workspace symlinks inside packages/*/node_modules/@miladyai/.
+  for pkg in agent app-core plugin-selfcontrol; do \
+    mkdir -p "/runtime/packages/${pkg}/node_modules/@miladyai"; \
+    for dep in /runtime/packages/*/; do \
+      depname="$(node -p "JSON.parse(require('fs').readFileSync('${dep}package.json','utf8')).name" 2>/dev/null)"; \
+      if [ -n "$depname" ] && echo "$depname" | grep -q "^@miladyai/"; then \
+        shortname="$(echo $depname | sed 's|@miladyai/||')"; \
+        linkpath="/runtime/packages/${pkg}/node_modules/@miladyai/${shortname}"; \
+        if [ ! -e "$linkpath" ]; then \
+          ln -s "../../../${shortname}" "$linkpath" 2>/dev/null || true; \
+        fi; \
+      fi; \
+    done; \
+  done; \
+  \
+
+  # ===== CLOUD PATCHES (v5) =====
+  # Patch 1: Hoist non-hoisted bun packages to top-level node_modules
+  for pkg in /runtime/node_modules/.bun/node_modules/*/; do \
+    name=$(basename "$pkg"); \
+    [ ! -e "/runtime/node_modules/$name" ] && [ "$name" != ".cache" ] && ln -sf ".bun/node_modules/$name" "/runtime/node_modules/$name" 2>/dev/null || true; \
+  done; \
+  for scope in /runtime/node_modules/.bun/node_modules/@*/; do \
+    scopename=$(basename "$scope"); \
+    for pkg in "$scope"*/; do \
+      pkgname=$(basename "$pkg"); \
+      [ ! -e "/runtime/node_modules/$scopename/$pkgname" ] && mkdir -p "/runtime/node_modules/$scopename" && ln -sf "../.bun/node_modules/$scopename/$pkgname" "/runtime/node_modules/$scopename/$pkgname" 2>/dev/null || true; \
+    done; \
+  done; \
+
+  # Patch 2: Swap discord plugin dist with patched version (buildMemoryFromMessage + typing)
+  if [ -f patches/discord-plugin-patched.js ]; then \
+    discord_target="/runtime/node_modules/@elizaos/plugin-discord"; \
+    discord_real="$(readlink -f "$discord_target" 2>/dev/null || echo "$discord_target")"; \
+    if [ -d "$discord_real/dist" ]; then \
+      cp -f patches/discord-plugin-patched.js "$discord_real/dist/index.js"; \
+    fi; \
+  fi; \
+
+  # Patch 3: plugin-pdf default2 fix
+  pdf_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-pdf 2>/dev/null)/dist/node/index.node.js"; \
+  [ -f "$pdf_js" ] && sed -i 's/default2 as default,/pdfPlugin as default,/' "$pdf_js" || true; \
+
+  # Patch 4: SQL guard for getRelationships
+  sql_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-sql 2>/dev/null || echo /runtime/plugins/plugin-sql/typescript)/dist/node/index.node.js"; \
+  [ -f "$sql_js" ] && sed -i 's/async getRelationships(params) {/async getRelationships(params) {\n    if (!params?.entityId \&\& !params?.entityIds?.length) return [];/' "$sql_js" || true; \
+
+  # Patch 5: Disable newer-message cancellation
+  core_dist="$(readlink -f /runtime/node_modules/@elizaos/core 2>/dev/null || echo /runtime/eliza/packages/typescript)/dist/node/index.node.js"; \
+  [ -f "$core_dist" ] && sed -i 's/if (currentResponseId !== responseId && !opts.keepExistingResponses)/if (false)/g' "$core_dist" || true; \
+
+  # Patch 6: roles.js shim
+  core_real="$(readlink -f /runtime/node_modules/@elizaos/core 2>/dev/null || echo /runtime/eliza/packages/typescript)"; \
+  if [ -d "$core_real/dist" ] && [ ! -f "$core_real/dist/browser/roles.js" ]; then \
+    mkdir -p "$core_real/dist/browser"; \
+    echo 'export * from "../../src/roles.ts";' > "$core_real/dist/browser/roles.js"; \
+  fi; \
+  # ===== END CLOUD PATCHES =====
+
   cp -a dist /runtime/dist; \
   cp -a apps/app/dist /runtime/apps/app/dist; \
   cp -a scripts/docker-entrypoint.sh /runtime/scripts/docker-entrypoint.sh; \
   cp -a milady.mjs package.json plugins.json /runtime/; \
-  sed -i 's/const stats = service.getCatalogStats();/const stats = typeof service.getCatalogStats === "function" ? service.getCatalogStats() : { loaded: 0, total: 0, storageType: "unknown" };/g' /runtime/node_modules/@elizaos/plugin-agent-skills/dist/index.js 2>/dev/null || true; \
   if [ -n "${VERSION_CLEAN}" ]; then \
     node -e "const fs=require('fs'); const v=process.argv[1]; const p='/runtime/node_modules/@miladyai/agent/package.json'; try { const pkg=JSON.parse(fs.readFileSync(p,'utf8')); pkg.version=v; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); console.log('Patched autonomous to', v); } catch (err) { console.log('skip:', err.message); }" "${VERSION_CLEAN}"; \
   fi; \
@@ -112,7 +394,22 @@ RUN set -eux; \
   # Clean up source maps and test dirs (safe, no runtime impact)
   find /runtime/node_modules -name '*.map' -delete 2>/dev/null; \
   find /runtime/node_modules -type d -name '__tests__' -prune -exec rm -rf {} + 2>/dev/null; \
-  find /runtime/node_modules -type d -name 'test' -prune -exec rm -rf {} + 2>/dev/null
+  find /runtime/node_modules -type d -name 'test' -prune -exec rm -rf {} + 2>/dev/null; \
+  \
+  # Patch: overwrite discord plugin dist with reactions-enabled version
+  cp -f /src/discord-plugin-patched.js /runtime/plugins/plugin-discord/typescript/dist/index.js; \
+  \
+  # Patch: Fix empty entityId crash in plugin-sql getRelationships
+  sql_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-sql 2>/dev/null || echo /runtime/plugins/plugin-sql/typescript)/dist/node/index.node.js"; \
+  if [ -f "$sql_js" ]; then \
+    sed -i 's/async getRelationships(params) {/async getRelationships(params) {\n    if (!params?.entityId \&\& !params?.entityIds?.length) return [];/' "$sql_js"; \
+  fi; \
+  \
+  # Patch: Disable newer-message cancellation for slow local models
+  core_dist="$(readlink -f /runtime/node_modules/@elizaos/core 2>/dev/null || echo /runtime/eliza/packages/typescript)/dist/node/index.node.js"; \
+  if [ -f "$core_dist" ]; then \
+    sed -i 's/if (currentResponseId !== responseId && !opts.keepExistingResponses)/if (false)/g' "$core_dist"; \
+  fi
 
 FROM node:${NODE_VERSION}-slim
 ARG OCI_SOURCE
@@ -150,4 +447,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD sh -lc 'port="${PORT:-${MILADY_PORT:-2138}}"; code="$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${port}/api/health")" && [ "$code" = "200" -o "$code" = "401" ]'
 
 ENTRYPOINT ["sh", "./scripts/docker-entrypoint.sh"]
-CMD ["node", "--import", "/opt/tsx/node_modules/tsx/dist/loader.mjs", "milady.mjs", "start"]
+CMD ["node", "--import", "tsx", "milady.mjs", "start"]

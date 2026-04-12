@@ -2157,8 +2157,8 @@ export const gmailAction: Action & {
         });
       }
 
-      if (subaction === “send_message”) {
-        // Parse “email <addr> with subject “X” and body “Y”” patterns
+      if (subaction === "send_message") {
+        // Parse "email <addr> with subject "X" and body "Y"" patterns
         // directly from the user message. The chat LLM almost never puts
         // these into structured details.* fields — it just rewrites the
         // intent. Without a literal-text parser the action would always
@@ -2166,20 +2166,26 @@ export const gmailAction: Action & {
         const rawText = messageText(message);
         const emailRegex = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g;
         const recipientsFromIntent = rawText.match(emailRegex) ?? [];
+        const Q = `["\u201c\u201d]`; // match straight + curly quotes
+        const NQ = `[^"\u201c\u201d]`; // negated
         const subjectMatch =
           rawText.match(
-            /\bsubject(?:\s+is|\s*[:=]|\s+of)?\s+[“”]([^””]+)[“”]/i,
+            new RegExp(`\\bsubject(?:\\s+is|\\s*[:=]|\\s+of)?\\s+${Q}(${NQ}+)${Q}`, "i"),
           ) ??
-          rawText.match(/\bsubject\s+[“”]([^””]+)[“”]/i) ??
+          rawText.match(
+            new RegExp(`\\bsubject\\s+${Q}(${NQ}+)${Q}`, "i"),
+          ) ??
           rawText.match(
             /\bsubject\s+(?:should\s+(?:say|be|read)|says?)\s+(.+?)(?=\s+(?:and\s+)?(?:the\s+)?body\b|\s*$)/i,
           );
         const subjectFromIntent = subjectMatch?.[1]?.trim();
         const bodyMatch =
           rawText.match(
-            /\bbody(?:\s+is|\s*[:=]|\s+of)?\s+[“”]([^””]+)[“”]/i,
+            new RegExp(`\\bbody(?:\\s+is|\\s*[:=]|\\s+of)?\\s+${Q}(${NQ}+)${Q}`, "i"),
           ) ??
-          rawText.match(/\bbody\s+[“”]([^””]+)[“”]/i) ??
+          rawText.match(
+            new RegExp(`\\bbody\\s+${Q}(${NQ}+)${Q}`, "i"),
+          ) ??
           rawText.match(
             /\bbody\s+(?:should\s+(?:say|be|include|contain|have)|says?)\s+(.+?)$/i,
           );

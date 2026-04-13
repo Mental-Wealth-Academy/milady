@@ -63,6 +63,7 @@ COPY plugins/plugin-agent-orchestrator/package.json ./plugins/plugin-agent-orche
 COPY plugins/plugin-agent-skills/package.json ./plugins/plugin-agent-skills/package.json
 COPY plugins/plugin-anthropic/package.json ./plugins/plugin-anthropic/package.json
 COPY plugins/plugin-coding-agent/package.json ./plugins/plugin-coding-agent/package.json
+COPY plugins/plugin-cli/package.json ./plugins/plugin-cli/package.json
 COPY plugins/plugin-commands/package.json ./plugins/plugin-commands/package.json
 COPY plugins/plugin-cron/package.json ./plugins/plugin-cron/package.json
 COPY plugins/plugin-discord/package.json ./plugins/plugin-discord/package.json
@@ -72,6 +73,8 @@ COPY plugins/plugin-evm/package.json ./plugins/plugin-evm/package.json
 COPY plugins/plugin-experience/package.json ./plugins/plugin-experience/package.json
 COPY plugins/plugin-form/package.json ./plugins/plugin-form/package.json
 COPY plugins/plugin-google-genai/package.json ./plugins/plugin-google-genai/package.json
+COPY plugins/plugin-groq/package.json ./plugins/plugin-groq/package.json
+COPY plugins/plugin-imessage/package.json ./plugins/plugin-imessage/package.json
 COPY plugins/plugin-lifeops-browser/package.json ./plugins/plugin-lifeops-browser/package.json
 COPY plugins/plugin-local-embedding/package.json ./plugins/plugin-local-embedding/package.json
 COPY plugins/plugin-milady-browser/package.json ./plugins/plugin-milady-browser/package.json
@@ -104,6 +107,8 @@ COPY plugins/plugin-evm/typescript/package.json ./plugins/plugin-evm/typescript/
 COPY plugins/plugin-experience/typescript/package.json ./plugins/plugin-experience/typescript/package.json
 COPY plugins/plugin-form/typescript/package.json ./plugins/plugin-form/typescript/package.json
 COPY plugins/plugin-google-genai/typescript/package.json ./plugins/plugin-google-genai/typescript/package.json
+COPY plugins/plugin-groq/typescript/package.json ./plugins/plugin-groq/typescript/package.json
+COPY plugins/plugin-imessage/typescript/package.json ./plugins/plugin-imessage/typescript/package.json
 COPY plugins/plugin-local-embedding/typescript/package.json ./plugins/plugin-local-embedding/typescript/package.json
 COPY plugins/plugin-ollama/typescript/package.json ./plugins/plugin-ollama/typescript/package.json
 COPY plugins/plugin-openai/typescript/package.json ./plugins/plugin-openai/typescript/package.json
@@ -111,6 +116,7 @@ COPY plugins/plugin-openrouter/typescript/package.json ./plugins/plugin-openrout
 COPY plugins/plugin-pdf/typescript/package.json ./plugins/plugin-pdf/typescript/package.json
 COPY plugins/plugin-personality/typescript/package.json ./plugins/plugin-personality/typescript/package.json
 COPY plugins/plugin-plugin-manager/typescript/package.json ./plugins/plugin-plugin-manager/typescript/package.json
+COPY plugins/plugin-cli/typescript/package.json ./plugins/plugin-cli/typescript/package.json
 COPY plugins/plugin-clipboard/typescript/package.json ./plugins/plugin-clipboard/typescript/package.json
 COPY plugins/plugin-secrets-manager/typescript/package.json ./plugins/plugin-secrets-manager/typescript/package.json
 COPY plugins/plugin-shell/typescript/package.json ./plugins/plugin-shell/typescript/package.json
@@ -212,6 +218,8 @@ COPY plugins/plugin-evm ./plugins/plugin-evm
 COPY plugins/plugin-experience ./plugins/plugin-experience
 COPY plugins/plugin-form ./plugins/plugin-form
 COPY plugins/plugin-google-genai ./plugins/plugin-google-genai
+COPY plugins/plugin-groq ./plugins/plugin-groq
+COPY plugins/plugin-imessage ./plugins/plugin-imessage
 COPY plugins/plugin-local-embedding ./plugins/plugin-local-embedding
 COPY plugins/plugin-ollama ./plugins/plugin-ollama
 COPY plugins/plugin-openai ./plugins/plugin-openai
@@ -219,6 +227,7 @@ COPY plugins/plugin-openrouter ./plugins/plugin-openrouter
 COPY plugins/plugin-pdf ./plugins/plugin-pdf
 COPY plugins/plugin-personality ./plugins/plugin-personality
 COPY plugins/plugin-plugin-manager ./plugins/plugin-plugin-manager
+COPY plugins/plugin-cli ./plugins/plugin-cli
 COPY plugins/plugin-clipboard ./plugins/plugin-clipboard
 COPY plugins/plugin-secrets-manager ./plugins/plugin-secrets-manager
 COPY plugins/plugin-shell ./plugins/plugin-shell

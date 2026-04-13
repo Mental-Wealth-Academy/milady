@@ -84,7 +84,7 @@ COPY plugins/plugin-pdf/package.json ./plugins/plugin-pdf/package.json
 COPY plugins/plugin-personality/package.json ./plugins/plugin-personality/package.json
 COPY plugins/plugin-pi-ai/package.json ./plugins/plugin-pi-ai/package.json
 COPY plugins/plugin-plugin-manager/package.json ./plugins/plugin-plugin-manager/package.json
-COPY plugins/plugin-scratchpad/package.json ./plugins/plugin-scratchpad/package.json
+COPY plugins/plugin-clipboard/package.json ./plugins/plugin-clipboard/package.json
 COPY plugins/plugin-secrets-manager/package.json ./plugins/plugin-secrets-manager/package.json
 COPY plugins/plugin-shell/package.json ./plugins/plugin-shell/package.json
 COPY plugins/plugin-solana/package.json ./plugins/plugin-solana/package.json
@@ -114,7 +114,7 @@ COPY plugins/plugin-openrouter/typescript/package.json ./plugins/plugin-openrout
 COPY plugins/plugin-pdf/typescript/package.json ./plugins/plugin-pdf/typescript/package.json
 COPY plugins/plugin-personality/typescript/package.json ./plugins/plugin-personality/typescript/package.json
 COPY plugins/plugin-plugin-manager/typescript/package.json ./plugins/plugin-plugin-manager/typescript/package.json
-COPY plugins/plugin-scratchpad/typescript/package.json ./plugins/plugin-scratchpad/typescript/package.json
+COPY plugins/plugin-clipboard/typescript/package.json ./plugins/plugin-clipboard/typescript/package.json
 COPY plugins/plugin-secrets-manager/typescript/package.json ./plugins/plugin-secrets-manager/typescript/package.json
 COPY plugins/plugin-shell/typescript/package.json ./plugins/plugin-shell/typescript/package.json
 COPY plugins/plugin-signal/typescript/package.json ./plugins/plugin-signal/typescript/package.json
@@ -223,7 +223,7 @@ COPY plugins/plugin-openrouter ./plugins/plugin-openrouter
 COPY plugins/plugin-pdf ./plugins/plugin-pdf
 COPY plugins/plugin-personality ./plugins/plugin-personality
 COPY plugins/plugin-plugin-manager ./plugins/plugin-plugin-manager
-COPY plugins/plugin-scratchpad ./plugins/plugin-scratchpad
+COPY plugins/plugin-clipboard ./plugins/plugin-clipboard
 COPY plugins/plugin-secrets-manager ./plugins/plugin-secrets-manager
 COPY plugins/plugin-shell ./plugins/plugin-shell
 COPY plugins/plugin-signal ./plugins/plugin-signal

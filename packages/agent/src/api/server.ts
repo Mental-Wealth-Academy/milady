@@ -172,6 +172,11 @@ import {
 import { handleCloudBillingRoute } from "./cloud-billing-routes.js";
 import { handleCloudCompatRoute } from "./cloud-compat-routes.js";
 import { isCloudProvisionedContainer } from "./cloud-provisioning.js";
+import {
+  buildDefaultElizaCloudServiceRouting,
+  normalizeServiceRoutingConfig,
+} from "../contracts/service-routing.js";
+import { applyCanonicalOnboardingConfig } from "./provider-switch-config.js";
 import { handleCloudRelayRoute } from "./cloud-relay-routes.js";
 import { type CloudRouteState, handleCloudRoute } from "./cloud-routes.js";
 import { handleCloudStatusRoutes } from "./cloud-status-routes.js";
@@ -7098,6 +7103,36 @@ export async function startApiServer(opts?: {
       });
     });
   };
+
+  // ── Auto-apply default serviceRouting for cloud-provisioned containers ──
+  // Fresh cloud containers have cloud.apiKey and linkedAccounts but no
+  // serviceRouting, which leaves TTS/media/models broken in the UI.
+  // Apply the same defaults that POST /api/provider/switch {"provider":"elizacloud"}
+  // would write, so containers work out of the box.
+  if (isCloudProvisionedContainer()) {
+    const cloudApiKey = config.cloud?.apiKey;
+    const existingRouting = normalizeServiceRoutingConfig(config.serviceRouting);
+    if (cloudApiKey && !existingRouting?.llmText) {
+      logger.info(
+        "[eliza-api] Cloud-provisioned container missing serviceRouting, applying defaults",
+      );
+      const serviceRouting = buildDefaultElizaCloudServiceRouting({
+        base: config.serviceRouting ?? {},
+        includeInference: true,
+      });
+      applyCanonicalOnboardingConfig(config, { serviceRouting });
+      try {
+        saveElizaConfig(config);
+        logger.info(
+          "[eliza-api] Default cloud serviceRouting applied and persisted",
+        );
+      } catch (err) {
+        logger.warn(
+          `[eliza-api] Failed to persist default serviceRouting: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  }
 
   // ── Deferred startup work (non-blocking) ────────────────────────────────
   // Keep API startup fast: listen first, then warm optional subsystems.

@@ -411,9 +411,38 @@ export async function handleHealthRoutes(
       ? Math.floor((Date.now() - state.startedAt) / 1000)
       : 0;
 
+    // Reconcile plugin enabled state with actual runtime before counting.
+    // Without this, state.plugins (from manifest discovery) reports all as
+    // enabled:false because discoverPluginsFromManifest() hardcodes that.
+    // See plugin-routes.ts ~line 290 for the canonical reconciliation.
+    if (runtime) {
+      const loadedNames = (runtime.plugins || []).map(
+        (p: { name: string }) => p.name,
+      );
+      for (const plugin of state.plugins) {
+        const pluginEntry = plugin as PluginEntryLike & { id?: string };
+        const id = pluginEntry.id;
+        if (id) {
+          const suffix = `plugin-${id}`;
+          const packageName = `@elizaos/plugin-${id}`;
+          pluginEntry.enabled = loadedNames.some(
+            (name: string) =>
+              name === id ||
+              name === suffix ||
+              name === packageName ||
+              name.endsWith(`/${suffix}`) ||
+              name.includes(id),
+          );
+        }
+      }
+    }
+
     const loadedPlugins = state.plugins.filter((p) => p.enabled);
     const failedPlugins = state.plugins.filter(
       (p) => !p.enabled && !p.configured,
+    );
+    const unconfiguredPlugins = state.plugins.filter(
+      (p) => !p.enabled && p.configured,
     );
 
     let coordinatorStatus: "ok" | "not_wired" = "not_wired";
@@ -450,6 +479,8 @@ export async function handleHealthRoutes(
       plugins: {
         loaded: loadedPlugins.length,
         failed: failedPlugins.length,
+        unconfigured: unconfiguredPlugins.length,
+        total: state.plugins.length,
       },
       coordinator: coordinatorStatus,
       connectors,

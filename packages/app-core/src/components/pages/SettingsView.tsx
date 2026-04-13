@@ -43,12 +43,16 @@ import { AppearanceSettingsSection } from "../settings/AppearanceSettingsSection
 import { ConnectorsPageView } from "./ConnectorsPageView";
 import { CloudDashboard } from "./ElizaCloudDashboard";
 import { ReleaseCenterView } from "./ReleaseCenterView";
+import { isElectrobunRuntime } from "../../bridge";
+import { getBootConfig } from "../../config/boot-config";
 
 interface SettingsSectionDef {
   id: string;
   label: string;
   description?: string;
   keywords?: string[];
+  /** When true, section is only shown on desktop (Electrobun) platforms. */
+  desktopOnly?: boolean;
 }
 
 const SETTINGS_CONTENT_CLASS =
@@ -150,6 +154,7 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     id: "permissions",
     label: "settings.sections.permissions.label",
     description: "settings.sections.permissions.desc",
+    desktopOnly: true,
     keywords: [
       "permissions",
       "desktop",
@@ -164,6 +169,7 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     id: "updates",
     label: "settings.sections.updates.label",
     description: "settings.sections.updates.desc",
+    desktopOnly: true,
     keywords: ["updates", "release", "version", "download"],
   },
   {
@@ -418,6 +424,11 @@ function AdvancedSection() {
             </span>
           </div>
           <div className="p-4 space-y-4">
+            {getBootConfig().apiToken && (
+              <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+                ⚠️ This agent runs on Eliza Cloud. Resetting will permanently clear all data in this container.
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium text-sm">
@@ -645,8 +656,10 @@ export function SettingsView({
 
   const visibleSections = useMemo(
     () =>
-      SETTINGS_SECTIONS.filter((section) =>
-        matchesSettingsSection(section, searchQuery, t),
+      SETTINGS_SECTIONS.filter(
+        (section) =>
+          (!section.desktopOnly || isElectrobunRuntime()) &&
+          matchesSettingsSection(section, searchQuery, t),
       ),
     [searchQuery, t],
   );

@@ -384,6 +384,14 @@ RUN set -ux; \
   embed_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-local-embedding 2>/dev/null || echo /runtime/plugins/plugin-local-embedding/typescript)/dist/index.js"; \
   [ -f "$embed_js" ] && sed -i 's/throw new Error("TEXT_EMBEDDING requires non-empty text");/return new Array(384).fill(0);/' "$embed_js" || true; \
 
+  # Patch 8: roles.js shim for raw eliza workspace path (plugins resolve @elizaos/core here)
+  eliza_core="/runtime/eliza/packages/typescript"; \
+  if [ -d "$eliza_core/dist" ]; then \
+    mkdir -p "$eliza_core/dist/browser"; \
+    [ ! -f "$eliza_core/dist/roles.js" ] && echo 'export * from "../src/roles.ts";' > "$eliza_core/dist/roles.js"; \
+    [ ! -f "$eliza_core/dist/browser/roles.js" ] && echo 'export * from "../../src/roles.ts";' > "$eliza_core/dist/browser/roles.js"; \
+  fi; \
+
   # ===== END CLOUD PATCHES =====
 
   cp -a dist /runtime/dist; \

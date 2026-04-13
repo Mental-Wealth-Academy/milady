@@ -439,6 +439,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=prep /runtime/ /app/
 COPY --from=tsx /opt/tsx /opt/tsx
+# tsx is a devDependency (not installed by production bun install)
+# Symlink from /opt/tsx so --import tsx resolves at runtime
+RUN ln -s /opt/tsx/node_modules/tsx /app/node_modules/tsx
 
 ENV NODE_ENV=production
 # MILADY_PORT is the canonical name; ELIZA_PORT kept for backward compat

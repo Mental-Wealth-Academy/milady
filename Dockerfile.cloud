@@ -185,7 +185,6 @@ ARG VERSION_CLEAN
 ARG VITE_ASSET_BASE_URL=""
 ENV VITE_ASSET_BASE_URL=${VITE_ASSET_BASE_URL}
 
-COPY patches/discord-plugin-patched.js ./discord-plugin-patched.js
 COPY --from=deps /src/node_modules ./node_modules
 COPY dist ./dist
 COPY apps/app/dist ./apps/app/dist
@@ -342,14 +341,6 @@ RUN set -ux; \
     done; \
   done; \
 
-  # Patch 2: Swap discord plugin dist with patched version (buildMemoryFromMessage + typing)
-  if [ -f patches/discord-plugin-patched.js ]; then \
-    discord_target="/runtime/node_modules/@elizaos/plugin-discord"; \
-    discord_real="$(readlink -f "$discord_target" 2>/dev/null || echo "$discord_target")"; \
-    if [ -d "$discord_real/dist" ]; then \
-      cp -f patches/discord-plugin-patched.js "$discord_real/dist/index.js"; \
-    fi; \
-  fi; \
 
   # Patch 3: plugin-pdf default2 fix
   pdf_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-pdf 2>/dev/null)/dist/node/index.node.js"; \
@@ -402,8 +393,7 @@ RUN set -ux; \
   find /runtime/node_modules -type d -name '__tests__' -prune -exec rm -rf {} + 2>/dev/null; \
   find /runtime/node_modules -type d -name 'test' -prune -exec rm -rf {} + 2>/dev/null; \
   \
-  # Patch: overwrite discord plugin dist with reactions-enabled version
-  cp -f /src/discord-plugin-patched.js /runtime/plugins/plugin-discord/typescript/dist/index.js; \
+
   \
   # Patch: Fix empty entityId crash in plugin-sql getRelationships
   sql_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-sql 2>/dev/null || echo /runtime/plugins/plugin-sql/typescript)/dist/node/index.node.js"; \

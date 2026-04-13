@@ -112,6 +112,19 @@ jobs:
 
 
 
+      - name: Install buf CLI
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: "1.50.0"
+
+      - name: Generate proto types
+        run: |
+          cd eliza/packages/schemas
+          buf dep update
+          buf generate
+          echo "Generated proto files:"
+          ls -la ../typescript/src/types/generated/eliza/v1/ | head -25
+
       - name: Build @elizaos/core
         run: |
           cd eliza/packages/typescript

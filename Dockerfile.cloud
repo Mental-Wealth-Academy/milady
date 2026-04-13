@@ -19,6 +19,10 @@ ARG VITE_ASSET_BASE_URL=""
 FROM oven/bun:${BUN_VERSION}-slim AS deps
 WORKDIR /src
 
+# Install buf CLI for proto code generation (no curl in bun-slim, use ADD)
+ADD https://github.com/bufbuild/buf/releases/download/v1.50.0/buf-Linux-x86_64 /usr/local/bin/buf
+RUN chmod +x /usr/local/bin/buf
+
 # Copy only the manifests Bun needs to resolve the production dependency graph.
 COPY package.json bun.lock ./
 COPY patches ./patches
@@ -138,15 +142,17 @@ RUN bun install --ignore-scripts --no-progress
 COPY eliza/packages/typescript ./eliza/packages/typescript
 COPY plugins ./plugins
 COPY packages ./packages
-COPY prebuilt/elizaos-core-dist ./prebuilt/elizaos-core-dist
-COPY prebuilt/elizaos-core-generated ./prebuilt/elizaos-core-generated
 
-# Install prebuilt @elizaos/core dist
-RUN mkdir -p /src/eliza/packages/typescript/dist && \
-    cp -a /src/prebuilt/elizaos-core-dist/* /src/eliza/packages/typescript/dist/
+# Copy full schemas directory (proto files + buf config) for code generation
+# (overwrites the package.json-only copy from earlier, adds actual proto files)
+COPY eliza/packages/schemas ./eliza/packages/schemas
 
-RUN mkdir -p /src/eliza/packages/typescript/src/types/generated && \
-    cp -a /src/prebuilt/elizaos-core-generated/* /src/eliza/packages/typescript/src/types/generated/
+# Generate proto TypeScript files from .proto definitions
+# Output: eliza/packages/typescript/src/types/generated/eliza/v1/*_pb.ts
+RUN cd eliza/packages/schemas && buf dep update && buf generate
+
+# Build @elizaos/core from source (proto-generated files now exist)
+RUN cd eliza/packages/typescript && bun run build.ts
 # Build workspace plugins (compiled dist needed at runtime)
 RUN for plugin_dir in plugins/*/typescript; do \
       if [ -f "$plugin_dir/package.json" ]; then \

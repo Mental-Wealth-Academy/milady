@@ -1018,6 +1018,18 @@ async function handleMiladyCompatRoute(
     return true;
   }
 
+  // Non-API paths (/, /assets/*, etc.) should fall through to the upstream
+  // server which serves the dashboard UI with injected auth token.
+  // Without this guard, the catch-all auth below blocks unauthenticated
+  // browsers from loading the HTML that contains their auth token.
+  if (
+    !url.pathname.startsWith("/api/") &&
+    !url.pathname.startsWith("/v1/") &&
+    !url.pathname.startsWith("/ws")
+  ) {
+    return false;
+  }
+
   if (!ensureCompatApiAuthorized(req, res)) return true;
   return handleDatabaseRowsCompatRoute(req, res, state.current);
 }

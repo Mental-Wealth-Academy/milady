@@ -156,7 +156,11 @@ COPY eliza/packages/schemas ./eliza/packages/schemas
 RUN cd eliza/packages/schemas && buf dep update && buf generate
 
 # Build @elizaos/core from source (proto-generated files now exist)
-RUN cd eliza/packages/typescript && bun run build.ts
+# Build @elizaos/core from source (proto-generated files now exist)
+# build.ts generates JS bundles first, then tries tsc for declarations.
+# tsc may fail (missing root tsconfig) but we only need the JS bundles for runtime.
+RUN cd eliza/packages/typescript && bun run build.ts 2>&1 || true
+RUN test -f eliza/packages/typescript/dist/node/index.node.js || (echo "ERROR: @elizaos/core dist missing after build" && exit 1)
 # Build workspace plugins (compiled dist needed at runtime)
 RUN for plugin_dir in plugins/*/typescript; do \
       if [ -f "$plugin_dir/package.json" ]; then \

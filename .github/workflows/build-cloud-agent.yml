@@ -89,7 +89,7 @@ jobs:
       # ── 3.5. Init submodules (skip eliza workspace) ─────────────────────────
       - name: Init submodules
         run: |
-          git submodule update --init --depth 1
+          git submodule update --init --depth 1 || echo "Some submodules failed (stale refs), continuing"
           cd eliza && git submodule update --init --depth 1 || echo "Some nested submodules failed (stale refs), continuing"
           cd ${{ github.workspace }}
 

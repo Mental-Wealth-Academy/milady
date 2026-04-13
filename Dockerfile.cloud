@@ -373,11 +373,12 @@ RUN set -ux; \
   core_dist="$(readlink -f /runtime/node_modules/@elizaos/core 2>/dev/null || echo /runtime/eliza/packages/typescript)/dist/node/index.node.js"; \
   [ -f "$core_dist" ] && sed -i 's/if (currentResponseId !== responseId && !opts.keepExistingResponses)/if (false)/g' "$core_dist" || true; \
 
-  # Patch 6: roles.js shim
+  # Patch 6: roles.js shim (both dist/roles.js and dist/browser/roles.js)
   core_real="$(readlink -f /runtime/node_modules/@elizaos/core 2>/dev/null || echo /runtime/eliza/packages/typescript)"; \
-  if [ -d "$core_real/dist" ] && [ ! -f "$core_real/dist/browser/roles.js" ]; then \
+  if [ -d "$core_real/dist" ]; then \
     mkdir -p "$core_real/dist/browser"; \
-    echo 'export * from "../../src/roles.ts";' > "$core_real/dist/browser/roles.js"; \
+    [ ! -f "$core_real/dist/browser/roles.js" ] && echo 'export * from "../../src/roles.ts";' > "$core_real/dist/browser/roles.js"; \
+    [ ! -f "$core_real/dist/roles.js" ] && echo 'export * from "../src/roles.ts";' > "$core_real/dist/roles.js"; \
   fi; \
   # Patch 7: Fix TEXT_EMBEDDING crash on empty text (old dist throws instead of returning zero vector)
   embed_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-local-embedding 2>/dev/null || echo /runtime/plugins/plugin-local-embedding/typescript)/dist/index.js"; \

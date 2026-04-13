@@ -161,6 +161,15 @@ RUN cd eliza/packages/schemas && buf dep update && buf generate
 # tsc may fail (missing root tsconfig) but we only need the JS bundles for runtime.
 RUN cd eliza/packages/typescript && bun run build.ts 2>&1 || true
 RUN test -f eliza/packages/typescript/dist/node/index.node.js || (echo "ERROR: @elizaos/core dist missing after build" && exit 1)
+
+# Replace @elizaos/core workspace symlink with compiled dist-only package
+# BEFORE building plugins/packages. Otherwise tsc follows the symlink into
+# raw .ts source → TS5097 (allowImportingTsExtensions) and TS6059 (rootDir) errors.
+RUN rm -rf node_modules/@elizaos/core && \
+    mkdir -p node_modules/@elizaos/core/dist && \
+    cp eliza/packages/typescript/package.json node_modules/@elizaos/core/ && \
+    cp -a eliza/packages/typescript/dist/* node_modules/@elizaos/core/dist/
+
 # Build workspace plugins (compiled dist needed at runtime)
 RUN for plugin_dir in plugins/*/typescript; do \
       if [ -f "$plugin_dir/package.json" ]; then \
@@ -370,6 +379,10 @@ RUN set -ux; \
     mkdir -p "$core_real/dist/browser"; \
     echo 'export * from "../../src/roles.ts";' > "$core_real/dist/browser/roles.js"; \
   fi; \
+  # Patch 7: Fix TEXT_EMBEDDING crash on empty text (old dist throws instead of returning zero vector)
+  embed_js="$(readlink -f /runtime/node_modules/@elizaos/plugin-local-embedding 2>/dev/null || echo /runtime/plugins/plugin-local-embedding/typescript)/dist/index.js"; \
+  [ -f "$embed_js" ] && sed -i 's/throw new Error("TEXT_EMBEDDING requires non-empty text");/return new Array(384).fill(0);/' "$embed_js" || true; \
+
   # ===== END CLOUD PATCHES =====
 
   cp -a dist /runtime/dist; \

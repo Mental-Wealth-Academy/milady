@@ -19,7 +19,8 @@ ARG VITE_ASSET_BASE_URL=""
 FROM oven/bun:${BUN_VERSION}-slim AS deps
 WORKDIR /src
 
-# Install buf CLI for proto code generation (no curl in bun-slim, use ADD)
+# Install ca-certificates (needed for buf to reach buf.build registry) + buf CLI
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 ADD https://github.com/bufbuild/buf/releases/download/v1.50.0/buf-Linux-x86_64 /usr/local/bin/buf
 RUN chmod +x /usr/local/bin/buf
 

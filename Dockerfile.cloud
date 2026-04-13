@@ -46,7 +46,6 @@ COPY apps/app/plugins/swabble/package.json ./apps/app/plugins/swabble/package.js
 COPY apps/app/plugins/talkmode/package.json ./apps/app/plugins/talkmode/package.json
 COPY apps/app/plugins/mobile-signals/package.json ./apps/app/plugins/mobile-signals/package.json
 COPY apps/app/plugins/websiteblocker/package.json ./apps/app/plugins/websiteblocker/package.json
-COPY apps/web/package.json ./apps/web/package.json
 COPY deploy/cloud-agent-template/package.json ./deploy/cloud-agent-template/package.json
 
 # Additional workspace packages (plugins, eliza core, etc.)
@@ -73,7 +72,6 @@ COPY plugins/plugin-evm/package.json ./plugins/plugin-evm/package.json
 COPY plugins/plugin-experience/package.json ./plugins/plugin-experience/package.json
 COPY plugins/plugin-form/package.json ./plugins/plugin-form/package.json
 COPY plugins/plugin-google-genai/package.json ./plugins/plugin-google-genai/package.json
-COPY plugins/plugin-knowledge/package.json ./plugins/plugin-knowledge/package.json
 COPY plugins/plugin-lifeops-browser/package.json ./plugins/plugin-lifeops-browser/package.json
 COPY plugins/plugin-local-embedding/package.json ./plugins/plugin-local-embedding/package.json
 COPY plugins/plugin-milady-browser/package.json ./plugins/plugin-milady-browser/package.json
@@ -106,7 +104,6 @@ COPY plugins/plugin-evm/typescript/package.json ./plugins/plugin-evm/typescript/
 COPY plugins/plugin-experience/typescript/package.json ./plugins/plugin-experience/typescript/package.json
 COPY plugins/plugin-form/typescript/package.json ./plugins/plugin-form/typescript/package.json
 COPY plugins/plugin-google-genai/typescript/package.json ./plugins/plugin-google-genai/typescript/package.json
-COPY plugins/plugin-knowledge/typescript/package.json ./plugins/plugin-knowledge/typescript/package.json
 COPY plugins/plugin-local-embedding/typescript/package.json ./plugins/plugin-local-embedding/typescript/package.json
 COPY plugins/plugin-ollama/typescript/package.json ./plugins/plugin-ollama/typescript/package.json
 COPY plugins/plugin-openai/typescript/package.json ./plugins/plugin-openai/typescript/package.json
@@ -215,7 +212,6 @@ COPY plugins/plugin-evm ./plugins/plugin-evm
 COPY plugins/plugin-experience ./plugins/plugin-experience
 COPY plugins/plugin-form ./plugins/plugin-form
 COPY plugins/plugin-google-genai ./plugins/plugin-google-genai
-COPY plugins/plugin-knowledge ./plugins/plugin-knowledge
 COPY plugins/plugin-local-embedding ./plugins/plugin-local-embedding
 COPY plugins/plugin-ollama ./plugins/plugin-ollama
 COPY plugins/plugin-openai ./plugins/plugin-openai

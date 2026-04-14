@@ -139,17 +139,30 @@ jobs:
       # ── 5.5 Overlay patched builds into node_modules ──────────────────────
       - name: Overlay patched builds into node_modules
         run: |
-          # After CI builds, overlay the patched dist/ over npm-installed packages
-          # so Docker gets our patched code, not the published npm versions
+          # Debug: show what's actually in the build outputs
+          echo "=== Checking eliza/packages/typescript ==="
+          ls -la eliza/packages/typescript/ 2>/dev/null | head -10 || echo "typescript dir not found"
+          ls eliza/packages/typescript/dist/ 2>/dev/null | head -5 || echo "typescript/dist not found"
+          echo "=== Checking eliza/packages/agent ==="
+          ls eliza/packages/agent/dist/ 2>/dev/null | head -5 || echo "agent/dist not found"
+          echo "=== Checking node_modules/@elizaos/core ==="
+          ls -la node_modules/@elizaos/core/ 2>/dev/null | head -5 || echo "core nm not found"
+          ls node_modules/@elizaos/core/dist/ 2>/dev/null | head -5 || echo "core/dist not found"
+          echo "=== Overlaying ==="
+          # Overlay patched dist/ over npm packages if built from source
           if [ -d eliza/packages/typescript/dist ]; then
             rm -rf node_modules/@elizaos/core/dist
             cp -r eliza/packages/typescript/dist node_modules/@elizaos/core/dist
             echo "Overlaid patched @elizaos/core dist"
+          else
+            echo "SKIP: eliza/packages/typescript/dist not found (npm version will be used)"
           fi
           if [ -d eliza/packages/agent/dist ]; then
             rm -rf node_modules/@elizaos/agent/dist
             cp -r eliza/packages/agent/dist node_modules/@elizaos/agent/dist
             echo "Overlaid patched @elizaos/agent dist"
+          else
+            echo "SKIP: eliza/packages/agent/dist not found (npm version will be used)"
           fi
 
       # ── 6. Build runtime (tsdown) ───────────────────────────────────────────

@@ -1,81 +1,93 @@
-// @vitest-environment jsdom
-
-import * as State from "@miladyai/app-core/state";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * @vitest-environment jsdom
+ */
+import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingAgentControlChip } from "./CodingAgentControlChip";
 
-vi.mock("@miladyai/app-core/state", () => ({
-  useApp: vi.fn(),
-  usePtySessions: vi.fn(),
+/**
+ * The chip polls `/api/coding-agents/control/status` and conditionally
+ * renders. We stub `fetch` and assert the visible state for each
+ * snapshot the bus might return.
+ */
+
+vi.mock("../../state", () => ({
+  useApp: () => ({
+    t: (_key: string, opts?: { defaultValue?: string }) =>
+      opts?.defaultValue ?? "",
+  }),
 }));
 
-const stopCodingAgent = vi.fn().mockResolvedValue(true);
+const originalFetch = globalThis.fetch;
 
-vi.mock("@miladyai/app-core/api", () => ({
-  client: {
-    stopCodingAgent: (...args: Parameters<typeof stopCodingAgent>) =>
-      stopCodingAgent(...args),
-  },
-}));
+function mockStatus(snapshot: {
+  state: "running" | "paused" | "aborting";
+  reason?: string | null;
+}) {
+  globalThis.fetch = vi.fn(async (url: string) => {
+    if (typeof url === "string" && url.endsWith("/control/status")) {
+      return new Response(
+        JSON.stringify({
+          state: snapshot.state,
+          changedAt: new Date().toISOString(),
+          reason: snapshot.reason ?? null,
+          targetedSessionIds: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response("{}", { status: 200 });
+  }) as unknown as typeof fetch;
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  globalThis.fetch = originalFetch;
+});
 
 describe("CodingAgentControlChip", () => {
-  beforeEach(() => {
-    stopCodingAgent.mockClear();
-    vi.mocked(State.useApp).mockReturnValue({
-      t: (key: string, values?: Record<string, unknown>) => {
-        const d = values?.defaultValue;
-        if (typeof d === "string") {
-          return d.replace(/\{\{(\w+)\}\}/g, (_m, tok: string) => {
-            const v = values?.[tok];
-            return v == null ? "" : String(v);
-          });
-        }
-        return key;
-      },
-    } as ReturnType<typeof State.useApp>);
-    vi.mocked(State.usePtySessions).mockReturnValue({ ptySessions: [] });
-  });
-
-  it("renders nothing when there are no PTY sessions", () => {
+  it("renders nothing while the bus is running", async () => {
+    mockStatus({ state: "running" });
     const { container } = render(<CodingAgentControlChip />);
+    // Wait for the initial fetch to settle.
+    await waitFor(() => {
+      expect(
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBeGreaterThan(0);
+    });
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders stop-all and calls stopCodingAgent for each session", () => {
-    vi.mocked(State.usePtySessions).mockReturnValue({
-      ptySessions: [
-        {
-          sessionId: "s1",
-          agentType: "claude-code",
-          label: "Task one",
-          originalTask: "",
-          workdir: "",
-          status: "active",
-          decisionCount: 0,
-          autoResolvedCount: 0,
-        },
-        {
-          sessionId: "s2",
-          agentType: "gemini",
-          label: "Task two",
-          originalTask: "",
-          workdir: "",
-          status: "tool_running",
-          decisionCount: 0,
-          autoResolvedCount: 0,
-        },
-      ],
-    });
-
+  it("renders the paused banner with the reason when state=paused", async () => {
+    mockStatus({ state: "paused", reason: "user said hold on" });
     render(<CodingAgentControlChip />);
+    expect(await screen.findByText("Coding agents paused")).toBeTruthy();
+    expect(screen.getByText(/user said hold on/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
 
-    const stopBtn = screen.getByRole("button", { name: /stop all/i });
-    expect(stopBtn).toBeTruthy();
-    fireEvent.click(stopBtn);
+  it("renders the aborting banner when state=aborting", async () => {
+    mockStatus({ state: "aborting", reason: null });
+    render(<CodingAgentControlChip />);
+    expect(
+      await screen.findByText("Coding agents stopped"),
+    ).toBeTruthy();
+  });
 
-    expect(stopCodingAgent).toHaveBeenCalledTimes(2);
-    expect(stopCodingAgent).toHaveBeenCalledWith("s1");
-    expect(stopCodingAgent).toHaveBeenCalledWith("s2");
+  it("hides if the API returns a non-200", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 500 }),
+    ) as unknown as typeof fetch;
+    const { container } = render(<CodingAgentControlChip />);
+    await waitFor(() => {
+      expect(
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBeGreaterThan(0);
+    });
+    expect(container.firstChild).toBeNull();
   });
 });

@@ -120,6 +120,11 @@ export interface ChatGenerateOptions {
   resolveNoResponseText?: () => string;
   preferredLanguage?: string;
   timeoutDuration?: number;
+  /** Skip fallback action recovery (wallet, balance, etc.). Used in plan mode. */
+  skipFallbackActions?: boolean;
+  /** Disable post-action model continuation. Used in plan mode to prevent
+   *  the NONE action loop (model outputs NONE → continuation → repeat). */
+  continueAfterActions?: boolean;
 }
 
 export interface LogEntry {
@@ -822,11 +827,11 @@ export async function generateChatResponse(
         `[eliza-api] Action callback fired: ${actionTag}`,
       );
     };
-    const directWalletExecutionFallback = WALLET_EXECUTION_INTENT_RE.test(
-      originalUserText,
-    )
-      ? inferWalletExecutionFallback(originalUserText)
-      : null;
+    const directWalletExecutionFallback =
+      !opts?.skipFallbackActions &&
+      WALLET_EXECUTION_INTENT_RE.test(originalUserText)
+        ? inferWalletExecutionFallback(originalUserText)
+        : null;
 
     await withTimeout(
       Promise.resolve(
@@ -951,6 +956,7 @@ export async function generateChatResponse(
               runtime,
               walletAugmentedMessage,
             );
+
             result = await runtime.messageService?.handleMessage(
               runtime,
               generationMessage,
@@ -976,6 +982,9 @@ export async function generateChatResponse(
               {
                 timeoutDuration: generationTimeoutMs,
                 keepExistingResponses: true,
+                ...(opts?.continueAfterActions !== undefined
+                  ? { continueAfterActions: opts.continueAfterActions }
+                  : {}),
                 onStreamChunk: opts?.onChunk
                   ? async (chunk: string) => {
                       if (generationTimedOut || opts?.isAborted?.()) {
@@ -1061,10 +1070,9 @@ export async function generateChatResponse(
       const modelText = String(
         extractCompatTextContent(result.responseContent) ?? "",
       );
-      const parsedFallbackActions = parseFallbackActionBlocks(
-        rawActionsPayload,
-        modelText,
-      );
+      const parsedFallbackActions = opts?.skipFallbackActions
+        ? []
+        : parseFallbackActionBlocks(rawActionsPayload, modelText);
       const userText = String(extractCompatTextContent(message.content) ?? "");
       const fallbackActionsToRun = [...parsedFallbackActions];
       const inferredBalanceChain = inferBalanceChainFromText(userText);
@@ -1149,6 +1157,7 @@ export async function generateChatResponse(
       }
 
       if (
+        !opts?.skipFallbackActions &&
         actionCallbacksSeen === 0 &&
         WALLET_EXECUTION_INTENT_RE.test(userText)
       ) {
@@ -1188,10 +1197,11 @@ export async function generateChatResponse(
       }
 
       // Only run fallback execution when the core did NOT dispatch actions itself.
+      // Skip entirely in plan mode — the model is interviewing, not acting.
       const coreHandledActions = resultRecord.mode === "actions";
-      const executableFallbackActions = fallbackActionsToRun.filter(
-        isExecutableFallbackAction,
-      );
+      const executableFallbackActions = opts?.skipFallbackActions
+        ? []
+        : fallbackActionsToRun.filter(isExecutableFallbackAction);
       if (
         actionCallbacksSeen === 0 &&
         !coreHandledActions &&
@@ -1218,10 +1228,9 @@ export async function generateChatResponse(
         );
       }
 
-      const inferredWebsiteBlockRecovery = inferWebsiteBlockFallback(
-        userText,
-        modelText,
-      );
+      const inferredWebsiteBlockRecovery = opts?.skipFallbackActions
+        ? null
+        : inferWebsiteBlockFallback(userText, modelText);
       if (
         inferredWebsiteBlockRecovery &&
         !seenActionTags.has("BLOCK_WEBSITES")
@@ -1291,6 +1300,7 @@ export async function generateChatResponse(
     }
 
     if (
+      !opts?.skipFallbackActions &&
       actionCallbacksSeen === 0 &&
       isWalletActionRequiredIntent(originalUserText)
     ) {

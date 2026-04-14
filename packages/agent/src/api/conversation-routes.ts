@@ -525,6 +525,74 @@ async function truncateConversationMessages(
 }
 
 // ---------------------------------------------------------------------------
+// Server-side /plan command handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle /plan commands server-side so they work even if the client-side
+ * handler in useChatSend.ts didn't intercept them (e.g. stale UI, connector
+ * messages). Returns the response text to short-circuit with, or null if the
+ * message isn't a plan command.
+ */
+async function handleServerSidePlanCommand(
+  trimmedPrompt: string,
+  conversationId: string,
+): Promise<string | null> {
+  if (!trimmedPrompt.startsWith("/plan")) return null;
+
+  const body = trimmedPrompt.slice(5).trim(); // strip "/plan"
+
+  const {
+    enterPlanMode,
+    exitPlanMode,
+    getActivePlan,
+    readActivePlan,
+  } = await import("../services/coding-agent-plan-mode.js");
+
+  // /plan exit [discard]
+  if (body.startsWith("exit")) {
+    const arg = body.slice(4).trim().toLowerCase();
+    const decision = arg === "discard" || arg === "cancel" ? "discard" : "approve";
+    const result = await exitPlanMode({ conversationId, decision });
+    if (!result.plan && decision === "approve") {
+      return "Not currently in plan mode for this conversation.";
+    }
+    return decision === "discard"
+      ? "Plan discarded. What would you like to do instead?"
+      : `Plan approved! Executing now.`;
+  }
+
+  // /plan status
+  if (body === "status") {
+    const entry = getActivePlan(conversationId);
+    if (!entry) {
+      return "Not currently in plan mode for this conversation.";
+    }
+    const plan = await readActivePlan(conversationId);
+    if (!plan) return "Plan mode active but plan file could not be loaded.";
+    return `Plan mode active: "${plan.title}"\nFile: ${plan.filePath}`;
+  }
+
+  // /plan [title] — enter plan mode
+  const title = body || "New Plan";
+
+  // Idempotent — if already planning, acknowledge
+  const existing = getActivePlan(conversationId);
+  if (existing) {
+    return `Already in plan mode for this conversation. Continue refining the plan or say "approve" when ready.`;
+  }
+
+  await enterPlanMode({ conversationId, title });
+
+  if (body) {
+    // User provided a description: acknowledge and start planning
+    return `Entered plan mode. I'll explore the codebase and build a plan for: "${body}"\n\nI'll ask clarifying questions as needed. When you're happy with the plan, say "approve" and I'll execute it.`;
+  }
+  // Bare /plan — ask what they want to work on
+  return `Entered plan mode. What would you like to plan?`;
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -846,6 +914,174 @@ export async function handleConversationRoutes(
       return true;
     }
 
+    // ── Server-side /plan command interceptor ────────────────
+    // Handles /plan even if the client-side handler didn't catch it
+    // (e.g. connector messages, stale UI). Short-circuits before LLM.
+    if (prompt.trim().startsWith("/plan")) {
+      try {
+        const planResult = await handleServerSidePlanCommand(
+          prompt.trim(),
+          conv.roomId,
+        );
+        if (planResult) {
+          initSse(res);
+          writeChatTokenSse(res, planResult, planResult);
+          try {
+            await persistAssistantConversationMemory(
+              runtime,
+              conv.roomId,
+              planResult,
+              channelType,
+              turnStartedAt,
+            );
+            conv.updatedAt = new Date().toISOString();
+          } catch {
+            // Best effort.
+          }
+          writeSseJson(res, {
+            type: "done",
+            fullText: planResult,
+            agentName: state.agentName,
+          });
+          res.end();
+          return true;
+        }
+      } catch {
+        // Fall through to normal chat if plan handling fails.
+      }
+    }
+
+    // ── HITL Control Intent ─────────────────────────────────
+    // Check if the user's message is a colloquial pause/stop/resume
+    // ("hold on", "STOP!!!", "go ahead"). If so, short-circuit and
+    // reply with the control response without entering generation.
+    // Skip when plan mode is active — messages like "sounds good"
+    // should route to the model so it can invoke EXIT_PLAN_MODE.
+    // ── Phased plan: check for waiting execution ────────────
+    // If a phased plan is waiting for user approval to advance,
+    // intercept approval messages and resume the next phase.
+    try {
+      const { getActiveExecution, resumePhasedExecution } = await import(
+        "../services/coding-agent-plan-phases.js"
+      );
+      const execution = getActiveExecution(conv.roomId);
+      if (execution?.status === "waiting_for_user") {
+        const approvalPattern =
+          /\b(proceed|go ahead|yes|do it|continue|next|looks good|lgtm|approved?)\b/i;
+        if (approvalPattern.test(prompt)) {
+          const result = await resumePhasedExecution(
+            runtime,
+            conv.roomId,
+            userMessage,
+          );
+          if (result) {
+            initSse(res);
+            writeChatTokenSse(res, result.text, result.text);
+            try {
+              await persistAssistantConversationMemory(
+                runtime,
+                conv.roomId,
+                result.text,
+                channelType,
+                turnStartedAt,
+              );
+            } catch {
+              // Best effort.
+            }
+            writeSse(res, {
+              type: "done",
+              fullText: result.text,
+              agentName: runtime.character?.name ?? "Agent",
+            });
+            return true;
+          }
+        }
+      }
+    } catch {
+      // Non-fatal.
+    }
+
+    let skipControlIntent = false;
+    try {
+      const { getActivePlan, hasPendingPlanExecution } = await import(
+        "../services/coding-agent-plan-mode.js"
+      );
+      // Skip control intent when in plan mode (messages route to model for EXIT_PLAN_MODE)
+      // or when a pending plan execution exists (user approval should trigger dispatch,
+      // not get intercepted as a "resume" control intent).
+      skipControlIntent =
+        getActivePlan(conv.roomId) !== null ||
+        hasPendingPlanExecution(conv.roomId);
+    } catch {
+      // Non-fatal.
+    }
+    if (!skipControlIntent) try {
+      const { maybeHandleControlIntent } = await import(
+        "../services/coding-agent-control-handler.js"
+      );
+      const ptyService = runtime.getService("PTY_SERVICE") as unknown as
+        | import("../services/coding-agent-control-bus.js").PTYServiceLike
+        | null;
+      const controlResult = await maybeHandleControlIntent(
+        runtime,
+        prompt,
+        ptyService,
+        convId,
+      );
+      if (controlResult) {
+        initSse(res);
+        writeChatTokenSse(
+          res,
+          controlResult.responseText,
+          controlResult.responseText,
+        );
+        try {
+          await persistAssistantConversationMemory(
+            runtime,
+            conv.roomId,
+            controlResult.responseText,
+            channelType,
+            turnStartedAt,
+          );
+          conv.updatedAt = new Date().toISOString();
+        } catch {
+          // Best effort — don't block the response.
+        }
+        writeSseJson(res, {
+          type: "done",
+          fullText: controlResult.responseText,
+          agentName: state.agentName,
+        });
+        res.end();
+        return true;
+      }
+    } catch {
+      // Fail open — never block normal chat on classifier errors.
+    }
+
+    // ── Plan Mode prompt injection ────────────────────��──────
+    // If this conversation is currently in plan mode, we'll inject
+    // the plan-mode system block into the user message text so the
+    // model stays constrained to the interview workflow.
+    let planModePrefix = "";
+    try {
+      const { getActivePlan, readActivePlan } = await import(
+        "../services/coding-agent-plan-mode.js"
+      );
+      const planEntry = getActivePlan(conv.roomId);
+      if (planEntry) {
+        const plan = await readActivePlan(conv.roomId);
+        if (plan) {
+          const { buildPlanModePromptBlock } = await import(
+            "../services/coding-agent-plan-mode-prompt.js"
+          );
+          planModePrefix = buildPlanModePromptBlock(plan) + "\n\n";
+        }
+      }
+    } catch {
+      // Non-fatal — proceed without plan context.
+    }
+
     const walletModeGuidance = resolveWalletModeGuidanceReply(state, prompt);
     if (walletModeGuidance) {
       initSse(res);
@@ -882,7 +1118,20 @@ export async function handleConversationRoutes(
       return true;
     }
 
-    // ── Local runtime path (streaming) ───────────────────────
+    // ── Local runtime path (streaming) ─────────────��─────────
+
+    // If plan mode is active, prepend the plan-mode system block to
+    // the user message so the model sees it as context for this turn.
+    const effectiveMessage =
+      planModePrefix && userMessage.content?.text
+        ? {
+            ...userMessage,
+            content: {
+              ...userMessage.content,
+              text: planModePrefix + userMessage.content.text,
+            },
+          }
+        : userMessage;
 
     initSse(res);
     let aborted = false;
@@ -898,17 +1147,23 @@ export async function handleConversationRoutes(
     }, 5000);
 
     let streamedText = "";
+    // Append-only accumulator for plan mode. Snapshots (which replace
+    // streamedText) happen when action callbacks fire — the callback
+    // text replaces the prior text. For plan mode, we need the FULL
+    // model output (the plan) even if a follow-up replaces it.
+    let planModeAccumulated = "";
 
     try {
       const result = await generateChatResponse(
         runtime,
-        userMessage,
+        effectiveMessage,
         state.agentName,
         {
           isAborted: () => aborted,
           onChunk: (chunk) => {
             if (!chunk) return;
             streamedText += chunk;
+            if (planModePrefix) planModeAccumulated += chunk;
             writeChatTokenSse(res, chunk, streamedText);
           },
           onSnapshot: (text) => {
@@ -919,6 +1174,14 @@ export async function handleConversationRoutes(
           resolveNoResponseText: () =>
             resolveNoResponseFallback(state.logBuffer, runtime),
           preferredLanguage,
+          // In plan mode, skip fallback action recovery — the model is
+          // interviewing/planning, not executing wallet/balance actions.
+          skipFallbackActions: Boolean(planModePrefix),
+          // In plan mode, disable post-action continuation. The model
+          // sometimes outputs NONE despite the prompt, and NONE isn't
+          // in the core's terminal action set — causing an infinite
+          // "No additional action taken" loop.
+          ...(planModePrefix ? { continueAfterActions: false } : {}),
         },
       );
 
@@ -930,13 +1193,31 @@ export async function handleConversationRoutes(
             state.logBuffer,
             runtime,
           );
-          await persistAssistantConversationMemory(
-            runtime,
-            conv.roomId,
-            resolvedText,
-            channelType,
-            turnStartedAt,
-          );
+
+          // In plan mode, persist the model's response to the plan file
+          // so it's available when the user approves. We update the plan's
+          // raw markdown with the model's response — the parser will
+          // extract structure from it (title, recommended execution, steps).
+          // In plan mode, save the full accumulated plan text (not
+          // resolvedText, which may have been replaced by a follow-up
+          // via snapshot). planModeAccumulated is append-only.
+          const planTextToSave = planModePrefix
+            ? (planModeAccumulated.trim() || resolvedText.trim())
+            : "";
+          if (planTextToSave) {
+            try {
+              const { updateActivePlan } = await import(
+                "../services/coding-agent-plan-mode.js"
+              );
+              await updateActivePlan(conv.roomId, planTextToSave);
+            } catch {
+              // Best effort — don't block the response.
+            }
+          }
+
+          // The upstream message service already
+          // persists the response via runtime.createMemory inside
+          // handleMessage. Extra persist would create a duplicate bubble.
           writeSseJson(res, {
             type: "done",
             fullText: resolvedText,
@@ -952,28 +1233,105 @@ export async function handleConversationRoutes(
             ...(result.usage ? { estimatedUsage: result.usage } : {}),
           });
         }
+
+        // ── Post-action plan execution ────────────────────────
+        // If EXIT_PLAN_MODE just approved a plan, dispatch agents now
+        // that the core's action processing is finished. This avoids
+        // nested CREATE_TASK calls inside action handlers which confuse
+        // the core's continuation logic.
+        try {
+          const { consumePendingPlanExecution } = await import(
+            "../services/coding-agent-plan-mode.js"
+          );
+          const approvedPlan = consumePendingPlanExecution(conv.roomId);
+          if (approvedPlan) {
+            // If the model auto-approved during plan generation (same turn),
+            // the plan file wasn't updated yet because exitPlanMode removed
+            // the activePlans entry before updateActivePlan could write.
+            // Use the append-only accumulated text which has the full plan.
+            if (
+              planModeAccumulated?.trim() &&
+              planModeAccumulated.trim().length > (approvedPlan.raw?.trim().length ?? 0)
+            ) {
+              approvedPlan.raw = planModeAccumulated.trim();
+            }
+
+            const { executePlan } = await import(
+              "../services/coding-agent-plan-executor.js"
+            );
+            const execResult = await executePlan(
+              runtime,
+              approvedPlan,
+              userMessage,
+              // Send execution updates via SSE before the stream closes
+              async (content: { text?: string }) => {
+                if (!aborted && !res.writableEnded) {
+                  writeChatTokenSse(
+                    res,
+                    content.text ?? "",
+                    (streamedText += content.text ?? ""),
+                  );
+                }
+                return [];
+              },
+              { conversationId: conv.roomId },
+            );
+            if (!aborted && !res.writableEnded) {
+              writeChatTokenSse(res, execResult.text, (streamedText += execResult.text));
+            }
+          }
+        } catch (planExecErr) {
+          logger.warn(
+            { err: getErrorMessage(planExecErr) },
+            "[conversation-routes] Plan execution failed after approval",
+          );
+        }
       }
     } catch (err) {
       if (!aborted) {
-        const providerIssueReply = getChatFailureReply(err, state.logBuffer);
-        try {
-          await persistAssistantConversationMemory(
-            runtime,
-            conv.roomId,
-            providerIssueReply,
-            channelType,
+        // If text was already streamed to the client (e.g. the initial
+        // response succeeded but a post-action continuation failed), use the
+        // streamed text as the final reply instead of replacing it with a
+        // generic fallback.
+        if (streamedText) {
+          logger.warn(
+            { err: getErrorMessage(err), streamedTextLength: streamedText.length },
+            "Post-generation error after text was already streamed — using streamed text",
           );
+          // The message service already persisted the response before the
+          // post-action continuation failed. Skip persist to avoid a
+          // duplicate memory that surfaces as a second chat bubble.
           conv.updatedAt = new Date().toISOString();
-          writeSse(res, {
+          writeSseJson(res, {
             type: "done",
-            fullText: providerIssueReply,
+            fullText: streamedText,
             agentName: state.agentName,
           });
-        } catch (persistErr) {
-          writeSse(res, {
-            type: "error",
-            message: getErrorMessage(persistErr),
-          });
+        } else {
+          logger.warn(
+            { err: getErrorMessage(err) },
+            "Chat generation failed with no streamed text",
+          );
+          const providerIssueReply = getChatFailureReply(err, state.logBuffer);
+          try {
+            await persistAssistantConversationMemory(
+              runtime,
+              conv.roomId,
+              providerIssueReply,
+              channelType,
+            );
+            conv.updatedAt = new Date().toISOString();
+            writeSse(res, {
+              type: "done",
+              fullText: providerIssueReply,
+              agentName: state.agentName,
+            });
+          } catch (persistErr) {
+            writeSse(res, {
+              type: "error",
+              message: getErrorMessage(persistErr),
+            });
+          }
         }
       }
     } finally {
@@ -1046,6 +1404,114 @@ export async function handleConversationRoutes(
       return true;
     }
 
+    // ── Server-side /plan command interceptor (non-streaming) ──
+    if (prompt.trim().startsWith("/plan")) {
+      try {
+        const planResult = await handleServerSidePlanCommand(
+          prompt.trim(),
+          conv.roomId,
+        );
+        if (planResult) {
+          try {
+            await persistAssistantConversationMemory(
+              runtime,
+              conv.roomId,
+              planResult,
+              channelType,
+              turnStartedAt,
+            );
+            conv.updatedAt = new Date().toISOString();
+          } catch {
+            // Best effort.
+          }
+          json(res, { text: planResult, agentName: state.agentName });
+          return true;
+        }
+      } catch {
+        // Fall through.
+      }
+    }
+
+    // ── HITL Control Intent (non-streaming) ─────────────────
+    // Skip when plan mode is active (same rationale as streaming path).
+    let skipControlIntentNonStream = false;
+    try {
+      const { getActivePlan, hasPendingPlanExecution } = await import(
+        "../services/coding-agent-plan-mode.js"
+      );
+      skipControlIntentNonStream =
+        getActivePlan(conv.roomId) !== null ||
+        hasPendingPlanExecution(conv.roomId);
+    } catch {
+      // Non-fatal.
+    }
+    if (!skipControlIntentNonStream) try {
+      const { maybeHandleControlIntent } = await import(
+        "../services/coding-agent-control-handler.js"
+      );
+      const ptyService = runtime.getService("PTY_SERVICE") as unknown as
+        | import("../services/coding-agent-control-bus.js").PTYServiceLike
+        | null;
+      const controlResult = await maybeHandleControlIntent(
+        runtime,
+        prompt,
+        ptyService,
+        convId,
+      );
+      if (controlResult) {
+        try {
+          await persistAssistantConversationMemory(
+            runtime,
+            conv.roomId,
+            controlResult.responseText,
+            channelType,
+            turnStartedAt,
+          );
+          conv.updatedAt = new Date().toISOString();
+        } catch {
+          // Best effort.
+        }
+        json(res, {
+          text: controlResult.responseText,
+          agentName: state.agentName,
+        });
+        return true;
+      }
+    } catch {
+      // Fail open.
+    }
+
+    // ── Plan Mode prompt injection (non-streaming) ──────────
+    let planModePrefix = "";
+    try {
+      const { getActivePlan, readActivePlan } = await import(
+        "../services/coding-agent-plan-mode.js"
+      );
+      const planEntry = getActivePlan(conv.roomId);
+      if (planEntry) {
+        const plan = await readActivePlan(conv.roomId);
+        if (plan) {
+          const { buildPlanModePromptBlock } = await import(
+            "../services/coding-agent-plan-mode-prompt.js"
+          );
+          planModePrefix = buildPlanModePromptBlock(plan) + "\n\n";
+        }
+      }
+    } catch {
+      // Non-fatal.
+    }
+
+    const effectiveMessage =
+      planModePrefix && userMessage.content?.text
+        ? {
+            ...userMessage,
+            content: {
+              ...userMessage.content,
+              text: planModePrefix + userMessage.content.text,
+            },
+          }
+        : userMessage;
+
     const walletModeGuidance = resolveWalletModeGuidanceReply(state, prompt);
     if (walletModeGuidance) {
       try {
@@ -1070,12 +1536,14 @@ export async function handleConversationRoutes(
     try {
       const result = await generateChatResponse(
         runtime,
-        userMessage,
+        effectiveMessage,
         state.agentName,
         {
           resolveNoResponseText: () =>
             resolveNoResponseFallback(state.logBuffer, runtime),
           preferredLanguage,
+          skipFallbackActions: Boolean(planModePrefix),
+          ...(planModePrefix ? { continueAfterActions: false } : {}),
         },
       );
 
@@ -1086,15 +1554,58 @@ export async function handleConversationRoutes(
           state.logBuffer,
           runtime,
         );
-        await persistAssistantConversationMemory(
-          runtime,
-          conv.roomId,
-          resolvedText,
-          channelType,
-          turnStartedAt,
-        );
+
+        // In plan mode, persist model's response to the plan file.
+        if (planModePrefix && resolvedText.trim()) {
+          try {
+            const { readActivePlan, updateActivePlan } = await import(
+              "../services/coding-agent-plan-mode.js"
+            );
+            await updateActivePlan(conv.roomId, resolvedText);
+          } catch {
+            // Best effort.
+          }
+        }
+
+        // Post-action plan execution (non-streaming)
+        let planExecText = "";
+        try {
+          const { consumePendingPlanExecution } = await import(
+            "../services/coding-agent-plan-mode.js"
+          );
+          const approvedPlan = consumePendingPlanExecution(conv.roomId);
+          if (approvedPlan) {
+            // If model auto-approved during plan generation, the plan file
+            // wasn't updated. Use the resolved text as the plan content.
+            if (
+              planModePrefix &&
+              resolvedText.trim() &&
+              resolvedText.trim().length > (approvedPlan.raw?.trim().length ?? 0)
+            ) {
+              approvedPlan.raw = resolvedText.trim();
+            }
+
+            const { executePlan } = await import(
+              "../services/coding-agent-plan-executor.js"
+            );
+            const execResult = await executePlan(
+              runtime,
+              approvedPlan,
+              userMessage,
+              undefined,
+              { conversationId: conv.roomId },
+            );
+            planExecText = execResult.text;
+          }
+        } catch {
+          // Best effort.
+        }
+
+        // Skip persist — upstream message service already stored the response.
         json(res, {
-          text: resolvedText,
+          text: planExecText
+            ? `${resolvedText}\n\n${planExecText}`
+            : resolvedText,
           agentName: result.agentName,
         });
       } else {

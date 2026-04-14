@@ -19,9 +19,12 @@
  *   2x esc; Codex/Aider/Gemini: ctrl+c) to every running coding
  *   agent session, then sets the same "no new actions" flag.
  *
- * - **Multi-agent scope.** Pause/abort apply globally to every
- *   coding agent session at once — not just the one the user is
- *   watching.
+ * - **Per-conversation scoping.** Pause/abort/resume can be scoped
+ *   to a specific conversation so plan mode in one chat doesn't
+ *   block coding agents in other chats. A global pause (no
+ *   conversationId) halts everything. `isHalted(conversationId?)`
+ *   returns true when the specific conversation is paused OR a
+ *   global halt is active.
  *
  * - **Session persistence.** The bus state is in-process for Phase
  *   1. Phase 3 will persist it to conversation state so the UI
@@ -76,44 +79,136 @@ export interface PTYServiceLike {
   getSessions?: () => SessionLike[] | Promise<SessionLike[]>;
 }
 
-export class CodingAgentControlBus {
-  private _state: ControlState = "running";
-  private _changedAt: string = new Date().toISOString();
-  private _reason: string | null = null;
-  private _targetedSessionIds: string[] = [];
+/**
+ * Per-conversation control state entry. Each conversation can be
+ * independently paused/aborted without affecting other conversations.
+ */
+interface ConversationControlEntry {
+  state: ControlState;
+  changedAt: string;
+  reason: string | null;
+  targetedSessionIds: string[];
+}
 
+export class CodingAgentControlBus {
+  /**
+   * Global state — applies to ALL conversations when set to non-running.
+   * Used for the colloquial "STOP everything" intent.
+   */
+  private _globalState: ControlState = "running";
+  private _globalChangedAt: string = new Date().toISOString();
+  private _globalReason: string | null = null;
+  private _globalTargetedSessionIds: string[] = [];
+
+  /**
+   * Per-conversation state — scoped pauses (e.g. plan mode in one chat).
+   * Only tracks conversations that are NOT running; running conversations
+   * are implicitly absent from the map.
+   */
+  private _conversations = new Map<string, ConversationControlEntry>();
+
+  /**
+   * Snapshot of the global bus state. For per-conversation state, use
+   * `snapshotForConversation()`.
+   */
   snapshot(): ControlBusSnapshot {
     return {
-      state: this._state,
-      changedAt: this._changedAt,
-      reason: this._reason,
-      targetedSessionIds: [...this._targetedSessionIds],
+      state: this._globalState,
+      changedAt: this._globalChangedAt,
+      reason: this._globalReason,
+      targetedSessionIds: [...this._globalTargetedSessionIds],
     };
   }
 
-  /** Convenience: true when new coding-agent actions should be refused. */
-  isHalted(): boolean {
-    return this._state !== "running";
+  /**
+   * Snapshot for a specific conversation, merging global + per-conversation
+   * state. If globally halted, that takes precedence.
+   */
+  snapshotForConversation(conversationId: string): ControlBusSnapshot {
+    if (this._globalState !== "running") {
+      return this.snapshot();
+    }
+    const entry = this._conversations.get(conversationId);
+    if (entry) {
+      return {
+        state: entry.state,
+        changedAt: entry.changedAt,
+        reason: entry.reason,
+        targetedSessionIds: [...entry.targetedSessionIds],
+      };
+    }
+    return {
+      state: "running",
+      changedAt: this._globalChangedAt,
+      reason: null,
+      targetedSessionIds: [],
+    };
+  }
+
+  /**
+   * True when new coding-agent actions should be refused.
+   *
+   * - No conversationId: true if ANYTHING is halted (global or any conversation).
+   *   Use this for backward-compat checks that don't have conversation context.
+   * - With conversationId: true if that specific conversation is halted OR
+   *   the global bus is halted.
+   */
+  isHalted(conversationId?: string): boolean {
+    if (this._globalState !== "running") return true;
+    if (conversationId) {
+      const entry = this._conversations.get(conversationId);
+      return entry ? entry.state !== "running" : false;
+    }
+    // No conversationId — check if any conversation is halted (backward compat)
+    return this._conversations.size > 0;
+  }
+
+  /**
+   * True only when the global halt is active (not per-conversation pauses).
+   * Used by the dispatch gate when it doesn't know the conversation context.
+   */
+  isHaltedGlobally(): boolean {
+    return this._globalState !== "running";
   }
 
   /**
    * Soft pause — no keys are sent. Sets the flag that the
-   * orchestrator checks before dispatching new actions. In-flight
-   * tool calls finish on their own.
+   * orchestrator checks before dispatching new actions.
+   *
+   * When `conversationId` is provided, only that conversation is paused.
+   * Other conversations continue running freely.
+   * When omitted, applies a global pause to all conversations.
    */
-  applyPause(reason: string | null, sessionIds: string[] = []): void {
-    this.transition("paused", reason, sessionIds);
+  applyPause(
+    reason: string | null,
+    sessionIds: string[] = [],
+    conversationId?: string,
+  ): void {
+    if (conversationId) {
+      this._conversations.set(conversationId, {
+        state: "paused",
+        changedAt: new Date().toISOString(),
+        reason,
+        targetedSessionIds: sessionIds,
+      });
+    } else {
+      this.transitionGlobal("paused", reason, sessionIds);
+    }
   }
 
   /**
    * Hard abort — sends the per-adapter abort key sequence to every
    * session provided by `ptyService`, then transitions to the
-   * `aborting` state. Does NOT kill the sessions; it only interrupts
-   * the current tool call. Resume transitions back to `running`.
+   * `aborting` state.
+   *
+   * When `conversationId` is provided, only marks that conversation
+   * as aborting (still sends abort keys to all sessions — we can't
+   * know which sessions belong to which conversation yet).
    */
   async applyAbort(
     ptyService: PTYServiceLike | null,
     reason: string | null,
+    conversationId?: string,
   ): Promise<string[]> {
     const sessions = await this.resolveSessions(ptyService);
     const targeted: string[] = [];
@@ -123,17 +218,32 @@ export class CodingAgentControlBus {
       await this.sendSequence(session, sequence);
       targeted.push(session.id);
     }
-    this.transition("aborting", reason, targeted);
+    if (conversationId) {
+      this._conversations.set(conversationId, {
+        state: "aborting",
+        changedAt: new Date().toISOString(),
+        reason,
+        targetedSessionIds: targeted,
+      });
+    } else {
+      this.transitionGlobal("aborting", reason, targeted);
+    }
     return targeted;
   }
 
   /**
-   * Resume — clears the halt flag. Does NOT replay queued actions;
-   * callers that held actions while paused are responsible for
-   * re-dispatching them once they see `isHalted() === false`.
+   * Resume — clears the halt flag.
+   *
+   * When `conversationId` is provided, only that conversation resumes.
+   * When omitted, clears the global halt AND all per-conversation halts.
    */
-  applyResume(reason: string | null = null): void {
-    this.transition("running", reason, []);
+  applyResume(reason: string | null = null, conversationId?: string): void {
+    if (conversationId) {
+      this._conversations.delete(conversationId);
+    } else {
+      this.transitionGlobal("running", reason, []);
+      this._conversations.clear();
+    }
   }
 
   /**
@@ -172,15 +282,15 @@ export class CodingAgentControlBus {
     }
   }
 
-  private transition(
+  private transitionGlobal(
     state: ControlState,
     reason: string | null,
     targetedSessionIds: string[],
   ): void {
-    this._state = state;
-    this._reason = reason;
-    this._targetedSessionIds = targetedSessionIds;
-    this._changedAt = new Date().toISOString();
+    this._globalState = state;
+    this._globalReason = reason;
+    this._globalTargetedSessionIds = targetedSessionIds;
+    this._globalChangedAt = new Date().toISOString();
   }
 }
 

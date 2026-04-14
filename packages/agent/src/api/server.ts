@@ -3831,16 +3831,110 @@ function wireCodingAgentWsBridge(st: ServerState): boolean {
  * persisted message in the conversation.
  */
 function wireCodingAgentSwarmSynthesis(st: ServerState): boolean {
-  // Same rationale as wireCodingAgentChatBridge: synthesis is generated
-  // from task metadata (originalTask = user's text), not from the
-  // subagent's actual output. The task-progress-streamer + jsonl watcher
-  // deliver the real answer. Install a no-op callback so the upstream
-  // wiring check considers this bridge wired.
   if (!st.runtime) return false;
   const coordinator = getCoordinatorFromRuntime(st.runtime);
   if (!coordinator?.setSwarmCompleteCallback) return false;
-  coordinator.setSwarmCompleteCallback(async () => {
-    // Deliberately no-op — synthesis happens via the streamer instead.
+  const runtime = st.runtime;
+  coordinator.setSwarmCompleteCallback(async (payload) => {
+    const sourceRoomId = coordinator.sourceRoomId;
+    if (!sourceRoomId || !runtime) return;
+
+    // Helper: send a message to the conversation and persist it
+    const sendToConversation = async (text: string, source: string) => {
+      if (st.broadcastWs) {
+        st.broadcastWs({
+          type: "chat-message",
+          sessionId: sourceRoomId,
+          timestamp: Date.now(),
+          data: { text, source },
+        });
+      }
+      try {
+        const { persistAssistantConversationMemory } = await import(
+          "./chat-routes.js"
+        );
+        await persistAssistantConversationMemory(
+          runtime,
+          sourceRoomId as UUID,
+          text,
+          "API",
+          Date.now(),
+        );
+      } catch {
+        // Best effort.
+      }
+    };
+
+    // ── Phase advancement ──────────────────────────────────
+    // If this swarm belongs to a phased plan execution, advance
+    // to the next phase instead of doing a review.
+    try {
+      const { handlePhaseComplete, getActiveExecution } = await import(
+        "../services/coding-agent-plan-phases.js"
+      );
+      const execution = getActiveExecution(sourceRoomId);
+      if (execution) {
+        const message = {
+          id: crypto.randomUUID(),
+          roomId: sourceRoomId,
+          entityId: runtime.agentId,
+          content: { text: "" },
+          createdAt: Date.now(),
+        } as unknown as import("@elizaos/core").Memory;
+
+        const phaseText = await handlePhaseComplete(
+          runtime,
+          sourceRoomId,
+          message,
+        );
+        if (phaseText) {
+          await sendToConversation(phaseText, "plan-phase-executor");
+        }
+        // Don't run the review yet — there are more phases
+        if (execution.status === "running") return;
+      }
+    } catch (err) {
+      console.warn("[plan-phases] Phase advancement failed:", err);
+    }
+
+    // ── Plan review ────────────────────────────────────────
+    // All phases done (or single-shot plan). Scan the workspace
+    // and generate a gap analysis for the user.
+    try {
+      const { getLastCompletedPlan } = await import(
+        "../services/coding-agent-plan-phases.js"
+      );
+      const completedPlan = getLastCompletedPlan(sourceRoomId);
+      if (!completedPlan && !payload?.tasks?.length) return;
+
+      const { generatePlanReview } = await import(
+        "../services/coding-agent-plan-review.js"
+      );
+
+      const tasks = payload?.tasks ?? [];
+      const workdirs = tasks
+        .map((t) => t.workdir)
+        .filter((w): w is string => Boolean(w));
+
+      if (workdirs.length === 0) return;
+
+      const reviewInput = {
+        planTitle: completedPlan?.planTitle ?? "Coding Task",
+        planRaw: completedPlan?.planRaw ?? tasks.map((t) => t.originalTask).join("\n\n"),
+        workdirs,
+        taskSummaries: tasks.map((t) => ({
+          label: t.label,
+          originalTask: t.originalTask,
+          status: t.status,
+          completionSummary: t.completionSummary,
+        })),
+      };
+
+      const review = await generatePlanReview(runtime, reviewInput);
+      await sendToConversation(review.analysis, "plan-review");
+    } catch (err) {
+      console.warn("[plan-review] Review generation failed:", err);
+    }
   });
   return true;
 }
@@ -4562,24 +4656,35 @@ async function handleCodingAgentsFallback(
     const { codingAgentControlBus } = await import(
       "../services/coding-agent-control-bus"
     );
-    const body = await readJsonBody(req).catch(() => null);
+    const body = await readJsonBody(req, res).catch(() => null);
     const reason =
       body && typeof (body as Record<string, unknown>).reason === "string"
         ? ((body as Record<string, unknown>).reason as string)
         : null;
-    codingAgentControlBus.applyPause(reason, []);
-    json(res, codingAgentControlBus.snapshot());
+    const conversationId =
+      body && typeof (body as Record<string, unknown>).conversationId === "string"
+        ? ((body as Record<string, unknown>).conversationId as string)
+        : undefined;
+    codingAgentControlBus.applyPause(reason, [], conversationId);
+    const snapshot = conversationId
+      ? codingAgentControlBus.snapshotForConversation(conversationId)
+      : codingAgentControlBus.snapshot();
+    json(res, snapshot);
     return true;
   }
   if (method === "POST" && pathname === "/api/coding-agents/control/abort") {
     const { codingAgentControlBus } = await import(
       "../services/coding-agent-control-bus"
     );
-    const body = await readJsonBody(req).catch(() => null);
+    const body = await readJsonBody(req, res).catch(() => null);
     const reason =
       body && typeof (body as Record<string, unknown>).reason === "string"
         ? ((body as Record<string, unknown>).reason as string)
         : null;
+    const conversationId =
+      body && typeof (body as Record<string, unknown>).conversationId === "string"
+        ? ((body as Record<string, unknown>).conversationId as string)
+        : undefined;
     const ptyService = runtime.getService("PTY_SERVICE") as unknown as
       | import("../services/coding-agent-control-bus").PTYServiceLike
       | null;
@@ -4587,11 +4692,15 @@ async function handleCodingAgentsFallback(
       const targeted = await codingAgentControlBus.applyAbort(
         ptyService,
         reason,
+        conversationId,
       );
       logger.info(
         `[coding-agents/control] abort → ${targeted.length} session(s): ${targeted.join(", ")}`,
       );
-      json(res, codingAgentControlBus.snapshot());
+      const snapshot = conversationId
+        ? codingAgentControlBus.snapshotForConversation(conversationId)
+        : codingAgentControlBus.snapshot();
+      json(res, snapshot);
     } catch (e) {
       logger.error(
         `[coding-agents/control] abort failed: ${
@@ -4606,13 +4715,138 @@ async function handleCodingAgentsFallback(
     const { codingAgentControlBus } = await import(
       "../services/coding-agent-control-bus"
     );
-    const body = await readJsonBody(req).catch(() => null);
+    const body = await readJsonBody(req, res).catch(() => null);
     const reason =
       body && typeof (body as Record<string, unknown>).reason === "string"
         ? ((body as Record<string, unknown>).reason as string)
         : null;
-    codingAgentControlBus.applyResume(reason);
-    json(res, codingAgentControlBus.snapshot());
+    const conversationId =
+      body && typeof (body as Record<string, unknown>).conversationId === "string"
+        ? ((body as Record<string, unknown>).conversationId as string)
+        : undefined;
+    codingAgentControlBus.applyResume(reason, conversationId);
+    const snapshot = conversationId
+      ? codingAgentControlBus.snapshotForConversation(conversationId)
+      : codingAgentControlBus.snapshot();
+    json(res, snapshot);
+    return true;
+  }
+
+  // --- Plan Mode lifecycle (see docs/followups/hitl-plan-mode.md) ---
+  //
+  //   GET  /api/coding-agents/plan/active            — current plan for a conversation
+  //   POST /api/coding-agents/plan/enter              — enter plan mode
+  //   POST /api/coding-agents/plan/:slug/update       — rewrite plan markdown
+  //   POST /api/coding-agents/plan/:slug/exit         — exit plan mode (approve/discard)
+
+  if (method === "GET" && pathname === "/api/coding-agents/plan/active") {
+    const url = new URL(req.url ?? "", `http://${req.headers.host}`);
+    const conversationId = url.searchParams.get("conversationId");
+    if (!conversationId) {
+      error(res, "Missing conversationId query parameter", 400);
+      return true;
+    }
+    const { getActivePlan, readActivePlan } = await import(
+      "../services/coding-agent-plan-mode"
+    );
+    const entry = getActivePlan(conversationId);
+    if (!entry) {
+      json(res, { active: false });
+      return true;
+    }
+    const plan = await readActivePlan(conversationId);
+    json(res, { active: true, ...entry, plan });
+    return true;
+  }
+
+  if (method === "POST" && pathname === "/api/coding-agents/plan/enter") {
+    const body = await readJsonBody(req, res).catch(() => null);
+    const b = body as Record<string, unknown> | null;
+    const conversationId =
+      b && typeof b.conversationId === "string" ? b.conversationId : null;
+    const title =
+      b && typeof b.title === "string" ? b.title : "Untitled Plan";
+    const steps =
+      b && typeof b.steps === "string" ? (b.steps as string) : undefined;
+    if (!conversationId) {
+      error(res, "Missing conversationId in request body", 400);
+      return true;
+    }
+    const { enterPlanMode, getActivePlan } = await import(
+      "../services/coding-agent-plan-mode"
+    );
+    // Idempotent: if already planning, return the existing entry.
+    const existing = getActivePlan(conversationId);
+    if (existing) {
+      const { readActivePlan } = await import(
+        "../services/coding-agent-plan-mode"
+      );
+      const plan = await readActivePlan(conversationId);
+      json(res, { active: true, ...existing, plan });
+      return true;
+    }
+    try {
+      const result = await enterPlanMode({ conversationId, title, steps });
+      json(res, { active: true, ...result });
+    } catch (e) {
+      error(
+        res,
+        e instanceof Error ? e.message : "Failed to enter plan mode",
+        500,
+      );
+    }
+    return true;
+  }
+
+  const planUpdateMatch = pathname.match(
+    /^\/api\/coding-agents\/plan\/([^/]+)\/update$/,
+  );
+  if (method === "POST" && planUpdateMatch) {
+    const body = await readJsonBody(req, res).catch(() => null);
+    const b = body as Record<string, unknown> | null;
+    const conversationId =
+      b && typeof b.conversationId === "string" ? b.conversationId : null;
+    const markdown =
+      b && typeof b.markdown === "string" ? b.markdown : null;
+    if (!conversationId || !markdown) {
+      error(res, "Missing conversationId or markdown in request body", 400);
+      return true;
+    }
+    const { updateActivePlan } = await import(
+      "../services/coding-agent-plan-mode"
+    );
+    const plan = await updateActivePlan(conversationId, markdown);
+    if (!plan) {
+      error(res, "No active plan for this conversation", 404);
+      return true;
+    }
+    json(res, plan);
+    return true;
+  }
+
+  const planExitMatch = pathname.match(
+    /^\/api\/coding-agents\/plan\/([^/]+)\/exit$/,
+  );
+  if (method === "POST" && planExitMatch) {
+    const body = await readJsonBody(req, res).catch(() => null);
+    const b = body as Record<string, unknown> | null;
+    const conversationId =
+      b && typeof b.conversationId === "string" ? b.conversationId : null;
+    const decision =
+      b && typeof b.decision === "string" ? b.decision : null;
+    if (!conversationId || (decision !== "approve" && decision !== "discard")) {
+      error(
+        res,
+        'Missing conversationId or invalid decision (must be "approve" or "discard")',
+        400,
+      );
+      return true;
+    }
+    const { exitPlanMode } = await import(
+      "../services/coding-agent-plan-mode"
+    );
+    const result = await exitPlanMode({ conversationId, decision });
+    json(res, result);
     return true;
   }
 

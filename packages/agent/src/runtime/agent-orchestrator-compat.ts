@@ -473,12 +473,15 @@ function hasCodexSubscriptionAuth(): boolean {
   if (!auth || typeof auth !== "object" || Array.isArray(auth)) return false;
   const key = (auth as Record<string, unknown>).OPENAI_API_KEY;
   const authMode = (auth as Record<string, unknown>).auth_mode;
-  return (
-    typeof key === "string" &&
-    key.trim().length > 0 &&
+  // Codex with browser-based auth (auth_mode: "chatgpt") stores
+  // OPENAI_API_KEY as null — the auth mode alone proves login.
+  const hasSubscriptionAuth =
     typeof authMode === "string" &&
-    authMode.trim().toLowerCase() !== "api-key"
-  );
+    authMode.trim().length > 0 &&
+    authMode.trim().toLowerCase() !== "api-key";
+  const hasApiKey =
+    typeof key === "string" && key.trim().length > 0;
+  return hasSubscriptionAuth || hasApiKey;
 }
 
 function hasAnthropicApiCredential(): boolean {
@@ -1910,7 +1913,15 @@ async function handleCoordinatorStatusRoute(
     pendingConfirmations: coordinator.getPendingConfirmations?.().length ?? 0,
     preferredAgentType: frameworkState.preferred.id,
     preferredAgentReason: frameworkState.preferred.reason,
-    frameworks: frameworkState.frameworks,
+    frameworks: frameworkState.frameworks
+      .filter((fw) => (STANDARD_FRAMEWORKS as readonly string[]).includes(fw.id))
+      .map((fw) => ({
+        ...fw,
+        adapter: fw.id,
+        available: fw.installed && fw.authReady,
+        score: fw.recommended ? 1 : 0,
+        warnings: [] as string[],
+      })),
   });
   return true;
 }

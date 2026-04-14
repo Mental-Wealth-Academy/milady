@@ -152,7 +152,8 @@ export function CodingAgentSettingsSection() {
 
   // If the user previously chose "cloud" but Eliza Cloud has since been
   // disconnected, fall back to "subscription" rather than leaving the
-  // selector pointed at an unusable provider.
+  // selector pointed at an unusable provider.  Persist the correction so
+  // the backend reads the same value from milady.json.
   const rawLlmProvider = (prefs.PARALLAX_LLM_PROVIDER ||
     "subscription") as LlmProvider;
   const llmProvider: LlmProvider =
@@ -201,6 +202,15 @@ export function CodingAgentSettingsSection() {
   const setPref = useCallback((key: string, value: string) => {
     setPrefs((previous) => ({ ...previous, [key]: value }));
   }, []);
+
+  // Persist the cloud→subscription fallback so the backend reads the
+  // corrected value from milady.json (not just the UI display).
+  useEffect(() => {
+    if (loading) return;
+    if (rawLlmProvider === "cloud" && !elizaCloudConnected) {
+      setPref("PARALLAX_LLM_PROVIDER", "subscription");
+    }
+  }, [loading, rawLlmProvider, elizaCloudConnected, setPref]);
 
   // Debounced auto-save. Coalesces rapid keystrokes (e.g. typing an
   // API key character-by-character) into a single POST so we don't

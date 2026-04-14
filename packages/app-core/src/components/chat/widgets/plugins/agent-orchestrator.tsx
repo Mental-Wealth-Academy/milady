@@ -857,9 +857,10 @@ function OrchestratorTasksWidget(_props: ChatSidebarWidgetProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let initialLoad = true;
 
     const refreshThreads = async () => {
-      setLoading(true);
+      if (initialLoad) setLoading(true);
       try {
         const [nextThreads, nextStatus] = await Promise.all([
           client.listCodingAgentTaskThreads({
@@ -887,13 +888,16 @@ function OrchestratorTasksWidget(_props: ChatSidebarWidgetProps) {
         setLoadError(
           getClientErrorMessage(error, "Failed to load task threads."),
         );
-        setThreads([]);
-        setStatus(null);
-        setSelectedThreadId(null);
-        setSelectedThread(null);
+        if (initialLoad) {
+          setThreads([]);
+          setStatus(null);
+          setSelectedThreadId(null);
+          setSelectedThread(null);
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
+          initialLoad = false;
         }
       }
     };

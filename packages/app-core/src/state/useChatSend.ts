@@ -218,6 +218,113 @@ export function useChatSend(deps: UseChatSendDeps) {
           return { handled: false, rewrittenText };
         }
 
+        // /plan — enter plan mode for the active conversation
+        if (slash.name === "plan") {
+          const convId = activeConversationIdRef.current;
+          if (!convId) {
+            appendLocalCommandTurn(
+              rawText,
+              "No active conversation — start a chat first.",
+            );
+            return { handled: true };
+          }
+
+          const subCommand = slash.argsRaw.trim().toLowerCase();
+
+          // /plan exit [approve|discard]
+          if (subCommand.startsWith("exit")) {
+            const decision = subCommand.includes("discard")
+              ? "discard"
+              : "approve";
+            try {
+              const exitRes = await fetch(
+                `/api/coding-agents/plan/${encodeURIComponent(convId)}/exit`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ conversationId: convId, decision }),
+                },
+              );
+              if (!exitRes.ok) {
+                appendLocalCommandTurn(
+                  rawText,
+                  `Failed to exit plan mode: ${await exitRes.text()}`,
+                );
+                return { handled: true };
+              }
+              const exitResult = await exitRes.json();
+              const verb = decision === "approve" ? "approved" : "discarded";
+              appendLocalCommandTurn(
+                rawText,
+                exitResult.plan
+                  ? `Plan "${exitResult.plan.title}" ${verb}. ${decision === "approve" ? "Coding agents will now execute the recommended assignments." : ""}`
+                  : `Plan mode exited (${verb}).`,
+              );
+            } catch (err) {
+              appendLocalCommandTurn(
+                rawText,
+                `Error exiting plan mode: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+            return { handled: true };
+          }
+
+          // /plan status
+          if (subCommand === "status") {
+            try {
+              const statusRes = await fetch(
+                `/api/coding-agents/plan/active?conversationId=${encodeURIComponent(convId)}`,
+              );
+              const status = await statusRes.json();
+              if (status.active && status.plan) {
+                appendLocalCommandTurn(
+                  rawText,
+                  `Plan mode active: "${status.plan.title}"\nFile: ${status.plan.filePath}\nParallelism: ${status.plan.recommendedExecution?.parallelism ?? 1}\nAssignments: ${status.plan.recommendedExecution?.assignments?.length ?? 0}`,
+                );
+              } else {
+                appendLocalCommandTurn(
+                  rawText,
+                  "Not currently in plan mode for this conversation.",
+                );
+              }
+            } catch (err) {
+              appendLocalCommandTurn(
+                rawText,
+                `Error checking plan status: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+            return { handled: true };
+          }
+
+          // /plan [title] — enter plan mode
+          const title = slash.argsRaw.trim() || "Untitled Plan";
+          try {
+            const enterRes = await fetch("/api/coding-agents/plan/enter", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ conversationId: convId, title }),
+            });
+            if (!enterRes.ok) {
+              appendLocalCommandTurn(
+                rawText,
+                `Failed to enter plan mode: ${await enterRes.text()}`,
+              );
+              return { handled: true };
+            }
+            const result = await enterRes.json();
+            appendLocalCommandTurn(
+              rawText,
+              `Entered plan mode: "${result.plan?.title ?? title}"\n\nI'll now explore the codebase and build a plan before writing any code. Tell me what you'd like to accomplish and I'll ask clarifying questions.\n\nUse \`/plan exit\` to approve and execute, or \`/plan exit discard\` to cancel.`,
+            );
+          } catch (err) {
+            appendLocalCommandTurn(
+              rawText,
+              `Error entering plan mode: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          return { handled: true };
+        }
+
         if (slash.name === "commands") {
           const customActions = (await client.listCustomActions()).filter(
             (action) => action.enabled,
@@ -229,6 +336,13 @@ export function useChatSend(deps: UseChatSendDeps) {
             .map((command) => `/${normalizeSlashCommandName(command.name)}`)
             .sort();
           const lines = [
+            formatSearchBullet("Built-in commands", [
+              "/plan [title] — enter plan mode",
+              "/plan status — check plan status",
+              "/plan exit — approve and execute plan",
+              "/plan exit discard — cancel plan",
+              "/commands — show this list",
+            ]),
             formatSearchBullet("Saved / commands", savedCommandNames),
             formatSearchBullet("Custom action / commands", customCommandNames),
             "Use #remember ... to save memory notes. Use #memory or #knowledge to target retrieval.",

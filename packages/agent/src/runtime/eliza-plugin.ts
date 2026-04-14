@@ -10,6 +10,10 @@ import type { IAgentRuntime, Plugin, ServiceClass } from "@elizaos/core";
 import { AgentEventService } from "@elizaos/core";
 import { calendarAction } from "../actions/calendar.js";
 import { emoteAction } from "../actions/emote.js";
+import {
+  enterPlanModeAction,
+  exitPlanModeAction,
+} from "../actions/plan-mode.js";
 import { gmailAction } from "../actions/gmail.js";
 import { lifeAction } from "../actions/life.js";
 import { restartAction } from "../actions/restart.js";
@@ -223,6 +227,8 @@ export function createElizaPlugin(config?: ElizaPluginConfig): Plugin {
       setUserNameAction,
       skillCommandAction,
       webSearchAction,
+      enterPlanModeAction,
+      exitPlanModeAction,
     ],
   };
 

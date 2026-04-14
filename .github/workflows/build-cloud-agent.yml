@@ -179,14 +179,45 @@ jobs:
           bun scripts/plugin-build.mjs
 
       # ── 6. Build runtime (tsdown) ───────────────────────────────────────────
-      # Stub Capacitor packages (not needed for web build, just need to resolve)
+      # Stub Capacitor packages (native-only, not needed for web/cloud build)
       - name: Stub Capacitor packages for web build
         run: |
-          for pkg in keyboard core app haptics status-bar; do
-            dir="node_modules/@capacitor/${pkg}"
-            mkdir -p "${dir}"
-            echo '{"name":"@capacitor/'${pkg}'","version":"0.0.0","main":"index.js","module":"index.js"}' > "${dir}/package.json"
-            echo 'export const Keyboard = { addListener: () => ({remove:()=>{}}), removeAllListeners: () => {} }; export default {};' > "${dir}/index.js"
+          mkdir -p node_modules/@capacitor/{core,keyboard,haptics,preferences,app,status-bar}
+          # @capacitor/core
+          cat > node_modules/@capacitor/core/package.json << 'EOF'
+          {"name":"@capacitor/core","version":"0.0.0","main":"index.js","module":"index.js","types":"index.d.ts"}
+          EOF
+          cat > node_modules/@capacitor/core/index.js << 'EOF'
+          export const Capacitor = { isNativePlatform: () => false, getPlatform: () => 'web', isPluginAvailable: () => false };
+          export class PluginListenerHandle { remove() {} }
+          EOF
+          # @capacitor/keyboard
+          cat > node_modules/@capacitor/keyboard/package.json << 'EOF'
+          {"name":"@capacitor/keyboard","version":"0.0.0","main":"index.js","module":"index.js"}
+          EOF
+          cat > node_modules/@capacitor/keyboard/index.js << 'EOF'
+          export const Keyboard = { addListener: () => ({remove:()=>{}}), removeAllListeners: () => {}, show: () => {}, hide: () => {} };
+          EOF
+          # @capacitor/haptics
+          cat > node_modules/@capacitor/haptics/package.json << 'EOF'
+          {"name":"@capacitor/haptics","version":"0.0.0","main":"index.js","module":"index.js"}
+          EOF
+          cat > node_modules/@capacitor/haptics/index.js << 'EOF'
+          export const Haptics = { impact: () => {}, notification: () => {}, vibrate: () => {} };
+          export const ImpactStyle = { Heavy: 'HEAVY', Medium: 'MEDIUM', Light: 'LIGHT' };
+          export const NotificationType = { Success: 'SUCCESS', Warning: 'WARNING', Error: 'ERROR' };
+          EOF
+          # @capacitor/preferences
+          cat > node_modules/@capacitor/preferences/package.json << 'EOF'
+          {"name":"@capacitor/preferences","version":"0.0.0","main":"index.js","module":"index.js"}
+          EOF
+          cat > node_modules/@capacitor/preferences/index.js << 'EOF'
+          export const Preferences = { get: async () => ({value:null}), set: async () => {}, remove: async () => {}, keys: async () => ({keys:[]}) };
+          EOF
+          # Generic stubs for app/status-bar
+          for pkg in app status-bar; do
+            echo '{"name":"@capacitor/'$pkg'","version":"0.0.0","main":"index.js","module":"index.js"}' > "node_modules/@capacitor/$pkg/package.json"
+            echo 'export default {};' > "node_modules/@capacitor/$pkg/index.js"
           done
           echo "Stubbed @capacitor/* packages"
 

@@ -179,6 +179,12 @@ jobs:
           bun scripts/plugin-build.mjs
 
       # ── 6. Build runtime (tsdown) ───────────────────────────────────────────
+      # Install Capacitor deps needed by app-core (not in root workspace)
+      - name: Install Capacitor platform deps
+        run: |
+          cd eliza/packages/app-core
+          bun install --ignore-scripts 2>/dev/null || npm install --ignore-scripts 2>/dev/null || true
+
       - name: Build runtime (tsdown)
         run: |
           npx tsdown

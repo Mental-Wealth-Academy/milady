@@ -95,6 +95,62 @@ jobs:
         env:
           MILADY_SKIP_LOCAL_UPSTREAMS: "1"
 
+      # ── 3.55. Restore build-critical workspaces ──────────────────────────
+      # The disable script removes eliza/* workspace entries. Re-add packages
+      # that exist on disk so bun install resolves their dependencies.
+      - name: Restore build-critical workspaces
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const dirs = [];
+            try { dirs.push(...fs.readdirSync("eliza/packages").map(d => "eliza/packages/" + d)); } catch {}
+            try { dirs.push(...fs.readdirSync("eliza/apps").map(d => "eliza/apps/" + d)); } catch {}
+            const restored = [];
+            for (const d of dirs) {
+              if (fs.existsSync(d + "/package.json") && !pkg.workspaces.includes(d)) {
+                pkg.workspaces.push(d);
+                restored.push(d);
+              }
+            }
+            const restoredNames = new Set();
+            for (const d of [...restored, ...pkg.workspaces.filter(w => !w.includes("*"))]) {
+              if (fs.existsSync(d + "/package.json")) {
+                try { restoredNames.add(JSON.parse(fs.readFileSync(d + "/package.json", "utf8")).name); } catch {}
+              }
+            }
+            if (pkg.overrides) {
+              for (const name of restoredNames) {
+                if (pkg.overrides[name] && pkg.overrides[name] !== "workspace:*") {
+                  pkg.overrides[name] = "workspace:*";
+                }
+              }
+            }
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+            console.log("[restore-workspaces] Re-added", restored.length, "workspace entries");
+            const allWsDirs = pkg.workspaces.filter(w => !w.includes("*"));
+            for (const d of allWsDirs) {
+              const p = d + "/package.json";
+              if (!fs.existsSync(p)) continue;
+              const wpkg = JSON.parse(fs.readFileSync(p, "utf8"));
+              let changed = false;
+              for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+                if (!wpkg[field]) continue;
+                const toDelete = [];
+                for (const [dep, ver] of Object.entries(wpkg[field])) {
+                  if (typeof ver !== "string" || !ver.startsWith("workspace:")) continue;
+                  if (restoredNames.has(dep)) continue;
+                  toDelete.push(dep);
+                  changed = true;
+                }
+                for (const dep of toDelete) {
+                  delete wpkg[field][dep];
+                }
+              }
+              if (changed) fs.writeFileSync(p, JSON.stringify(wpkg, null, 2) + "\n");
+            }
+          '
+
       # ── 3.6. Apply cloud patches to eliza source (for tsdown compilation)
       - name: Apply cloud patches
         run: |

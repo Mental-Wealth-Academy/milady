@@ -1,93 +1,74 @@
-diff --git a/packages/agent/src/api/health-routes.ts b/packages/agent/src/api/health-routes.ts
-index d28c6d5831..ddefccea52 100644
---- a/packages/agent/src/api/health-routes.ts
-+++ b/packages/agent/src/api/health-routes.ts
-@@ -413,6 +413,16 @@ export async function handleHealthRoutes(
-       ? Math.floor((Date.now() - state.startedAt) / 1000)
-       : 0;
- 
-+    // Reconcile plugin state with runtime's actual loaded plugins
-+    if (runtime?.plugins?.length) {
-+      const runtimeNames = new Set(runtime.plugins.map((p: any) => p.name));
-+      for (const entry of state.plugins) {
-+        if (runtimeNames.has(entry.name) && !entry.enabled) {
-+          entry.enabled = true;
-+        }
-+      }
-+    }
-+
-     const loadedPlugins = state.plugins.filter((p) => p.enabled);
-     const failedPlugins = state.plugins.filter(
-       (p) => !p.enabled && !p.configured,
-diff --git a/packages/agent/src/api/server.ts b/packages/agent/src/api/server.ts
-index 4603a9c1af..8836cfea15 100644
---- a/packages/agent/src/api/server.ts
-+++ b/packages/agent/src/api/server.ts
-@@ -6074,6 +6074,19 @@ export async function startApiServer(opts?: {
-     });
-   };
- 
-+  // ── Auto-apply cloud serviceRouting if MILADY_SERVICE_ROUTING is set ───
-+  if (process.env.MILADY_SERVICE_ROUTING) {
-+    try {
-+      const routing = JSON.parse(process.env.MILADY_SERVICE_ROUTING);
-+      if (routing && typeof routing === "object") {
-+        state.config = { ...state.config, serviceRouting: routing };
-+        logger.info("[cloud] Applied MILADY_SERVICE_ROUTING to config");
-+      }
-+    } catch (err) {
-+      logger.warn(`[cloud] Failed to parse MILADY_SERVICE_ROUTING: ${err instanceof Error ? err.message : String(err)}`);
-+    }
-+  }
-+
-   // ── Deferred startup work (non-blocking) ────────────────────────────────
-   // Keep API startup fast: listen first, then warm optional subsystems.
-   const startDeferredStartupWork = () => {
 diff --git a/packages/app-core/deploy/Dockerfile.ci b/packages/app-core/deploy/Dockerfile.ci
-index e1302a1477..b8e8ec63fc 100644
+index e1302a1477..e20a15a55a 100644
 --- a/packages/app-core/deploy/Dockerfile.ci
 +++ b/packages/app-core/deploy/Dockerfile.ci
-@@ -20,8 +20,16 @@ FROM node:${NODE_VERSION}-slim AS pruner
+@@ -20,11 +20,64 @@ FROM node:${NODE_VERSION}-slim AS pruner
  WORKDIR /app
  COPY . .
  
-+# Relink workspace packages to dist/ (resilient: skip if workspace disabled)
- RUN node eliza/packages/app-core/scripts/relink-workspace-packages-to-dist.mjs \
+-RUN node eliza/packages/app-core/scripts/relink-workspace-packages-to-dist.mjs \
 -  @elizaos/agent
-+  @elizaos/agent 2>/dev/null || echo "WARN: relink failed (workspace disabled?), using npm packages"
++# ===== FIX: Pre-compile workspace packages to prevent tsx runtime hang =====
++# Workspace symlinks point to raw TypeScript source. tsx/esbuild tries to
++# compile everything at runtime and hangs. Fix: build dist/ for all workspace
++# packages so tsx uses compiled JS. Install bun for the build steps.
++RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*
++RUN curl -fsSL https://bun.sh/install | bash
++ENV PATH="/root/.bun/bin:$PATH"
 +
-+# Ensure @elizaos/core dist/ is available (npm-installed version already has it)
-+RUN if [ -d node_modules/@elizaos/core/dist ]; then \
-+      echo "Core has dist/ - OK"; \
-+    else \
-+      echo "WARN: Core has no dist/ - tsx will compile from source"; \
-+    fi
++# Build @elizaos/core (needs buf for proto generation)
++RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v1.50.0/buf-Linux-x86_64" -o /usr/local/bin/buf && chmod +x /usr/local/bin/buf
++RUN cd eliza/packages/schemas && buf dep update && buf generate 2>&1 || true
++RUN cd eliza/packages/typescript && bun run build.ts 2>&1 || true
++
++# Build workspace packages that tsx would otherwise compile at runtime
++RUN cd eliza/packages/agent && bun run build 2>&1 || bun run build:dist 2>&1 || true
++RUN cd eliza/packages/shared && bun run build 2>&1 || true
++RUN cd eliza/packages/app-core && bun run build 2>&1 || true
++
++RUN echo "=== Workspace dist check ==="; \
++    for pkg in eliza/packages/typescript eliza/packages/agent eliza/packages/shared; do \
++      if [ -d "$pkg/dist" ]; then echo "  OK: $pkg/dist"; else echo "  MISS: $pkg/dist"; fi; \
++    done
++# ===== END FIX =====
  
  # Patch plugin-agent-skills getCatalogStats crash (alpha.11 vs alpha.66 interface mismatch)
  RUN sed -i 's/const stats = service.getCatalogStats();/const stats = typeof service.getCatalogStats === "function" ? service.getCatalogStats() : { loaded: 0, total: 0, storageType: "unknown" };/g' node_modules/@elizaos/plugin-agent-skills/dist/index.js 2>/dev/null || true
-@@ -61,6 +69,22 @@ RUN rm -rf \
-   apps/app/public \
-   2>/dev/null || true
++
++# ===== CLOUD RUNTIME PATCHES =====
++# Patch: TEXT_EMBEDDING crash on empty text (old dist throws instead of returning zero vector)
++RUN embed_js="$(find node_modules/@elizaos/plugin-local-embedding -name 'index.js' -path '*/dist/*' 2>/dev/null | head -1)"; \
++    [ -f "$embed_js" ] && sed -i 's/throw new Error("TEXT_EMBEDDING requires non-empty text");/return new Array(384).fill(0);/' "$embed_js" || true
++
++# Patch: SQL guard for getRelationships (empty entityId crash)
++RUN sql_js="$(find node_modules/@elizaos/plugin-sql -name 'index.node.js' -path '*/dist/*' 2>/dev/null | head -1)"; \
++    [ -f "$sql_js" ] && sed -i 's/async getRelationships(params) {/async getRelationships(params) {\n    if (!params?.entityId \&\& !params?.entityIds?.length) return [];/' "$sql_js" || true
++
++# Patch: Disable newer-message cancellation (causes typing loops in group chats)
++RUN for f in $(find node_modules/@elizaos/core/dist -name '*.js' 2>/dev/null); do \
++      sed -i 's/if (currentResponseId !== responseId && !opts.keepExistingResponses)/if (false)/g' "$f" 2>/dev/null || true; \
++    done
++
++# Patch: roles.js shim (dist/roles.js may be missing from npm package)
++RUN core_dir="node_modules/@elizaos/core"; \
++    if [ -d "$core_dir/dist" ]; then \
++      mkdir -p "$core_dir/dist/browser"; \
++      if [ ! -f "$core_dir/dist/roles.js" ]; then \
++        if [ -f "$core_dir/dist/browser/roles.js" ]; then \
++          echo 'export * from "./browser/roles.js";' > "$core_dir/dist/roles.js"; \
++        elif [ -d "$core_dir/src" ]; then \
++          echo 'export * from "../src/roles.ts";' > "$core_dir/dist/roles.js"; \
++        fi; \
++      fi; \
++      if [ ! -f "$core_dir/dist/browser/roles.js" ] && [ -d "$core_dir/src" ]; then \
++        echo 'export * from "../../src/roles.ts";' > "$core_dir/dist/browser/roles.js"; \
++      fi; \
++    fi
++# ===== END CLOUD RUNTIME PATCHES =====
++
+ ARG VERSION_CLEAN
  
-+# ===== Cloud runtime patches (sed) =====
-+# 1. Guard TEXT_EMBEDDING against empty/null text crash
-+RUN find dist node_modules/@elizaos -name '*.js' -exec grep -l 'ModelType.TEXT_EMBEDDING\|useModel.*TEXT_EMBEDDING' {} \; 2>/dev/null | head -20 | xargs -I{} sed -i 's/await this.useModel(ModelType.TEXT_EMBEDDING, {/await this.useModel(ModelType.TEXT_EMBEDDING, { text: (memoryText || "").trim() || "empty",/; s/text: memoryText,//' {} 2>/dev/null || true
-+
-+# 2. Disable newer-message cancellation (causes dropped responses in cloud)
-+RUN find dist -name '*.js' -exec sed -i 's/if (newerMessage)/if (false \&\& newerMessage)/g' {} \; 2>/dev/null || true
-+
-+# 3. Ensure roles.js shim exists if core dist doesn't include it
-+RUN if [ -d node_modules/@elizaos/core/dist ] && [ ! -f node_modules/@elizaos/core/dist/roles.js ]; then \
-+  echo 'export * from "../src/roles.ts";' > node_modules/@elizaos/core/dist/roles.js 2>/dev/null; \
-+  fi || true
-+
-+# 4. Hide desktop-only settings sections in cloud UI
-+RUN sed -i '/id: "permissions"/,/},/{s/id: "permissions"/id: "permissions", hidden: typeof window !== "undefined" \&\& window.location.hostname !== "localhost"/}' dist/server.js 2>/dev/null || true
-+# ===== End cloud runtime patches =====
-+
- # Remove source maps and test dirs
- RUN find node_modules -name '*.map' -delete 2>/dev/null; \
-   find node_modules -type d -name '__tests__' -exec rm -rf {} + 2>/dev/null; \
+ # Patch autonomous version
 diff --git a/packages/app-core/src/api/server.ts b/packages/app-core/src/api/server.ts
 index d1f614a15f..8dd9c0cfe9 100644
 --- a/packages/app-core/src/api/server.ts

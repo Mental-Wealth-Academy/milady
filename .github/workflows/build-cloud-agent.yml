@@ -90,7 +90,15 @@ jobs:
       # ── 3.5. Init submodules (keep eliza workspace for cloud builds) ─────────────────────────
       - name: Init submodules
         run: |
+          # Init eliza (non-recursive) so source is available for patches + builds
+          git submodule update --init --depth=1 eliza
+          # Init other submodules (skip eliza recursive to avoid 32 plugin submodules)
           node scripts/init-submodules.mjs
+          # Disable eliza workspace: rewrites workspace:* to registry versions
+          # but keeps eliza/ on disk so CI can build from patched source
+          node scripts/disable-local-eliza-workspace.mjs
+        env:
+          MILADY_SKIP_LOCAL_UPSTREAMS: "1"
 
       # ── 3.6. Apply cloud patches to eliza submodule ─────────────────────────
       - name: Apply cloud patches to eliza
@@ -127,6 +135,22 @@ jobs:
           bun run build:node
           # Create dist/package.json so the relink script can process @elizaos/core
           node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); delete p.scripts; delete p.devDependencies; require('fs').writeFileSync('dist/package.json', JSON.stringify(p,null,2))"
+
+      # ── 5.5 Overlay patched builds into node_modules ──────────────────────
+      - name: Overlay patched builds into node_modules
+        run: |
+          # After CI builds, overlay the patched dist/ over npm-installed packages
+          # so Docker gets our patched code, not the published npm versions
+          if [ -d eliza/packages/typescript/dist ]; then
+            rm -rf node_modules/@elizaos/core/dist
+            cp -r eliza/packages/typescript/dist node_modules/@elizaos/core/dist
+            echo "Overlaid patched @elizaos/core dist"
+          fi
+          if [ -d eliza/packages/agent/dist ]; then
+            rm -rf node_modules/@elizaos/agent/dist
+            cp -r eliza/packages/agent/dist node_modules/@elizaos/agent/dist
+            echo "Overlaid patched @elizaos/agent dist"
+          fi
 
       # ── 6. Build runtime (tsdown) ───────────────────────────────────────────
       - name: Build runtime (tsdown)

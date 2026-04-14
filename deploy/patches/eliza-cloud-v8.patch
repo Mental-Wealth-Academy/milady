@@ -44,19 +44,28 @@ index 4603a9c1af..8836cfea15 100644
    // Keep API startup fast: listen first, then warm optional subsystems.
    const startDeferredStartupWork = () => {
 diff --git a/packages/app-core/deploy/Dockerfile.ci b/packages/app-core/deploy/Dockerfile.ci
-index e1302a1477..4a62eb3559 100644
+index e1302a1477..b8e8ec63fc 100644
 --- a/packages/app-core/deploy/Dockerfile.ci
 +++ b/packages/app-core/deploy/Dockerfile.ci
-@@ -21,7 +21,7 @@ WORKDIR /app
+@@ -20,8 +20,16 @@ FROM node:${NODE_VERSION}-slim AS pruner
+ WORKDIR /app
  COPY . .
  
++# Relink workspace packages to dist/ (resilient: skip if workspace disabled)
  RUN node eliza/packages/app-core/scripts/relink-workspace-packages-to-dist.mjs \
 -  @elizaos/agent
-+  @elizaos/agent @elizaos/core
++  @elizaos/agent 2>/dev/null || echo "WARN: relink failed (workspace disabled?), using npm packages"
++
++# Ensure @elizaos/core dist/ is available (npm-installed version already has it)
++RUN if [ -d node_modules/@elizaos/core/dist ]; then \
++      echo "Core has dist/ - OK"; \
++    else \
++      echo "WARN: Core has no dist/ - tsx will compile from source"; \
++    fi
  
  # Patch plugin-agent-skills getCatalogStats crash (alpha.11 vs alpha.66 interface mismatch)
  RUN sed -i 's/const stats = service.getCatalogStats();/const stats = typeof service.getCatalogStats === "function" ? service.getCatalogStats() : { loaded: 0, total: 0, storageType: "unknown" };/g' node_modules/@elizaos/plugin-agent-skills/dist/index.js 2>/dev/null || true
-@@ -61,6 +61,22 @@ RUN rm -rf \
+@@ -61,6 +69,22 @@ RUN rm -rf \
    apps/app/public \
    2>/dev/null || true
  

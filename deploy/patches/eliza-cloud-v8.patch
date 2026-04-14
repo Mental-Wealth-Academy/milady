@@ -1,0 +1,97 @@
+diff --git a/packages/agent/src/api/health-routes.ts b/packages/agent/src/api/health-routes.ts
+index d28c6d5831..ddefccea52 100644
+--- a/packages/agent/src/api/health-routes.ts
++++ b/packages/agent/src/api/health-routes.ts
+@@ -413,6 +413,16 @@ export async function handleHealthRoutes(
+       ? Math.floor((Date.now() - state.startedAt) / 1000)
+       : 0;
+ 
++    // Reconcile plugin state with runtime's actual loaded plugins
++    if (runtime?.plugins?.length) {
++      const runtimeNames = new Set(runtime.plugins.map((p: any) => p.name));
++      for (const entry of state.plugins) {
++        if (runtimeNames.has(entry.name) && !entry.enabled) {
++          entry.enabled = true;
++        }
++      }
++    }
++
+     const loadedPlugins = state.plugins.filter((p) => p.enabled);
+     const failedPlugins = state.plugins.filter(
+       (p) => !p.enabled && !p.configured,
+diff --git a/packages/agent/src/api/server.ts b/packages/agent/src/api/server.ts
+index 4603a9c1af..8836cfea15 100644
+--- a/packages/agent/src/api/server.ts
++++ b/packages/agent/src/api/server.ts
+@@ -6074,6 +6074,19 @@ export async function startApiServer(opts?: {
+     });
+   };
+ 
++  // ── Auto-apply cloud serviceRouting if MILADY_SERVICE_ROUTING is set ───
++  if (process.env.MILADY_SERVICE_ROUTING) {
++    try {
++      const routing = JSON.parse(process.env.MILADY_SERVICE_ROUTING);
++      if (routing && typeof routing === "object") {
++        state.config = { ...state.config, serviceRouting: routing };
++        logger.info("[cloud] Applied MILADY_SERVICE_ROUTING to config");
++      }
++    } catch (err) {
++      logger.warn(`[cloud] Failed to parse MILADY_SERVICE_ROUTING: ${err instanceof Error ? err.message : String(err)}`);
++    }
++  }
++
+   // ── Deferred startup work (non-blocking) ────────────────────────────────
+   // Keep API startup fast: listen first, then warm optional subsystems.
+   const startDeferredStartupWork = () => {
+diff --git a/packages/app-core/deploy/Dockerfile.ci b/packages/app-core/deploy/Dockerfile.ci
+index e1302a1477..4a62eb3559 100644
+--- a/packages/app-core/deploy/Dockerfile.ci
++++ b/packages/app-core/deploy/Dockerfile.ci
+@@ -21,7 +21,7 @@ WORKDIR /app
+ COPY . .
+ 
+ RUN node eliza/packages/app-core/scripts/relink-workspace-packages-to-dist.mjs \
+-  @elizaos/agent
++  @elizaos/agent @elizaos/core
+ 
+ # Patch plugin-agent-skills getCatalogStats crash (alpha.11 vs alpha.66 interface mismatch)
+ RUN sed -i 's/const stats = service.getCatalogStats();/const stats = typeof service.getCatalogStats === "function" ? service.getCatalogStats() : { loaded: 0, total: 0, storageType: "unknown" };/g' node_modules/@elizaos/plugin-agent-skills/dist/index.js 2>/dev/null || true
+@@ -61,6 +61,22 @@ RUN rm -rf \
+   apps/app/public \
+   2>/dev/null || true
+ 
++# ===== Cloud runtime patches (sed) =====
++# 1. Guard TEXT_EMBEDDING against empty/null text crash
++RUN find dist node_modules/@elizaos -name '*.js' -exec grep -l 'ModelType.TEXT_EMBEDDING\|useModel.*TEXT_EMBEDDING' {} \; 2>/dev/null | head -20 | xargs -I{} sed -i 's/await this.useModel(ModelType.TEXT_EMBEDDING, {/await this.useModel(ModelType.TEXT_EMBEDDING, { text: (memoryText || "").trim() || "empty",/; s/text: memoryText,//' {} 2>/dev/null || true
++
++# 2. Disable newer-message cancellation (causes dropped responses in cloud)
++RUN find dist -name '*.js' -exec sed -i 's/if (newerMessage)/if (false \&\& newerMessage)/g' {} \; 2>/dev/null || true
++
++# 3. Ensure roles.js shim exists if core dist doesn't include it
++RUN if [ -d node_modules/@elizaos/core/dist ] && [ ! -f node_modules/@elizaos/core/dist/roles.js ]; then \
++  echo 'export * from "../src/roles.ts";' > node_modules/@elizaos/core/dist/roles.js 2>/dev/null; \
++  fi || true
++
++# 4. Hide desktop-only settings sections in cloud UI
++RUN sed -i '/id: "permissions"/,/},/{s/id: "permissions"/id: "permissions", hidden: typeof window !== "undefined" \&\& window.location.hostname !== "localhost"/}' dist/server.js 2>/dev/null || true
++# ===== End cloud runtime patches =====
++
+ # Remove source maps and test dirs
+ RUN find node_modules -name '*.map' -delete 2>/dev/null; \
+   find node_modules -type d -name '__tests__' -exec rm -rf {} + 2>/dev/null; \
+diff --git a/packages/app-core/src/api/server.ts b/packages/app-core/src/api/server.ts
+index d1f614a15f..8dd9c0cfe9 100644
+--- a/packages/app-core/src/api/server.ts
++++ b/packages/app-core/src/api/server.ts
+@@ -991,6 +991,11 @@ async function handleCompatRoute(
+     return true;
+   }
+ 
++  // Exempt non-API paths (static assets, SPA routes) from the compat auth catch-all
++  if (!url.pathname.startsWith("/api/") && !url.pathname.startsWith("/v1/") && !url.pathname.startsWith("/ws")) {
++    return false;
++  }
++
+   if (!ensureCompatApiAuthorized(req, res)) return true;
+   return handleDatabaseRowsCompatRoute(req, res, state.current);
+ }

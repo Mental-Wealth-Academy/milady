@@ -21,6 +21,7 @@ on:
     branches:
       - cloud/main
       - cloud/staging
+      - cloud/staging-v8
   workflow_dispatch:
     inputs:
       version:
@@ -94,6 +95,14 @@ jobs:
         env:
           MILADY_SKIP_LOCAL_UPSTREAMS: "1"
 
+      # ── 3.6. Apply cloud patches to eliza submodule ─────────────────────────
+      - name: Apply cloud patches to eliza
+        run: |
+          if [ -f deploy/patches/eliza-cloud-v8.patch ]; then
+            cd eliza && git apply ../deploy/patches/eliza-cloud-v8.patch && cd ..
+            echo "Applied cloud patches to eliza submodule"
+          fi
+
       # ── 4. Install dependencies ─────────────────────────────────────────────
       - name: Install dependencies
         run: bun install --ignore-scripts
@@ -119,6 +128,8 @@ jobs:
         run: |
           cd eliza/packages/typescript
           bun run build:node
+          # Create dist/package.json so the relink script can process @elizaos/core
+          node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); delete p.scripts; delete p.devDependencies; require('fs').writeFileSync('dist/package.json', JSON.stringify(p,null,2))"
 
       # ── 6. Build runtime (tsdown) ───────────────────────────────────────────
       - name: Build runtime (tsdown)
@@ -131,7 +142,7 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          if [ "${SOURCE_REF}" = "cloud/staging" ]; then
+          if [ "${SOURCE_REF}" = "cloud/staging" ] || [ "${SOURCE_REF}" = "cloud/staging-v8" ]; then
             VERSION_PREFIX="cloud-staging-v"
             LATEST_TAG="cloud-staging-latest"
             BUILD_ENVIRONMENT="staging"

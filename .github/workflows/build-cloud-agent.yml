@@ -179,10 +179,16 @@ jobs:
           bun scripts/plugin-build.mjs
 
       # ── 6. Build runtime (tsdown) ───────────────────────────────────────────
-      # Install Capacitor deps needed by app-core (not hoisted to root)
-      - name: Install Capacitor platform deps
+      # Stub Capacitor packages (not needed for web build, just need to resolve)
+      - name: Stub Capacitor packages for web build
         run: |
-          npm install --no-save @capacitor/keyboard@8.0.0 @capacitor/core @capacitor/app @capacitor/haptics @capacitor/status-bar 2>/dev/null || true
+          for pkg in keyboard core app haptics status-bar; do
+            dir="node_modules/@capacitor/${pkg}"
+            mkdir -p "${dir}"
+            echo '{"name":"@capacitor/'${pkg}'","version":"0.0.0","main":"index.js","module":"index.js"}' > "${dir}/package.json"
+            echo 'export const Keyboard = { addListener: () => ({remove:()=>{}}), removeAllListeners: () => {} }; export default {};' > "${dir}/index.js"
+          done
+          echo "Stubbed @capacitor/* packages"
 
       - name: Build runtime (tsdown)
         run: |

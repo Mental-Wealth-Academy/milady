@@ -92,7 +92,7 @@ description: "27 个消息平台的平台桥接器 — 18 个通过配置自动�
 | 字段 | 类型 | 描述 |
 |-------|------|-------------|
 | `enabled` | boolean | 启用或禁用连接器 |
-| `dmPolicy` | string | 私信接受策略：`"pairing"`（默认）、`"open"` 或 `"closed"` |
+| `dmPolicy` | string | 私信接受策略：`"pairing"`（默认）、`"allowlist"`、`"open"` 或 `"disabled"` |
 | `allowFrom` | string[] | 用户 ID 白名单（当 `dmPolicy: "open"` 时必需） |
 | `groupPolicy` | string | 群组消息策略：`"allowlist"`（默认）或 `"open"` |
 | `groupAllowFrom` | string[] | 群组 ID 白名单 |
@@ -655,7 +655,7 @@ description: "27 个消息平台的平台桥接器 — 18 个通过配置自动�
 }
 ```
 
-**环境变量：** `BLUESKY_ENABLED`、`BLUESKY_DRY_RUN`、`BLUESKY_USERNAME`、`BLUESKY_PASSWORD`、`BLUESKY_HANDLE`
+**环境变量：** `BLUESKY_HANDLE`、`BLUESKY_PASSWORD`、`BLUESKY_ENABLED`、`BLUESKY_DRY_RUN`、`BLUESKY_SERVICE`
 
 <div id="features-11">
 ### 功能特性
@@ -1471,7 +1471,7 @@ Gmail Watch 通过 `features.gmailWatch` 标志或环境变量启用，而非 `c
 **Bluesky：**
 
 - 认证失败：
-  确认 `BLUESKY_USERNAME` 和 `BLUESKY_PASSWORD` 环境变量已设置。Bluesky 使用 app password，而非你的主账户密码。
+  确认 `BLUESKY_HANDLE` 和 `BLUESKY_PASSWORD` 环境变量已设置。Bluesky 使用 app password，而非你的主账户密码。
 
 **Instagram：**
 

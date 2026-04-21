@@ -62,13 +62,13 @@ Bluesky 连接器是一个 elizaOS 插件，通过 AT 协议将你的代理桥�
 
 </div>
 
-| 变量 | 描述 |
-|------|------|
-| `BLUESKY_USERNAME` | Bluesky 用户名/邮箱 |
-| `BLUESKY_PASSWORD` | 应用密码（不是你的主密码） |
-| `BLUESKY_HANDLE` | Bluesky handle（例如 `yourname.bsky.social`） |
-| `BLUESKY_ENABLED` | 设置为 `true` 以启用 |
-| `BLUESKY_DRY_RUN` | 设置为 `true` 以测试而不发布 |
+| 变量 | 必需 | 描述 |
+|------|------|------|
+| `BLUESKY_HANDLE` | 是 | Bluesky handle（例如 `yourname.bsky.social`） |
+| `BLUESKY_PASSWORD` | 是 | 应用密码（不是你的主账户密码） |
+| `BLUESKY_ENABLED` | 否 | 设置为 `true` 以启用（默认：`true`） |
+| `BLUESKY_SERVICE` | 否 | PDS 实例 URL（默认：`https://bsky.social`） |
+| `BLUESKY_DRY_RUN` | 否 | 设置为 `true` 以测试而不发布 |
 
 <div id="features">
 

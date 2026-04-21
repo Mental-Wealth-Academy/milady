@@ -62,13 +62,13 @@ A diferencia de los 19 conectores auto-habilitados (Discord, Telegram, etc.), Bl
 
 </div>
 
-| Variable | Descripción |
-|----------|-------------|
-| `BLUESKY_USERNAME` | Nombre de usuario/email de Bluesky |
-| `BLUESKY_PASSWORD` | Contraseña de aplicación (no tu contraseña principal) |
-| `BLUESKY_HANDLE` | Handle de Bluesky (por ejemplo, `yourname.bsky.social`) |
-| `BLUESKY_ENABLED` | Establecer a `true` para habilitar |
-| `BLUESKY_DRY_RUN` | Establecer a `true` para pruebas sin publicar |
+| Variable | Requerido | Descripción |
+|----------|----------|-------------|
+| `BLUESKY_HANDLE` | Sí | Handle de Bluesky (por ejemplo, `yourname.bsky.social`) |
+| `BLUESKY_PASSWORD` | Sí | Contraseña de aplicación (no tu contraseña principal) |
+| `BLUESKY_ENABLED` | No | Establecer a `true` para habilitar (por defecto: `true`) |
+| `BLUESKY_SERVICE` | No | URL de la instancia PDS (por defecto: `https://bsky.social`) |
+| `BLUESKY_DRY_RUN` | No | Establecer a `true` para pruebas sin publicar |
 
 <div id="features">
 

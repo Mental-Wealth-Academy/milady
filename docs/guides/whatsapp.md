@@ -124,7 +124,7 @@ These fields apply to all accounts unless overridden:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `accounts` | object | -- | Named account configurations |
-| `dmPolicy` | string | `"pairing"` | DM acceptance policy: `"pairing"`, `"open"`, or `"closed"` |
+| `dmPolicy` | string | `"pairing"` | DM acceptance policy: `"pairing"`, `"allowlist"`, `"open"`, or `"disabled"` |
 | `sendReadReceipts` | boolean | -- | Send read receipts for incoming messages |
 | `selfChatMode` | boolean | -- | Respond to your own messages (for testing; avoid in production) |
 | `messagePrefix` | string | -- | Text prefix added to all outgoing messages |

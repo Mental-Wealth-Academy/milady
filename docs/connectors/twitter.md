@@ -55,7 +55,16 @@ No environment variable is required to trigger auto-enable — it is driven enti
 
 ## Environment Variables
 
-Unlike Discord, Telegram, and Slack, the Twitter connector does **not** inject secrets into `process.env` via the runtime's `CHANNEL_ENV_MAP`. Twitter credentials are read directly from the `connectors.twitter` config object by the plugin.
+Unlike Discord, Telegram, and Slack, the Twitter connector reads credentials directly from the `connectors.twitter` config object rather than from `process.env`. All authentication fields are set in the connector config block:
+
+| Config Field | Description |
+|-------------|-------------|
+| `apiKey` | Twitter/X API key (consumer key) |
+| `apiSecretKey` | API secret key (consumer secret) |
+| `accessToken` | OAuth access token |
+| `accessTokenSecret` | OAuth access token secret |
+
+If you prefer environment variables, set them under the `env` key in `milady.json` and reference them in the connector config, or use the `env` section to populate `TWITTER_API_KEY`, `TWITTER_API_SECRET_KEY`, `TWITTER_ACCESS_TOKEN`, and `TWITTER_ACCESS_TOKEN_SECRET` — the plugin checks both locations.
 
 ## Full Configuration Reference
 

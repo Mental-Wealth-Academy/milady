@@ -62,13 +62,13 @@ Contrairement aux 19 connecteurs auto-activés (Discord, Telegram, etc.), Bluesk
 
 </div>
 
-| Variable | Description |
-|----------|-------------|
-| `BLUESKY_USERNAME` | Nom d'utilisateur/email Bluesky |
-| `BLUESKY_PASSWORD` | Mot de passe d'application (pas votre mot de passe principal) |
-| `BLUESKY_HANDLE` | Handle Bluesky (par exemple, `yourname.bsky.social`) |
-| `BLUESKY_ENABLED` | Définir à `true` pour activer |
-| `BLUESKY_DRY_RUN` | Définir à `true` pour tester sans publier |
+| Variable | Requis | Description |
+|----------|--------|-------------|
+| `BLUESKY_HANDLE` | Oui | Handle Bluesky (par exemple, `yourname.bsky.social`) |
+| `BLUESKY_PASSWORD` | Oui | Mot de passe d'application (pas votre mot de passe principal) |
+| `BLUESKY_ENABLED` | Non | Définir à `true` pour activer (par défaut : `true`) |
+| `BLUESKY_SERVICE` | Non | URL de l'instance PDS (par défaut : `https://bsky.social`) |
+| `BLUESKY_DRY_RUN` | Non | Définir à `true` pour tester sans publier |
 
 <div id="features">
 

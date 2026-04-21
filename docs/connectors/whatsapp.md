@@ -115,7 +115,7 @@ All fields are defined under `connectors.whatsapp` in `milady.json`.
 | `accounts` | object | -- | Named account configurations (see Multi-Account below) |
 | `authDir` | string | -- | Directory for Baileys session files (single-account shorthand) |
 | `enabled` | boolean | -- | Explicitly enable/disable |
-| `dmPolicy` | `"pairing"` \| `"open"` \| `"closed"` | `"pairing"` | DM acceptance policy. `"open"` requires `allowFrom` to include `"*"` |
+| `dmPolicy` | `"pairing"` \| `"allowlist"` \| `"open"` \| `"disabled"` | `"pairing"` | DM acceptance policy. `"open"` requires `allowFrom` to include `"*"` |
 | `allowFrom` | string[] | -- | Allowlist of phone numbers (required when `dmPolicy: "open"`) |
 | `groupPolicy` | `"open"` \| `"disabled"` \| `"allowlist"` | `"allowlist"` | Group message policy |
 | `groupAllowFrom` | string[] | -- | Allowlist of group JIDs |

@@ -44,20 +44,17 @@ milady plugins install bluesky
 {
   "connectors": {
     "bluesky": {
-      "username": "YOUR_USERNAME",
-      "password": "YOUR_PASSWORD",
-      "handle": "YOUR_HANDLE"
+      "enabled": true
     }
   }
 }
 ```
 
-O mediante variables de entorno:
+Establecer credenciales mediante variables de entorno:
 
 ```bash
-export BLUESKY_USERNAME=YOUR_USERNAME
-export BLUESKY_PASSWORD=YOUR_PASSWORD
-export BLUESKY_HANDLE=YOUR_HANDLE
+export BLUESKY_HANDLE=yourname.bsky.social
+export BLUESKY_PASSWORD=your-app-password
 ```
 
 <div id="configuration">
@@ -66,24 +63,13 @@ export BLUESKY_HANDLE=YOUR_HANDLE
 
 </div>
 
-| Campo | Requerido | Descripción |
-|-------|-----------|-------------|
-| `username` | Sí | Nombre de usuario de la cuenta de Bluesky |
-| `password` | Sí | Contraseña de cuenta o contraseña de aplicación de Bluesky |
-| `handle` | Sí | Handle de Bluesky (por ejemplo, `yourname.bsky.social`) |
-| `enabled` | No | Establecer `false` para deshabilitar (predeterminado: `true`) |
-
-<div id="environment-variables">
-
-## Variables de entorno
-
-</div>
-
-```bash
-export BLUESKY_USERNAME=YOUR_USERNAME
-export BLUESKY_PASSWORD=YOUR_PASSWORD
-export BLUESKY_HANDLE=YOUR_HANDLE
-```
+| Variable de entorno | Requerido | Descripción |
+|--------------------|-----------|-------------|
+| `BLUESKY_HANDLE` | Sí | Handle de Bluesky (por ejemplo, `yourname.bsky.social`) |
+| `BLUESKY_PASSWORD` | Sí | Contraseña de aplicación (no tu contraseña principal) |
+| `BLUESKY_ENABLED` | No | Establecer a `true` para habilitar (por defecto: `true`) |
+| `BLUESKY_SERVICE` | No | URL de la instancia PDS (por defecto: `https://bsky.social`) |
+| `BLUESKY_DRY_RUN` | No | Establecer a `true` para pruebas sin publicar |
 
 <div id="related">
 

@@ -44,20 +44,17 @@ milady plugins install bluesky
 {
   "connectors": {
     "bluesky": {
-      "username": "YOUR_USERNAME",
-      "password": "YOUR_PASSWORD",
-      "handle": "YOUR_HANDLE"
+      "enabled": true
     }
   }
 }
 ```
 
-或通过环境变量：
+通过环境变量设置凭据：
 
 ```bash
-export BLUESKY_USERNAME=YOUR_USERNAME
-export BLUESKY_PASSWORD=YOUR_PASSWORD
-export BLUESKY_HANDLE=YOUR_HANDLE
+export BLUESKY_HANDLE=yourname.bsky.social
+export BLUESKY_PASSWORD=your-app-password
 ```
 
 <div id="configuration">
@@ -66,24 +63,13 @@ export BLUESKY_HANDLE=YOUR_HANDLE
 
 </div>
 
-| 字段 | 必填 | 描述 |
-|------|------|------|
-| `username` | 是 | Bluesky 账户用户名 |
-| `password` | 是 | Bluesky 账户密码或应用密码 |
-| `handle` | 是 | Bluesky handle（例如 `yourname.bsky.social`） |
-| `enabled` | 否 | 设置为 `false` 以禁用（默认：`true`） |
-
-<div id="environment-variables">
-
-## 环境变量
-
-</div>
-
-```bash
-export BLUESKY_USERNAME=YOUR_USERNAME
-export BLUESKY_PASSWORD=YOUR_PASSWORD
-export BLUESKY_HANDLE=YOUR_HANDLE
-```
+| 环境变量 | 必填 | 描述 |
+|----------|------|------|
+| `BLUESKY_HANDLE` | 是 | Bluesky handle（例如 `yourname.bsky.social`） |
+| `BLUESKY_PASSWORD` | 是 | 应用密码（不是你的主账户密码） |
+| `BLUESKY_ENABLED` | 否 | 设置为 `true` 以启用（默认：`true`） |
+| `BLUESKY_SERVICE` | 否 | PDS 实例 URL（默认：`https://bsky.social`） |
+| `BLUESKY_DRY_RUN` | 否 | 设置为 `true` 以测试而不发布 |
 
 <div id="related">
 

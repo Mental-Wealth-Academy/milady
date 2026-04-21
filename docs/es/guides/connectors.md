@@ -92,7 +92,7 @@ Los conectores se configuran en la sección `connectors` de `milady.json`. Campo
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
 | `enabled` | boolean | Habilitar o deshabilitar el conector |
-| `dmPolicy` | string | Aceptación de MDs: `"pairing"` (por defecto), `"open"` o `"closed"` |
+| `dmPolicy` | string | Aceptación de MDs: `"pairing"` (por defecto), `"allowlist"`, `"open"` o `"disabled"` |
 | `allowFrom` | string[] | Lista de permitidos de IDs de usuario (requerida cuando `dmPolicy: "open"`) |
 | `groupPolicy` | string | Política de mensajes de grupo: `"allowlist"` (por defecto) o `"open"` |
 | `groupAllowFrom` | string[] | Lista de permitidos de IDs de grupo |
@@ -655,7 +655,7 @@ Se conecta a mensajería de iMessage y SMS a través del servicio Blooio con web
 }
 ```
 
-**Variables de entorno:** `BLUESKY_ENABLED`, `BLUESKY_DRY_RUN`, `BLUESKY_USERNAME`, `BLUESKY_PASSWORD`, `BLUESKY_HANDLE`
+**Variables de entorno:** `BLUESKY_HANDLE`, `BLUESKY_PASSWORD`, `BLUESKY_ENABLED`, `BLUESKY_DRY_RUN`, `BLUESKY_SERVICE`
 
 <div id="features-11">
 ### Funcionalidades
@@ -1474,7 +1474,7 @@ Las opciones de `dmPolicy` son:
 **Bluesky:**
 
 - La autenticación falla:
-  Confirmar que las variables de entorno `BLUESKY_USERNAME` y `BLUESKY_PASSWORD` están establecidas. Bluesky usa contraseñas de app, no la contraseña principal de tu cuenta.
+  Confirmar que las variables de entorno `BLUESKY_HANDLE` y `BLUESKY_PASSWORD` están establecidas. Bluesky usa contraseñas de app, no la contraseña principal de tu cuenta.
 
 **Instagram:**
 

@@ -86,7 +86,7 @@ Connectors are configured in the `connectors` section of `milady.json`. Common f
 | Field | Type | Description |
 |-------|------|-------------|
 | `enabled` | boolean | Enable or disable the connector |
-| `dmPolicy` | string | DM acceptance: `"pairing"` (default), `"open"`, or `"closed"` |
+| `dmPolicy` | string | DM acceptance: `"pairing"` (default), `"allowlist"`, `"open"`, or `"disabled"` |
 | `allowFrom` | string[] | Allowlist of user IDs (required when `dmPolicy: "open"`) |
 | `groupPolicy` | string | Group message policy: `"allowlist"` (default) or `"open"` |
 | `groupAllowFrom` | string[] | Allowlist of group IDs |
@@ -555,7 +555,7 @@ Connects to iMessage and SMS messaging via the Blooio service with signed webhoo
 }
 ```
 
-**Environment variables:** `BLUESKY_ENABLED`, `BLUESKY_DRY_RUN`, `BLUESKY_USERNAME`, `BLUESKY_PASSWORD`, `BLUESKY_HANDLE`
+**Environment variables:** `BLUESKY_HANDLE`, `BLUESKY_PASSWORD`, `BLUESKY_ENABLED`, `BLUESKY_DRY_RUN`, `BLUESKY_SERVICE`
 
 ### Features
 
@@ -1115,8 +1115,9 @@ The `dmPolicy` options are:
 | Policy | Behavior |
 |--------|----------|
 | `pairing` | Default. Agent responds after a pairing/onboarding flow. |
+| `allowlist` | Agent responds only to users in the `allowFrom` list. |
 | `open` | Agent responds to all DMs. Requires `allowFrom: ["*"]`. |
-| `closed` | Agent does not respond to DMs. |
+| `disabled` | Agent does not respond to DMs. |
 
 ---
 
@@ -1244,7 +1245,7 @@ The `dmPolicy` options are:
 **Bluesky:**
 
 - Authentication fails:
-  Confirm `BLUESKY_USERNAME` and `BLUESKY_PASSWORD` environment variables are set. Bluesky uses app passwords, not your main account password.
+  Confirm `BLUESKY_HANDLE` and `BLUESKY_PASSWORD` environment variables are set. Bluesky uses app passwords, not your main account password.
 
 **Instagram:**
 

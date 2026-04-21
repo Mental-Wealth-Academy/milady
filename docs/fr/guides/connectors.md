@@ -92,7 +92,7 @@ Les connecteurs sont configurés dans la section `connectors` de `milady.json`. 
 | Champ | Type | Description |
 |-------|------|-------------|
 | `enabled` | boolean | Activer ou désactiver le connecteur |
-| `dmPolicy` | string | Acceptation des MP : `"pairing"` (par défaut), `"open"` ou `"closed"` |
+| `dmPolicy` | string | Acceptation des MP : `"pairing"` (par défaut), `"allowlist"`, `"open"` ou `"disabled"` |
 | `allowFrom` | string[] | Liste blanche d'identifiants utilisateur (requise lorsque `dmPolicy: "open"`) |
 | `groupPolicy` | string | Politique de messages de groupe : `"allowlist"` (par défaut) ou `"open"` |
 | `groupAllowFrom` | string[] | Liste blanche d'identifiants de groupe |
@@ -655,7 +655,7 @@ Se connecte à la messagerie iMessage et SMS via le service Blooio avec des webh
 }
 ```
 
-**Variables d'environnement :** `BLUESKY_ENABLED`, `BLUESKY_DRY_RUN`, `BLUESKY_USERNAME`, `BLUESKY_PASSWORD`, `BLUESKY_HANDLE`
+**Variables d'environnement :** `BLUESKY_HANDLE`, `BLUESKY_PASSWORD`, `BLUESKY_ENABLED`, `BLUESKY_DRY_RUN`, `BLUESKY_SERVICE`
 
 <div id="features-11">
 ### Fonctionnalités
@@ -1474,7 +1474,7 @@ Les options de `dmPolicy` sont :
 **Bluesky :**
 
 - L'authentification échoue :
-  Confirmez que les variables d'environnement `BLUESKY_USERNAME` et `BLUESKY_PASSWORD` sont définies. Bluesky utilise des mots de passe d'application, pas le mot de passe de votre compte principal.
+  Confirmez que les variables d'environnement `BLUESKY_HANDLE` et `BLUESKY_PASSWORD` sont définies. Bluesky utilise des mots de passe d'application, pas le mot de passe de votre compte principal.
 
 **Instagram :**
 

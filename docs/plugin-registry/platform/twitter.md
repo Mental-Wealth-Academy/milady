@@ -10,8 +10,10 @@ The Twitter plugin connects Milady agents to Twitter/X, enabling autonomous post
 
 ## Installation
 
+The Twitter plugin is an external elizaOS package. It auto-enables when `connectors.twitter` contains valid credentials in your config. If the plugin is not already available in your installation, install it manually:
+
 ```bash
-milady plugins install twitter
+npm install @elizaos/plugin-twitter@alpha
 ```
 
 ## Setup

@@ -1,7 +1,7 @@
 ---
 title: "Platform Connectors"
 sidebarTitle: "Connectors"
-description: "Platform bridges for 27 messaging platforms — 18 auto-enabled from config (Discord, Telegram, Slack, WhatsApp, Signal, iMessage, Blooio, MS Teams, Google Chat, Twitter, Farcaster, Twitch, Mattermost, Matrix, Feishu, Nostr, Lens, WeChat) plus 9 installable from the registry (Bluesky, Instagram, LINE, Zalo, Twilio, GitHub, Gmail Watch, Nextcloud Talk, Tlon)."
+description: "Platform bridges for 30 messaging and agent platforms — 18 auto-enabled from config (Discord, Telegram, Slack, WhatsApp, Signal, iMessage, Blooio, MS Teams, Google Chat, Twitter, Farcaster, Twitch, Mattermost, Matrix, Feishu, Nostr, Lens, WeChat) plus 12 installable from the registry (ACP, BlueBubbles, Bluesky, Instagram, LINE, Zalo, Zalo User, Twilio, GitHub, Gmail Watch, Nextcloud Talk, Tlon)."
 ---
 
 Connectors are platform bridges that allow your agent to communicate across messaging platforms and social networks. Each connector handles authentication, message routing, session management, and platform-specific features.
@@ -31,15 +31,18 @@ Connectors are platform bridges that allow your agent to communicate across mess
 21. [Nostr](#nostr)
 22. [LINE](#line)
 23. [Zalo](#zalo)
-24. [Twilio](#twilio)
-25. [GitHub](#github)
-26. [Gmail Watch](#gmail-watch)
-27. [Nextcloud Talk](#nextcloud-talk)
-28. [Tlon](#tlon)
-29. [Lens](#lens)
-30. [Connector Lifecycle](#connector-lifecycle)
-31. [Multi-Account Support](#multi-account-support)
-32. [Session Management](#session-management)
+24. [Zalo User](#zalo-user)
+25. [Twilio](#twilio)
+26. [GitHub](#github)
+27. [Gmail Watch](#gmail-watch)
+28. [Nextcloud Talk](#nextcloud-talk)
+29. [Tlon](#tlon)
+30. [Lens](#lens)
+31. [ACP (Agent Communication Protocol)](#acp-agent-communication-protocol)
+32. [BlueBubbles](#bluebubbles)
+33. [Connector Lifecycle](#connector-lifecycle)
+34. [Multi-Account Support](#multi-account-support)
+35. [Session Management](#session-management)
 
 ---
 
@@ -67,10 +70,13 @@ Connectors marked **Auto** load automatically when their config is present in `m
 | Feishu / Lark | App ID + secret | Yes | Yes (group chats) | No | Auto |
 | Nostr | Private key (nsec/hex) | Yes (NIP-04) | N/A | No | Auto |
 | Lens | API key | Yes | N/A | No | Auto |
+| ACP | Gateway token + password | Agent-to-agent | N/A | No | Registry |
+| BlueBubbles | Server URL + password | Yes (iMessage) | Yes | No | Registry |
 | Bluesky | Account credentials | Posts | N/A | No | Registry |
 | Instagram | Username + password | DMs | N/A | No | Registry |
 | LINE | Channel access token + secret | Yes | Yes | No | Registry |
 | Zalo | Access token | Yes | Yes | No | Registry |
+| Zalo User | Session cookies + IMEI | Yes | Yes | No | Registry |
 | Twilio | Account SID + auth token | SMS/Voice | N/A | No | Registry |
 | GitHub | API token | Issues/PRs | Yes (repos) | No | Registry |
 | Gmail Watch | Service account / OAuth | N/A | N/A | No | Registry |
@@ -1055,6 +1061,108 @@ Gmail Watch is enabled via the `features.gmailWatch` flag or environment variabl
 **Features:**
 - Lens Protocol social interactions
 - Post publishing and engagement
+
+---
+
+## ACP (Agent Communication Protocol)
+
+**Plugin:** `@elizaos/plugin-acp` (install from registry: `milady plugins install acp`)
+
+ACP is an agent-to-agent communication protocol for linking multiple AI agents through a shared gateway.
+
+```json5
+{
+  connectors: {
+    acp: {
+      gatewayUrl: "https://your-acp-gateway.example.com",
+      gatewayToken: "<ACP_GATEWAY_TOKEN>",
+      gatewayPassword: "<ACP_GATEWAY_PASSWORD>",
+    }
+  }
+}
+```
+
+| Env Variable | Description |
+|-------------|-------------|
+| `ACP_GATEWAY_URL` | Gateway URL for the ACP hub |
+| `ACP_GATEWAY_TOKEN` | Authentication token |
+| `ACP_GATEWAY_PASSWORD` | Gateway password (required) |
+| `ACP_AGENT_ID` | Unique agent identifier |
+| `ACP_CLIENT_NAME` | Agent display name |
+| `ACP_PERSIST_SESSIONS` | `true` to persist sessions across restarts |
+| `ACP_SESSION_STORE_PATH` | Directory for session storage |
+
+**Features:**
+- Real-time agent-to-agent messaging via a shared gateway
+- Session persistence and reconnection
+- Configurable client identity
+
+---
+
+## BlueBubbles
+
+**Plugin:** `@elizaos/plugin-bluebubbles` (install from registry: `milady plugins install bluebubbles`)
+
+BlueBubbles is an iMessage bridge that runs through a local BlueBubbles server on macOS, providing iMessage access without requiring direct macOS shell access from the agent.
+
+```json5
+{
+  connectors: {
+    bluebubbles: {
+      serverUrl: "http://localhost:1234",
+      password: "<BLUEBUBBLES_PASSWORD>",
+    }
+  }
+}
+```
+
+| Env Variable | Description |
+|-------------|-------------|
+| `BLUEBUBBLES_SERVER_URL` | BlueBubbles server URL (default: local) |
+| `BLUEBUBBLES_PASSWORD` | Server password (required) |
+| `BLUEBUBBLES_DM_POLICY` | DM acceptance policy |
+| `BLUEBUBBLES_GROUP_POLICY` | Group message policy |
+| `BLUEBUBBLES_SEND_READ_RECEIPTS` | Send read receipts |
+| `BLUEBUBBLES_WEBHOOK_PATH` | Webhook path for incoming messages |
+
+**Features:**
+- iMessage and SMS via a local BlueBubbles server
+- DM and group chat support
+- Read receipts
+
+---
+
+## Zalo User
+
+**Plugin:** `@elizaos/plugin-zalouser` (install from registry: `milady plugins install zalouser`)
+
+Zalo User is a personal-account Zalo connector for one-to-one messaging, as distinct from the official Zalo OA (Official Account) bot connector.
+
+```json5
+{
+  connectors: {
+    zalouser: {
+      cookiePath: "/path/to/zalo-cookies",
+      imei: "<DEVICE_IMEI>",
+    }
+  }
+}
+```
+
+| Env Variable | Description |
+|-------------|-------------|
+| `ZALOUSER_COOKIE_PATH` | Path to exported Zalo session cookies |
+| `ZALOUSER_IMEI` | Device IMEI for session binding |
+| `ZALOUSER_USER_AGENT` | Browser user agent string |
+| `ZALOUSER_PROFILES` | Multiple account profiles (JSON) |
+| `ZALOUSER_ALLOWED_THREADS` | Comma-separated allowed thread IDs |
+| `ZALOUSER_DM_POLICY` | DM acceptance policy |
+| `ZALOUSER_GROUP_POLICY` | Group message policy |
+
+**Features:**
+- Personal Zalo account messaging (not Official Account)
+- DM and group chat support
+- Multi-profile support
 
 ---
 

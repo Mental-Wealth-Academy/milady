@@ -487,6 +487,20 @@ where to get the credentials, minimum required fields, and tips for optional fie
 - `BLOOIO_WEBHOOK_PORT` — Port for webhook listener
 **Tips:** Blooio bridges iMessage/SMS. Requires a Mac running the Blooio app.
 
+### BlueBubbles (iMessage via server)
+**Get credentials:** Set up a [BlueBubbles](https://bluebubbles.app/) server on a Mac with iMessage signed in.
+**Minimum required:** `BLUEBUBBLES_PASSWORD`
+**Variables:**
+- `BLUEBUBBLES_SERVER_URL` — BlueBubbles server URL (default: local)
+- `BLUEBUBBLES_PASSWORD` — Server password (required)
+- `BLUEBUBBLES_DM_POLICY` — DM acceptance policy (`allow`, `deny`, `allowlist`)
+- `BLUEBUBBLES_ALLOW_FROM` — Comma-separated allowed contacts
+- `BLUEBUBBLES_GROUP_POLICY` — Group message policy
+- `BLUEBUBBLES_GROUP_ALLOW_FROM` — Comma-separated allowed group IDs
+- `BLUEBUBBLES_WEBHOOK_PATH` — Webhook path for incoming messages
+- `BLUEBUBBLES_SEND_READ_RECEIPTS` — `true` to send read receipts
+**Tips:** BlueBubbles requires a Mac running the BlueBubbles server app. Unlike the native iMessage connector, it works over HTTP so your agent can run on any platform.
+
 ### Nostr
 **Get credentials:** Generate your own keypair using any Nostr client
 **Minimum required:** `NOSTR_PRIVATE_KEY`
@@ -513,6 +527,13 @@ where to get the credentials, minimum required fields, and tips for optional fie
 2. Issue a channel access token (long-lived, in Messaging API tab)
 3. Set your webhook URL in the console
 **Tips:** LINE requires your webhook to be HTTPS with a valid certificate. Use ngrok or deploy to a server for development.
+
+### Lens Protocol
+**Get credentials:** https://www.lens.xyz/ developer portal
+**Minimum required:** `LENS_API_KEY`
+**Variables:**
+- `LENS_API_KEY` — Lens Protocol API key
+**Tips:** Lens is a decentralized social graph on Polygon. The plugin auto-enables when `connectors.lens.apiKey` or `connectors.lens.token` is present in your config.
 
 ### Feishu (Lark)
 **Get credentials:** https://open.feishu.cn (or open.larksuite.com for Lark)

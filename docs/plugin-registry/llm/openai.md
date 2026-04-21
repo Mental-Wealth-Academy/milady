@@ -34,12 +34,63 @@ export OPENAI_API_KEY=sk-...
 
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key from [platform.openai.com](https://platform.openai.com) |
-| `OPENAI_API_URL` | No | Custom base URL (for Azure OpenAI or compatible APIs) |
-| `OPENAI_ORG_ID` | No | Organization ID for usage tracking |
-| `OPENAI_PROJECT_ID` | No | Project ID for quota management |
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key from [platform.openai.com](https://platform.openai.com) |
+
+### API Endpoint
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL for API requests (use for Azure OpenAI or compatible APIs) |
+
+### Model Selection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_SMALL_MODEL` | — | Small model override (takes precedence over `SMALL_MODEL`) |
+| `SMALL_MODEL` | `gpt-5-mini` | Fallback small model identifier |
+| `OPENAI_LARGE_MODEL` | — | Large model override (takes precedence over `LARGE_MODEL`) |
+| `LARGE_MODEL` | `gpt-5` | Fallback large model identifier |
+
+### Embeddings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model identifier |
+| `OPENAI_EMBEDDING_URL` | — | Custom base URL for embeddings endpoint |
+| `OPENAI_EMBEDDING_API_KEY` | — | Custom API key for embeddings endpoint |
+| `OPENAI_EMBEDDING_DIMENSIONS` | `1536` | Dimensions for returned embedding vectors |
+
+### Image Description
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_IMAGE_DESCRIPTION_MODEL` | `gpt-5-mini` | Model for image descriptions |
+| `OPENAI_IMAGE_DESCRIPTION_MAX_TOKENS` | `8192` | Max tokens in image-description response |
+
+### Text-to-Speech
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_TTS_MODEL` | `gpt-5-mini-tts` | TTS model identifier |
+| `OPENAI_TTS_VOICE` | `nova` | Voice profile for TTS output |
+| `OPENAI_TTS_INSTRUCTIONS` | — | Style/behavior instructions for TTS |
+
+### Browser Proxy
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_BROWSER_BASE_URL` | Browser-only proxy endpoint (keeps secrets server-side) |
+| `OPENAI_BROWSER_EMBEDDING_URL` | Browser-only proxy for embeddings |
+
+### Other
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_EXPERIMENTAL_TELEMETRY` | `false` | Enable experimental telemetry |
 
 ### milady.json Example
 

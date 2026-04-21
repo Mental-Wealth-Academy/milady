@@ -36,15 +36,18 @@ Or set in environment:
 export MILADY_FEATURE_BROWSER=true
 ```
 
-## Configuration
+## Environment Variables
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `browser.headless` | Run browser in headless mode | `true` |
-| `browser.timeout` | Navigation timeout in milliseconds | `30000` |
-| `browser.userAgent` | Custom user agent string | Playwright default |
-| `browser.proxy` | Proxy server URL | — |
-| `browser.maxPages` | Maximum concurrent pages | `3` |
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key for AI-powered browser interactions |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude-powered interactions |
+| `BROWSER_HEADLESS` | Run browser in headless mode (default: `true`) |
+| `CAPSOLVER_API_KEY` | CapSolver API key for automated CAPTCHA solving |
+| `BROWSERBASE_API_KEY` | API key for [Browserbase](https://browserbase.com) cloud browser service |
+| `BROWSERBASE_PROJECT_ID` | Project ID for Browserbase |
+
+## Configuration
 
 ```json
 {
@@ -57,6 +60,14 @@ export MILADY_FEATURE_BROWSER=true
   }
 }
 ```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `browser.headless` | Run browser in headless mode | `true` |
+| `browser.timeout` | Navigation timeout in milliseconds | `30000` |
+| `browser.userAgent` | Custom user agent string | Playwright default |
+| `browser.proxy` | Proxy server URL | — |
+| `browser.maxPages` | Maximum concurrent pages | `3` |
 
 ## Actions
 

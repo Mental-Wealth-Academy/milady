@@ -20,21 +20,31 @@ milady plugins install solana
 
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `SOLANA_PRIVATE_KEY` | Yes | Base58-encoded private key for the agent's wallet |
-| `SOLANA_RPC_URL` | No | RPC endpoint (default: `https://api.mainnet-beta.solana.com`) |
-| `HELIUS_API_KEY` | No | Helius API key for enhanced RPC and webhooks |
+### Required
 
-```json
-{
-  "settings": {
-    "secrets": {
-      "SOLANA_PRIVATE_KEY": "your-base58-private-key"
-    }
-  }
-}
-```
+| Variable | Description |
+|----------|-------------|
+| `HELIUS_API_KEY` | Helius API key for Solana infrastructure services |
+| `BIRDEYE_API_KEY` | Birdeye API key for market data |
+| `SOL_ADDRESS` | Mint/contract address for native SOL in swap logic |
+| `SLIPPAGE` | Maximum acceptable slippage for swaps (percentage or basis points) |
+
+### Wallet
+
+| Variable | Description |
+|----------|-------------|
+| `SOLANA_PRIVATE_KEY` | Base58 or base64 private key |
+| `WALLET_PRIVATE_KEY` | Alternative name for the private key |
+| `WALLET_SECRET_KEY` | Base58-encoded secret key (alternative to salt) |
+| `WALLET_PUBLIC_KEY` | Base58-encoded public key |
+| `SOLANA_PUBLIC_KEY` | Alternative name for the public key |
+| `WALLET_SECRET_SALT` | Salt for TEE-derived keypair (if not using direct key) |
+
+### Network
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SOLANA_RPC_URL` | `https://api.mainnet-beta.solana.com` | RPC endpoint |
 
 ## Supported Networks
 

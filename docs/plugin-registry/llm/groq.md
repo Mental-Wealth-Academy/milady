@@ -24,9 +24,22 @@ export GROQ_API_KEY=gsk_...
 
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `GROQ_API_KEY` | Yes | Groq API key from [console.groq.com](https://console.groq.com) |
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `GROQ_API_KEY` | Groq API key from [console.groq.com](https://console.groq.com) |
+
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Custom API base URL |
+| `GROQ_SMALL_MODEL` | `openai/gpt-oss-20b` | Small model override |
+| `GROQ_LARGE_MODEL` | `llama-3.3-70b-versatile` | Large model override |
+| `GROQ_TTS_MODEL` | `canopylabs/orpheus-v1-english` | TTS model |
+| `GROQ_TTS_VOICE` | `troy` | TTS voice profile |
+| `GROQ_TTS_RESPONSE_FORMAT` | `wav` | TTS output format |
 
 ### milady.json Example
 

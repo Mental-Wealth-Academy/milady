@@ -40,9 +40,47 @@ export OPENROUTER_API_KEY=sk-or-...
 
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `OPENROUTER_API_KEY` | Yes | OpenRouter API key from [openrouter.ai](https://openrouter.ai) |
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `OPENROUTER_API_KEY` | OpenRouter API key from [openrouter.ai](https://openrouter.ai) |
+
+### Model Selection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_SMALL_MODEL` | `google/gemini-2.0-flash-001` | Small model override |
+| `OPENROUTER_LARGE_MODEL` | `google/gemini-2.5-flash` | Large model override |
+| `SMALL_MODEL` | `google/gemini-2.0-flash-001` | Fallback small model |
+| `LARGE_MODEL` | `google/gemini-2.5-flash` | Fallback large model |
+
+### Image and Vision
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_IMAGE_MODEL` | — | Image description model override |
+| `IMAGE_MODEL` | `x-ai/grok-2-vision-1212` | Fallback image model |
+| `OPENROUTER_IMAGE_GENERATION_MODEL` | `google/gemini-2.5-flash-image-preview` | Image generation model |
+| `IMAGE_GENERATION_MODEL` | `google/gemini-2.5-flash-image-preview` | Fallback image gen model |
+| `OPENROUTER_AUTO_CLEANUP_IMAGES` | `false` | Auto-cleanup generated images |
+
+### Embeddings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Embedding model |
+| `EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Fallback embedding model |
+| `OPENROUTER_EMBEDDING_DIMENSIONS` | `1536` | Embedding vector dimensions |
+| `EMBEDDING_DIMENSIONS` | `1536` | Fallback dimensions |
+
+### Other
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | API base URL |
+| `OPENROUTER_BROWSER_BASE_URL` | — | Browser-only proxy endpoint |
+| `OPENROUTER_TOOL_EXECUTION_MAX_STEPS` | `15` | Max steps for multi-step tool execution |
 
 ### milady.json Example
 

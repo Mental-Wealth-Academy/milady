@@ -54,9 +54,24 @@ export OLLAMA_BASE_URL=http://localhost:11434
 
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `OLLAMA_BASE_URL` | Yes | Ollama server URL (default: `http://localhost:11434`) |
+### Required
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_API_ENDPOINT` | `http://localhost:11434/api` | Ollama API endpoint URL |
+
+### Model Selection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_SMALL_MODEL` | `gemma3:latest` | Small model override |
+| `OLLAMA_LARGE_MODEL` | `gemma3:latest` | Large model override |
+| `OLLAMA_MEDIUM_MODEL` | — | Medium model (reserved) |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text:latest` | Embedding model |
+| `SMALL_MODEL` | `gemma3:latest` | Fallback small model |
+| `LARGE_MODEL` | `gemma3:latest` | Fallback large model |
+
+`OLLAMA_BASE_URL` is also accepted as an alias for the endpoint.
 
 ### milady.json Example
 

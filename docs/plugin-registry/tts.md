@@ -28,6 +28,16 @@ milady plugins install tts
 }
 ```
 
+## TTS Plugin Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TTS_DEFAULT_PROVIDER` | `auto` | Default TTS provider (`auto`, `elevenlabs`, `openai`, `edge`, `simple-voice`) |
+| `TTS_DEFAULT_VOICE` | — | Default voice ID for synthesis |
+| `TTS_AUTO_MODE` | `off` | When to auto-apply TTS (`off`, `always`, `inbound`, `tagged`) |
+| `TTS_MAX_LENGTH` | `1500` | Maximum text length for TTS synthesis |
+| `TTS_SUMMARIZE` | `true` | Summarize long text instead of truncating |
+
 ## Providers
 
 ### ElevenLabs

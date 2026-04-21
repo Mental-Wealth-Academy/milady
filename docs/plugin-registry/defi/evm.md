@@ -20,22 +20,45 @@ milady plugins install evm
 
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `EVM_PRIVATE_KEY` | Yes | Private key for the agent's wallet (hex, with or without `0x`) |
-| `EVM_RPC_URL` | No | Default RPC endpoint (mainnet) |
-| `ALCHEMY_API_KEY` | No | Alchemy API key for multi-chain RPC |
-| `INFURA_API_KEY` | No | Infura API key for RPC |
+### Required
 
-```json
-{
-  "settings": {
-    "secrets": {
-      "EVM_PRIVATE_KEY": "0x..."
-    }
-  }
-}
-```
+| Variable | Description |
+|----------|-------------|
+| `EVM_PRIVATE_KEY` | Hex-encoded private key (with or without `0x`) for the agent's wallet |
+
+### RPC Providers
+
+| Variable | Description |
+|----------|-------------|
+| `EVM_RPC_PROVIDER` | Preferred provider: `alchemy`, `infura`, `ankr`, or `elizacloud` |
+| `ALCHEMY_API_KEY` | Alchemy API key (Ethereum, Polygon, Arbitrum, Optimism, Base, Avalanche, BSC, etc.) |
+| `INFURA_API_KEY` | Infura API key (Ethereum, Polygon, Arbitrum, Optimism, Base, Avalanche, Linea, etc.) |
+| `ANKR_API_KEY` | Ankr premium API key (broadest EVM chain support) |
+
+### Chain-Specific RPC Overrides
+
+| Variable | Description |
+|----------|-------------|
+| `ETHEREUM_PROVIDER_ETHEREUM` | Custom RPC URL for Ethereum mainnet |
+| `ETHEREUM_PROVIDER_BASE` | Custom RPC URL for Base mainnet |
+| `ETHEREUM_PROVIDER_ARBITRUM` | Custom RPC URL for Arbitrum One |
+| `ETHEREUM_PROVIDER_OPTIMISM` | Custom RPC URL for Optimism mainnet |
+
+For other chains, set `ETHEREUM_PROVIDER_<CHAINNAME>` or `EVM_PROVIDER_<CHAINNAME>`.
+
+### Testnet
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEPOLIA_RPC_URL` | `https://ethereum-sepolia-rpc.publicnode.com` | Sepolia testnet RPC |
+| `BASE_SEPOLIA_RPC_URL` | `https://sepolia.base.org` | Base Sepolia testnet RPC |
+
+### TEE (Trusted Execution Environment)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TEE_MODE` | `OFF` | Enable TEE mode for secure key derivation |
+| `WALLET_SECRET_SALT` | — | Salt value for TEE-derived wallet keypair |
 
 ## Supported Chains
 

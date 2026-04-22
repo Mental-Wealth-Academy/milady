@@ -63,6 +63,10 @@ When the connector is loaded, the runtime pushes the following secrets from your
 | `SLACK_BOT_TOKEN` | `botToken` | Bot token (`xoxb-...`) |
 | `SLACK_APP_TOKEN` | `appToken` | App-level token (`xapp-...`) for Socket Mode |
 | `SLACK_USER_TOKEN` | `userToken` | User token (`xoxp-...`) for user-scoped actions |
+| `SLACK_SIGNING_SECRET` | `signingSecret` | Signing secret for HTTP mode request verification |
+| `SLACK_CHANNEL_IDS` | — | Comma-separated list of channel IDs to listen in |
+| `SLACK_SHOULD_IGNORE_BOT_MESSAGES` | `allowBots` (inverted) | Ignore messages from other bots |
+| `SLACK_SHOULD_RESPOND_ONLY_TO_MENTIONS` | — | Only respond when @mentioned |
 
 ## Transport Modes
 

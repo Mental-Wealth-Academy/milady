@@ -28,7 +28,10 @@ export ANTHROPIC_API_KEY=sk-ant-...
 |---------------------|----------|-------------|
 | `ANTHROPIC_API_KEY` | Yes* | Anthropic API key from [console.anthropic.com](https://console.anthropic.com) |
 | `CLAUDE_API_KEY` | Yes* | Alias for `ANTHROPIC_API_KEY` |
-| `ANTHROPIC_API_URL` | No | Custom base URL |
+| `ANTHROPIC_SMALL_MODEL` | No | Override model for `TEXT_SMALL` type |
+| `ANTHROPIC_LARGE_MODEL` | No | Override model for `TEXT_LARGE` type |
+| `ANTHROPIC_BROWSER_BASE_URL` | No | Custom base URL for browser-based requests |
+| `ANTHROPIC_EXPERIMENTAL_TELEMETRY` | No | Enable experimental telemetry |
 
 *Either `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY` is required.
 

@@ -6,7 +6,7 @@ description: "EVM chain connector for Milady — Ethereum, Base, Arbitrum, Optim
 
 The EVM plugin enables Milady agents to interact with Ethereum and EVM-compatible chains — reading balances, sending tokens, interacting with smart contracts, executing swaps, and participating in DeFi protocols.
 
-**Package:** `@elizaos/plugin-evm` (community)
+**Package:** `@elizaos/plugin-evm`
 
 ## Overview
 
@@ -18,14 +18,27 @@ The EVM plugin provides the agent with an embedded wallet and a set of on-chain 
 milady plugins install evm
 ```
 
+## Auto-Enable
+
+The plugin auto-enables when `ALCHEMY_API_KEY` is present in the environment.
+
 ## Configuration
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
 | `EVM_PRIVATE_KEY` | Yes | Private key for the agent's wallet (hex, with or without `0x`) |
-| `EVM_RPC_URL` | No | Default RPC endpoint (mainnet) |
-| `ALCHEMY_API_KEY` | No | Alchemy API key for multi-chain RPC |
+| `EVM_RPC_PROVIDER` | No | Default RPC provider endpoint |
+| `ALCHEMY_API_KEY` | No | Alchemy API key for multi-chain RPC (also triggers auto-enable) |
 | `INFURA_API_KEY` | No | Infura API key for RPC |
+| `ANKR_API_KEY` | No | Ankr API key for RPC |
+| `ETHEREUM_PROVIDER_ETHEREUM` | No | Custom RPC endpoint for Ethereum mainnet |
+| `ETHEREUM_PROVIDER_BASE` | No | Custom RPC endpoint for Base |
+| `ETHEREUM_PROVIDER_ARBITRUM` | No | Custom RPC endpoint for Arbitrum |
+| `ETHEREUM_PROVIDER_OPTIMISM` | No | Custom RPC endpoint for Optimism |
+| `WALLET_SECRET_SALT` | No | Salt for deterministic wallet derivation |
+| `TEE_MODE` | No | Enable Trusted Execution Environment key derivation |
+| `SEPOLIA_RPC_URL` | No | RPC endpoint for Sepolia testnet |
+| `BASE_SEPOLIA_RPC_URL` | No | RPC endpoint for Base Sepolia testnet |
 
 ```json
 {
@@ -100,7 +113,7 @@ After the plugin is loaded, the agent can execute on-chain operations through na
   "settings": {
     "secrets": {
       "EVM_PRIVATE_KEY": "0x...",
-      "EVM_RPC_URL": "https://sepolia.base.org"
+      "BASE_SEPOLIA_RPC_URL": "https://sepolia.base.org"
     }
   }
 }

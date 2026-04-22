@@ -143,7 +143,7 @@ cat > package.json << 'EOF'
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@elizaos/core": "^2.0.0"
+    "@elizaos/core": "alpha"
   }
 }
 EOF
@@ -500,10 +500,10 @@ Path supports tilde expansion (`~/`) and both relative and absolute paths. This 
 
 ```bash
 # List loaded plugins
-curl http://localhost:18789/api/plugins
+curl http://localhost:31337/api/plugins
 
 # Search the registry
-curl http://localhost:18789/api/registry/search?q=my-plugin
+curl http://localhost:31337/api/registry/search?q=my-plugin
 ```
 
 5. **Run multiple instances** with different configs using `ELIZAOS_CONFIG_DIR`:
@@ -657,7 +657,7 @@ When your plugin is ready for distribution:
     "prepublishOnly": "bun run build"
   },
   "peerDependencies": {
-    "@elizaos/core": "^2.0.0"
+    "@elizaos/core": "alpha"
   }
 }
 ```

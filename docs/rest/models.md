@@ -56,7 +56,7 @@ The models endpoint fetches from providers that have API keys configured:
 | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1/models` | `Authorization: Bearer` |
 | `xai` | `XAI_API_KEY` | `https://api.x.ai/v1/models` | `Authorization: Bearer` |
 | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1/models` + `/embeddings/models` | `Authorization: Bearer` |
-| `ollama` | `OLLAMA_BASE_URL` | `<base>/api/tags` | No auth |
+| `ollama` | `OLLAMA_API_ENDPOINT` | `<base>/api/tags` | No auth |
 | `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` or `AIGATEWAY_API_KEY` | Gateway `/models` | No auth required |
 
 ### Provider-Specific Notes

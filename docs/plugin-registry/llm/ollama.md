@@ -46,17 +46,29 @@ milady plugins install ollama
 
 ## Auto-Enable
 
-The plugin auto-enables when `OLLAMA_BASE_URL` is present:
+The plugin does not auto-enable via an environment variable. Enable it explicitly:
 
 ```bash
-export OLLAMA_BASE_URL=http://localhost:11434
+milady plugins install ollama
+```
+
+Or set the endpoint in your environment:
+
+```bash
+export OLLAMA_API_ENDPOINT=http://localhost:11434
 ```
 
 ## Configuration
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
-| `OLLAMA_BASE_URL` | Yes | Ollama server URL (default: `http://localhost:11434`) |
+| `OLLAMA_API_ENDPOINT` | Yes | Ollama server URL (default: `http://localhost:11434`) |
+| `OLLAMA_SMALL_MODEL` | No | Override model for `TEXT_SMALL` type |
+| `OLLAMA_MEDIUM_MODEL` | No | Override model for `TEXT_MEDIUM` type |
+| `OLLAMA_LARGE_MODEL` | No | Override model for `TEXT_LARGE` type |
+| `OLLAMA_EMBEDDING_MODEL` | No | Override model for embeddings |
+| `SMALL_MODEL` | No | Generic fallback for small model |
+| `LARGE_MODEL` | No | Generic fallback for large model |
 
 ### milady.json Example
 
@@ -138,10 +150,10 @@ Models run on CPU if insufficient VRAM is available, but with reduced speed.
 
 ## Remote Ollama
 
-Ollama can run on a remote machine or NAS. Set `OLLAMA_BASE_URL` to the remote address:
+Ollama can run on a remote machine or NAS. Set `OLLAMA_API_ENDPOINT` to the remote address:
 
 ```bash
-export OLLAMA_BASE_URL=http://192.168.1.100:11434
+export OLLAMA_API_ENDPOINT=http://192.168.1.100:11434
 ```
 
 Secure with a reverse proxy (Nginx + TLS) for production.
@@ -184,7 +196,7 @@ If Milady doesn't detect your Ollama instance:
 
 1. Verify Ollama is running: `curl http://localhost:11434/api/tags`
 2. Check you have models pulled: `ollama list`
-3. If using a non-default port, set `OLLAMA_BASE_URL` accordingly
+3. If using a non-default port, set `OLLAMA_API_ENDPOINT` accordingly
 
 ### Slow Responses
 

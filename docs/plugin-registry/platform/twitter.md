@@ -44,15 +44,15 @@ milady plugins install twitter
 | Field | Required | Description |
 |-------|----------|-------------|
 | `apiKey` | Yes | Twitter API key (consumer key) |
-| `apiSecret` | Yes | Twitter API secret (consumer secret) |
+| `apiSecretKey` | Yes | Twitter API secret key (consumer secret) |
 | `accessToken` | Yes | OAuth 1.0a access token |
 | `accessTokenSecret` | Yes | OAuth 1.0a access token secret |
 | `enabled` | No | Set `false` to disable (default: `true`) |
 | `postIntervalMin` | No | Minimum minutes between posts (default: `90`) |
 | `postIntervalMax` | No | Maximum minutes between posts (default: `180`) |
-| `enableSearch` | No | Enable Twitter search monitoring (default: `false`) |
+| `searchEnable` | No | Enable Twitter search monitoring (default: `false`) |
 | `searchTerms` | No | Terms to monitor via search |
-| `replyToMentions` | No | Auto-reply to @mentions (default: `true`) |
+| `autoRespondMentions` | No | Auto-reply to @mentions (default: `true`) |
 | `dryRun` | No | Log posts without sending them (default: `false`) |
 
 ```json
@@ -60,13 +60,13 @@ milady plugins install twitter
   "connectors": {
     "twitter": {
       "apiKey": "...",
-      "apiSecret": "...",
+      "apiSecretKey": "...",
       "accessToken": "...",
       "accessTokenSecret": "...",
       "postIntervalMin": 60,
       "postIntervalMax": 120,
-      "replyToMentions": true,
-      "enableSearch": true,
+      "autoRespondMentions": true,
+      "searchEnable": true,
       "searchTerms": ["#ai", "#elizaos"]
     }
   }

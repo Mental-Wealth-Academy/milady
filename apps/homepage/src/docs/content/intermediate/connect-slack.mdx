@@ -47,7 +47,7 @@ Socket Mode lets your Milady agent talk to Slack without exposing a public webho
 ## Step 5 — Hand the tokens to Milady
 
 <Steps>
-  <li>Open Milady. Go to <strong>Settings → Plugins → Slack → Configure</strong>.</li>
+  <li>Open Milady. Go to <strong>Settings → Connectors → Slack</strong>.</li>
   <li>Paste the <strong>Bot Token</strong> (<code>xoxb-</code>) into the bot token field.</li>
   <li>Paste the <strong>App-Level Token</strong> (<code>xapp-</code>) into the app token field.</li>
   <li>(Optional) Under <strong>Channel IDs</strong>, list specific channels the bot should listen in. Leave blank for all channels the bot has access to.</li>
@@ -81,7 +81,7 @@ Most common cause: you didn't reinstall the app after adding Event Subscriptions
 Expected — add `channels:history` to the bot scopes (step 3) and reinstall. Slack requires explicit permission to read message content.
 
 **Bot shows as offline in the member list.**
-Milady's Slack connection isn't running. Check Settings → Plugins → Slack for a status indicator.
+Milady's Slack connection isn't running. Check Settings → Connectors → Slack for a status indicator.
 
 ## Useful options
 

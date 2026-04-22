@@ -181,7 +181,7 @@ Start a new training job.
 |-----------|------|----------|-------------|
 | `datasetId` | string | No | Dataset ID to train on (uses latest if omitted) |
 | `maxTrajectories` | integer | No | Cap on trajectories to use |
-| `backend` | string | No | Training backend: `"mlx"`, `"cuda"`, or `"cpu"` |
+| `backend` | string | No | Training backend: `"native"` (default), `"mlx"`, `"cuda"`, or `"cpu"` |
 | `model` | string | No | Base model to fine-tune |
 | `iterations` | integer | No | Number of training iterations |
 | `batchSize` | integer | No | Batch size |
@@ -371,6 +371,42 @@ Run a benchmark against a fine-tuned model to evaluate performance.
   "completedAt": 1718006000000
 }
 ```
+
+### GET /api/training/auto/config
+
+Get or update the auto-training configuration. Auto-training triggers automatically when trajectory count exceeds a threshold.
+
+**Response**
+
+```json
+{
+  "enabled": true,
+  "minTrajectories": 100,
+  "cooldownHours": 12,
+  "backend": "native"
+}
+```
+
+---
+
+### PUT /api/training/auto/config
+
+Update auto-training thresholds.
+
+**Request**
+
+```json
+{
+  "minTrajectories": 200,
+  "cooldownHours": 24
+}
+```
+
+## Native Optimization Backend
+
+The default training backend is `native`, which uses MIPRO, GEPA, and bootstrap-fewshot optimization against trajectory data. Outputs land as prompt artifacts under `~/.milady/optimized-prompts/<task>/`. The `OptimizedPromptService` auto-loads these artifacts at boot.
+
+Auto-training thresholds: 100 trajectories per task with a 12-hour cooldown by default. Adjust via the `/api/training/auto/config` endpoint or in the dashboard under Settings > Auto-Training.
 
 ## Common Error Codes
 

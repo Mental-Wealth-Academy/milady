@@ -36,23 +36,28 @@ Or set in environment:
 export MILADY_FEATURE_BROWSER=true
 ```
 
+## Auto-Enable
+
+The plugin auto-enables when `OPENAI_API_KEY` is set (used for content summarization and structured extraction).
+
 ## Configuration
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `browser.headless` | Run browser in headless mode | `true` |
-| `browser.timeout` | Navigation timeout in milliseconds | `30000` |
-| `browser.userAgent` | Custom user agent string | Playwright default |
-| `browser.proxy` | Proxy server URL | — |
-| `browser.maxPages` | Maximum concurrent pages | `3` |
+| Environment Variable | Required | Description |
+|---------------------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | Required for content processing (also triggers auto-enable) |
+| `BROWSER_HEADLESS` | No | Run browser in headless mode (default: `true`) |
+| `ANTHROPIC_API_KEY` | No | Alternative AI provider for content processing |
+| `CAPSOLVER_API_KEY` | No | CapSolver key for CAPTCHA solving |
+| `BROWSERBASE_API_KEY` | No | BrowserBase key for cloud browser sessions |
+| `BROWSERBASE_PROJECT_ID` | No | BrowserBase project for cloud sessions |
+
+### milady.json Example
 
 ```json
 {
   "features": {
     "browser": {
-      "enabled": true,
-      "headless": true,
-      "timeout": 30000
+      "enabled": true
     }
   }
 }

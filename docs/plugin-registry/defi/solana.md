@@ -6,7 +6,7 @@ description: "Solana chain connector for Milady — SOL and SPL token transfers,
 
 The Solana plugin enables Milady agents to interact with the Solana blockchain — managing SOL and SPL tokens, executing swaps via Jupiter, minting NFTs, and interacting with Solana DeFi protocols.
 
-**Package:** `@elizaos/plugin-solana` (community)
+**Package:** `@elizaos/plugin-solana`
 
 ## Overview
 
@@ -18,13 +18,27 @@ The Solana plugin provides the agent with a Solana keypair wallet and a set of o
 milady plugins install solana
 ```
 
+## Auto-Enable
+
+The plugin auto-enables when `HELIUS_API_KEY` is present in the environment.
+
 ## Configuration
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
-| `SOLANA_PRIVATE_KEY` | Yes | Base58-encoded private key for the agent's wallet |
+| `SOLANA_PRIVATE_KEY` | Yes* | Base58-encoded private key for the agent's wallet |
+| `WALLET_PRIVATE_KEY` | Yes* | Alternative key for the agent's wallet |
 | `SOLANA_RPC_URL` | No | RPC endpoint (default: `https://api.mainnet-beta.solana.com`) |
-| `HELIUS_API_KEY` | No | Helius API key for enhanced RPC and webhooks |
+| `HELIUS_API_KEY` | No | Helius API key for enhanced RPC (also triggers auto-enable) |
+| `BIRDEYE_API_KEY` | No | Birdeye API key for token data and analytics |
+| `SOL_ADDRESS` | No | Default SOL address for operations |
+| `SOLANA_PUBLIC_KEY` | No | Public key for the agent's wallet |
+| `WALLET_PUBLIC_KEY` | No | Alternative public key |
+| `WALLET_SECRET_KEY` | No | Alternative secret key |
+| `WALLET_SECRET_SALT` | No | Salt for deterministic wallet derivation |
+| `SLIPPAGE` | No | Slippage tolerance for swaps (basis points) |
+
+*Either `SOLANA_PRIVATE_KEY` or `WALLET_PRIVATE_KEY` is required.
 
 ```json
 {

@@ -23,7 +23,7 @@ GROQ_API_KEY                   → @elizaos/plugin-groq
 XAI_API_KEY                    → @elizaos/plugin-xai
 GROK_API_KEY                   → @elizaos/plugin-xai
 OPENROUTER_API_KEY             → @elizaos/plugin-openrouter
-OLLAMA_BASE_URL                → @elizaos/plugin-ollama
+OLLAMA_API_ENDPOINT                → @elizaos/plugin-ollama
 ZAI_API_KEY                    → @homunculuslabs/plugin-zai
 DEEPSEEK_API_KEY               → @elizaos/plugin-deepseek
 TOGETHER_API_KEY               → @elizaos/plugin-together
@@ -264,7 +264,7 @@ During first-run onboarding, users choose from these providers:
 | DeepSeek | `DEEPSEEK_API_KEY` | `sk-...` |
 | Mistral | `MISTRAL_API_KEY` | — |
 | Together AI | `TOGETHER_API_KEY` | — |
-| Ollama (local) | `OLLAMA_BASE_URL` | `http://localhost:11434` |
+| Ollama (local) | `OLLAMA_API_ENDPOINT` | `http://localhost:11434` |
 
 <Note>
 DeepSeek, Mistral, and Together AI appear as onboarding provider options but were not included in earlier versions of the provider plugin map. If you selected one of these providers during onboarding and the env var is set (e.g., `DEEPSEEK_API_KEY`), the corresponding plugin will auto-load via `AUTH_PROVIDER_PLUGINS`. If you want to load one of these providers without setting an env var, add it to `plugins.allow` in `milady.json` explicitly:

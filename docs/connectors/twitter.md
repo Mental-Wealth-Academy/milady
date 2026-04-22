@@ -8,7 +8,7 @@ Connect your agent to Twitter/X for social media engagement.
 
 ## Overview
 
-The Twitter connector is an external elizaOS plugin that bridges your agent to Twitter/X. It is auto-enabled by the runtime when a valid token is detected in your connector configuration.
+The Twitter connector is an external elizaOS plugin that bridges your agent to Twitter/X. It is auto-enabled by the runtime when a valid token is detected in your connector configuration. The plugin is hosted at [elizaos-plugins/plugin-twitter](https://github.com/elizaos-plugins/plugin-twitter) and is resolved from the remote registry at runtime.
 
 ## Package Info
 

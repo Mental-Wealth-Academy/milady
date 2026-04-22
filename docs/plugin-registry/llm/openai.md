@@ -37,9 +37,21 @@ export OPENAI_API_KEY=sk-...
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
 | `OPENAI_API_KEY` | Yes | OpenAI API key from [platform.openai.com](https://platform.openai.com) |
-| `OPENAI_API_URL` | No | Custom base URL (for Azure OpenAI or compatible APIs) |
-| `OPENAI_ORG_ID` | No | Organization ID for usage tracking |
-| `OPENAI_PROJECT_ID` | No | Project ID for quota management |
+| `OPENAI_BASE_URL` | No | Custom base URL (for Azure OpenAI or compatible APIs) |
+| `OPENAI_SMALL_MODEL` | No | Override model for `TEXT_SMALL` type |
+| `OPENAI_LARGE_MODEL` | No | Override model for `TEXT_LARGE` type |
+| `OPENAI_EMBEDDING_MODEL` | No | Override embedding model |
+| `OPENAI_EMBEDDING_URL` | No | Custom endpoint for embeddings |
+| `OPENAI_EMBEDDING_API_KEY` | No | Separate API key for embedding endpoint |
+| `OPENAI_EMBEDDING_DIMENSIONS` | No | Embedding vector dimensions |
+| `OPENAI_IMAGE_DESCRIPTION_MODEL` | No | Model for image description |
+| `OPENAI_IMAGE_DESCRIPTION_MAX_TOKENS` | No | Max tokens for image description |
+| `OPENAI_TTS_MODEL` | No | Text-to-speech model |
+| `OPENAI_TTS_VOICE` | No | TTS voice selection |
+| `OPENAI_TTS_INSTRUCTIONS` | No | Instructions for TTS generation |
+| `OPENAI_EXPERIMENTAL_TELEMETRY` | No | Enable experimental telemetry |
+| `SMALL_MODEL` | No | Generic fallback for small model |
+| `LARGE_MODEL` | No | Generic fallback for large model |
 
 ### milady.json Example
 

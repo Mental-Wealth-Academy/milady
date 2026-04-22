@@ -18,11 +18,15 @@ These variables are read by the CLI wrapper (`run-node.mjs`) and the embedded ru
 
 ## Ports and networking
 
-| Variable | Purpose |
-|----------|---------|
-| `MILADY_API_PORT` / `ELIZA_PORT` | HTTP API bind port. |
-| `MILADY_PORT` | Dashboard / Vite dev port in orchestrated dev flows. |
-| `MILADY_GATEWAY_PORT`, `MILADY_HOME_PORT`, … | Other local services — see **Ports** under [Environment setup](/installation). |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MILADY_API_PORT` / `ELIZA_PORT` | `31337` | HTTP API bind port. |
+| `MILADY_PORT` | `2138` | Dashboard / Vite dev port in orchestrated dev flows. |
+| `MILADY_GATEWAY_PORT` | `18789` | Gateway service port. |
+| `MILADY_HOME_PORT` | `2142` | Homepage service port. |
+| `MILADY_WECHAT_WEBHOOK_PORT` | `18790` | WeChat webhook receiver port. |
+
+The dev orchestrator auto-shifts to the next free port when the default is in use and syncs the env.
 
 ## Development
 
@@ -39,9 +43,40 @@ Run `milady doctor` after changing ports or state paths to catch mismatches befo
 |----------|---------|
 | `MILADY_DISABLE_EDGE_TTS` / `ELIZA_DISABLE_EDGE_TTS` | Set to `1` to prevent auto-loading `@elizaos/plugin-edge-tts`. When the agent orchestrator is loaded, Milady adds Edge TTS by default so swarm/PTY paths have a TTS handler—this makes outbound calls to Microsoft's cloud. Disable if you want no network TTS. |
 | `MILADY_DISABLE_AUTO_BOOTSTRAP` | Set to `1` to skip the one-shot native optimization bootstrap at runtime boot. |
+| `MILADY_ENABLE_CHILD_SKILL_CALLBACK` | Set to `0` to disable the child→parent `USE_SKILL` bridge for spawned coding agents. Default: enabled. |
 | `EXECUTECODE_TIMEOUT_MS` | Default script timeout for the `EXECUTE_CODE` action, in ms. Default: `30000`. |
 | `EXECUTECODE_DISABLE` | Set to `true` or `1` to disable the `EXECUTE_CODE` action entirely. |
 | `ELIZA_DISABLE_TRAJECTORY_LOGGING` | Set to `1` to opt out of trajectory persistence. Also disabled when `NODE_ENV=test`. |
+| `ATROPOS_DATA_DIR` | Staging directory used by the atropos training backend for dataset files. |
+| `ATROPOS_BIN` | Override path to the atropos binary when dispatching to that backend. |
+
+## Authentication and security
+
+| Variable | Purpose |
+|----------|---------|
+| `MILADY_API_TOKEN` / `ELIZA_API_TOKEN` | Token for API authentication. |
+| `MILADY_TERMINAL_RUN_TOKEN` | Token required for terminal/shell endpoint access. |
+| `MILADY_ALLOW_WS_QUERY_TOKEN` | Allow WebSocket auth via query parameter. |
+| `MILADY_PAIRING_DISABLED` | Set to `1` to disable the pairing flow. |
+| `MILADY_DEV_AUTH_BYPASS` | Bypass auth in development environments. |
+| `MILADY_CLOUD_PROVISIONED` / `ELIZA_CLOUD_PROVISIONED` | Set when provisioned by Eliza Cloud. |
+
+## Skills and knowledge
+
+| Variable | Purpose |
+|----------|---------|
+| `SKILLS_REGISTRY` | Custom skills registry URL. |
+| `SKILLS_MARKETPLACE_URL` | Custom skills marketplace URL. |
+| `SKILLSMP_API_KEY` | API key for the skills marketplace. |
+| `KNOWLEDGE_SERVICE_TIMEOUT_MS` | Timeout for knowledge service operations. |
+
+## Cloud integration
+
+| Variable | Purpose |
+|----------|---------|
+| `ELIZAOS_CLOUD_API_KEY` | API key for Eliza Cloud services. |
+| `ELIZAOS_CLOUD_TTS_VOICE` | Voice selection for cloud TTS. |
+| `ELIZAOS_CLOUD_TTS_MODEL` | Model selection for cloud TTS. |
 
 ## Related
 

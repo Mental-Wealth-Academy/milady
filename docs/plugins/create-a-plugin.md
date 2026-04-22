@@ -321,7 +321,7 @@ Every published plugin should include an `elizaos.plugin.json` manifest at its p
   "id": "plugin-weather",
   "name": "Weather Plugin",
   "version": "1.0.0",
-  "kind": "feature",
+  "kind": "skill",
   "description": "Provides real-time weather data to your agent",
   "configSchema": {
     "type": "object",

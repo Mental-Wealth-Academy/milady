@@ -66,6 +66,13 @@ When loaded, secrets are pushed to `process.env` for the plugin to consume:
 | `DISCORD_API_TOKEN` | `token` | Primary bot token (always set) |
 | `DISCORD_BOT_TOKEN` | `token` | Mirror of `DISCORD_API_TOKEN` (both always set) |
 | `DISCORD_APPLICATION_ID` | `applicationId` | Application ID. Auto-resolved via Discord OAuth2 API if not set |
+| `CHANNEL_IDS` | — | Comma-separated list of channel IDs the bot should listen in |
+| `DISCORD_TEST_CHANNEL_ID` | — | Channel ID for test messages |
+| `DISCORD_VOICE_CHANNEL_ID` | — | Default voice channel ID |
+| `DISCORD_SHOULD_IGNORE_BOT_MESSAGES` | `allowBots` (inverted) | Ignore messages from other bots |
+| `DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES` | — | Ignore all DMs |
+| `DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS` | — | Only respond when @mentioned |
+| `DISCORD_LISTEN_CHANNEL_IDS` | — | Comma-separated channel IDs to listen in (alternative to `CHANNEL_IDS`) |
 
 Note: If `DISCORD_APPLICATION_ID` is not configured, the runtime automatically resolves it by calling `https://discord.com/api/v10/oauth2/applications/@me` with the bot token.
 

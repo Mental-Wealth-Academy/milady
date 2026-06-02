@@ -2762,7 +2762,10 @@ export default defineConfig({
     // import. The Node entries are complete; nativeModuleStubPlugin +
     // rollup externals neutralize Node-only APIs at module boundaries,
     // and tree-shaking drops unused code.
-    conditions: ["node", "import", "module", "default"],
+    // `eliza-source` first so local-mode @elizaos/* packages resolve to their
+    // src/ entry (no dist build needed). Harmless in packages mode: published
+    // packages don't define the condition and fall through to node/import.
+    conditions: ["eliza-source", "node", "import", "module", "default"],
     dedupe: [
       "react",
       "react-dom",

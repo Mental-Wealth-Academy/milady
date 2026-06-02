@@ -40,7 +40,7 @@ type AppConfigWithAospPropertyPrefix = Omit<AppConfig, "aosp"> & {
 };
 
 const config = {
-  appName: "Milady",
+  appName: "Blue",
   appId: "ai.milady.milady",
   orgName: "milady-ai",
   repoName: "milady",
@@ -56,9 +56,9 @@ const config = {
   },
 
   web: {
-    shortName: "Milady",
-    themeColor: "#08080a",
-    backgroundColor: "#0a0a0a",
+    shortName: "Blue",
+    themeColor: "#5168ff",
+    backgroundColor: "#5168ff",
     shareImagePath: "/og-image.png",
   },
 
@@ -96,7 +96,7 @@ const config = {
   },
 
   branding: {
-    appName: "Milady",
+    appName: "Blue",
     orgName: "milady-ai",
     repoName: "milady",
     docsUrl: "https://docs.milady.ai",

@@ -1,0 +1,199 @@
+/* Blue — brand theme overlay (Mental Wealth Academy design system)
+ *
+ * Loaded after @elizaos/app-core's styles.css (which pulls in base.css), so the
+ * :root / [data-theme="dark"] redefinitions here win. Mirrors the variable set
+ * in base.css and re-points it at the Blue palette (#5168FF) and MWA typography.
+ *
+ * Tokens sourced from MentalWealthAcademy/styles/design-tokens.ts + globals.css.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+@font-face {
+  font-family: "Departure Mono";
+  src: url("/fonts/DepartureMono-Regular.otf") format("opentype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Backgrounds — clean white canvas, faint blue-tinted surfaces */
+  --bg: #ffffff;
+  --bg-accent: #f4f5fe;
+  --bg-elevated: #ffffff;
+  --bg-hover: #ececf8;
+  --bg-muted: #f4f5fe;
+
+  --card: #ffffff;
+  --card-foreground: #1a1b24;
+  --surface: #ffffff;
+
+  /* Text */
+  --text: #1a1b24;
+  --text-strong: #0c0d17;
+  --chat-text: #1a1b24;
+  --txt: var(--text);
+  --muted: rgba(26, 27, 36, 0.6);
+  --muted-strong: rgba(26, 27, 36, 0.74);
+
+  /* Borders */
+  --border: rgba(26, 27, 36, 0.08);
+  --border-strong: rgba(26, 27, 36, 0.16);
+  --border-hover: #5168ff;
+  --input: rgba(26, 27, 36, 0.12);
+  --ring: #5168ff;
+
+  /* Accent — Blue primary */
+  --accent: #5168ff;
+  --accent-rgb: 81, 104, 255;
+  --accent-hover: #324be4;
+  --accent-muted: #50599b;
+  --accent-subtle: rgba(81, 104, 255, 0.12);
+  --accent-foreground: #ffffff;
+  --primary: #5168ff;
+  --primary-foreground: #ffffff;
+
+  /* Status */
+  --ok: #16bd8b;
+  --ok-muted: rgba(22, 189, 139, 0.72);
+  --ok-subtle: rgba(22, 189, 139, 0.12);
+  --destructive: #ba1a1a;
+  --destructive-foreground: #ffffff;
+  --destructive-subtle: rgba(186, 26, 26, 0.12);
+  --warn: #f59e0b;
+  --warn-muted: rgba(245, 158, 11, 0.72);
+  --warn-subtle: rgba(245, 158, 11, 0.14);
+  --danger: #ba1a1a;
+  --info: #5168ff;
+
+  /* Status semantic aliases */
+  --status-success: var(--ok);
+  --status-success-bg: var(--ok-subtle);
+  --status-danger: var(--danger);
+  --status-danger-bg: var(--destructive-subtle);
+  --status-warning: var(--warn);
+  --status-warning-bg: var(--warn-subtle);
+  --status-info: #5168ff;
+  --status-info-bg: rgba(81, 104, 255, 0.12);
+
+  --focus: rgba(81, 104, 255, 0.16);
+  --focus-ring: 0 0 0 2px rgba(81, 104, 255, 0.42);
+  --scrollbar-track: #edeefb;
+  --scrollbar-thumb-start: rgba(81, 104, 255, 0.42);
+  --scrollbar-thumb-mid: rgba(81, 104, 255, 0.58);
+  --scrollbar-thumb-end: rgba(50, 75, 228, 0.66);
+  --scrollbar-thumb-hover-start: rgba(81, 104, 255, 0.56);
+  --scrollbar-thumb-hover-mid: rgba(81, 104, 255, 0.7);
+  --scrollbar-thumb-hover-end: rgba(50, 75, 228, 0.78);
+  --scrollbar-thumb-edge: rgba(81, 104, 255, 0.12);
+
+  /* Header */
+  --header-bar-bg: #ffffff;
+  --header-bar-fg: #1a1b24;
+  --section-bar-bg: #f4f5fe;
+  --section-bar-fg: #1a1b24;
+  --link-color: #324be4;
+  --link-hover-color: #5168ff;
+
+  /* Typography — MWA design system */
+  --mono: "Departure Mono", "JetBrains Mono", "Courier New", monospace;
+  --font-body:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display:
+    "Space Grotesk", "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-chat:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+[data-theme="dark"],
+.dark {
+  --bg: #090a10;
+  --bg-accent: #0e0f17;
+  --bg-elevated: #1d2130;
+  --bg-hover: #171a24;
+  --bg-muted: #11131b;
+
+  --card: #11131b;
+  --card-foreground: #eeeaf8;
+  --surface: #171a24;
+
+  --text: #eeeaf8;
+  --text-strong: #ffffff;
+  --chat-text: #eeeaf8;
+  --txt: var(--text);
+  --muted: rgba(235, 232, 247, 0.64);
+  --muted-strong: rgba(235, 232, 247, 0.82);
+
+  --border: rgba(235, 232, 247, 0.1);
+  --border-strong: rgba(235, 232, 247, 0.18);
+  --border-hover: #7586ff;
+  --input: rgba(235, 232, 247, 0.12);
+  --ring: #7586ff;
+
+  --accent: #7586ff;
+  --accent-rgb: 117, 134, 255;
+  --accent-hover: #8a94ff;
+  --accent-muted: #50599b;
+  --accent-subtle: rgba(117, 134, 255, 0.14);
+  --accent-foreground: #0c0d17;
+  --primary: #7586ff;
+  --primary-foreground: #0c0d17;
+
+  --ok: #16bd8b;
+  --ok-muted: rgba(22, 189, 139, 0.7);
+  --ok-subtle: rgba(22, 189, 139, 0.12);
+  --destructive: #ff5a5f;
+  --destructive-foreground: #ffffff;
+  --destructive-subtle: rgba(255, 90, 95, 0.12);
+  --warn: #f59e0b;
+  --warn-muted: rgba(245, 158, 11, 0.7);
+  --warn-subtle: rgba(245, 158, 11, 0.14);
+  --danger: #ff5a5f;
+  --info: #7586ff;
+
+  --status-success: var(--ok);
+  --status-success-bg: var(--ok-subtle);
+  --status-danger: var(--danger);
+  --status-danger-bg: var(--destructive-subtle);
+  --status-warning: var(--warn);
+  --status-warning-bg: var(--warn-subtle);
+  --status-info: #7586ff;
+  --status-info-bg: rgba(117, 134, 255, 0.14);
+
+  --focus: rgba(117, 134, 255, 0.18);
+  --focus-ring: 0 0 0 2px rgba(117, 134, 255, 0.44);
+  --scrollbar-track: transparent;
+  --scrollbar-thumb-start: rgba(138, 148, 255, 0.88);
+  --scrollbar-thumb-mid: rgba(117, 134, 255, 0.72);
+  --scrollbar-thumb-end: rgba(81, 104, 255, 0.8);
+  --scrollbar-thumb-hover-start: rgba(160, 168, 255, 0.94);
+  --scrollbar-thumb-hover-mid: rgba(117, 134, 255, 0.82);
+  --scrollbar-thumb-hover-end: rgba(81, 104, 255, 0.88);
+  --scrollbar-thumb-edge: rgba(160, 168, 255, 0.12);
+
+  --header-bar-bg: #090a10;
+  --header-bar-fg: #ffffff;
+  --section-bar-bg: #0e0f17;
+  --section-bar-fg: #ffffff;
+  --link-color: var(--text);
+  --link-hover-color: #7586ff;
+
+  --mono: "Departure Mono", "JetBrains Mono", "Courier New", monospace;
+  --font-body:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display:
+    "Space Grotesk", "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-chat:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Startup splash: app-core hardcodes a yellow (#ffe600) field with black chrome.
+ * Recolor to the Blue brand so the boot flash matches. (The splash-bg.png image
+ * still renders on top; swapping that asset is a follow-up.) */
+[data-testid="startup-shell-loading"] {
+  background-color: #5168ff !important;
+  color: #ffffff !important;
+}

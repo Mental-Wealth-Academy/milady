@@ -58,6 +58,8 @@ const packageSafeBridgePatchScripts = [
   "patch-noble-curves-hashes-v2.mjs",
   "patch-elizaos-app-core-windows-shell.mjs",
   "patch-elizaos-plugin-browser-bridge-package.mjs",
+  // whitelabel: rebrand the @elizaos/ui boot splash to "Blue" + splashlogo.
+  "patch-elizaos-startup-splash.mjs",
   // milady-only fix for claude.ai OAuth tier — see script header.
   "patch-coding-agent-adapters-tools-flag.mjs",
   // milady-only fix for codex 0.128 — see script header.

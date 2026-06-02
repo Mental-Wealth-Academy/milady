@@ -45,7 +45,7 @@ describe("package mode aliases", () => {
     );
 
     expect(mainText).toContain("@elizaos/app-core/styles/styles.css");
-    expect(mainText).toContain("@elizaos/app-core/styles/brand-gold.css");
+    expect(mainText).toContain("./styles/brand-blue.css");
     expect(mainText).not.toContain("@elizaos/ui/dist/styles/");
   });
 

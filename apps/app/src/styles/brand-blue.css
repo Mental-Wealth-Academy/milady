@@ -290,6 +290,43 @@ textarea[data-testid="chat-composer-textarea"] {
   margin-bottom: 0.125rem;
 }
 
+/* User turns → subtle right-aligned bubble; assistant turns stay plain text
+ * (ChatGPT pattern). The right-aligned bubble already signals "you", so the
+ * redundant label is hidden. */
+[data-testid="chat-message"].justify-end > div {
+  background: var(--bg-accent);
+  border: 1px solid var(--border);
+  border-radius: 1.125rem;
+  padding: 0.5rem 0.875rem;
+}
+[data-testid="chat-message"].justify-end .font-semibold.text-accent {
+  display: none;
+}
+
+/* Assistant markdown content — clean code blocks, lists, links (scoped to
+ * chat so global typography is untouched). */
+[data-testid="chat-message"] pre {
+  background: var(--bg-accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+  box-shadow: var(--shadow-xs);
+}
+[data-testid="chat-message"] ul,
+[data-testid="chat-message"] ol {
+  padding-left: 1.25rem;
+}
+[data-testid="chat-message"] a {
+  color: var(--link-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+[data-testid="chat-message"] a:hover {
+  color: var(--link-hover-color);
+}
+
 /* ── Global refinements ────────────────────────────────────────────────── */
 
 /* Inline code → subtle monospace chips; code blocks stay flat. */

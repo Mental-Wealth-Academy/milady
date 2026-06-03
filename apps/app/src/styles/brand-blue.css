@@ -321,6 +321,14 @@ div:has(> div > textarea[data-testid="chat-composer-textarea"]) button[aria-labe
   background: var(--accent) !important;
   color: var(--accent-foreground) !important;
 }
+/* Align the composer's horizontal inset with the message column. The composer
+ * wrapper ships px-10 (40px) while the messages sit at 20px, so the pill was
+ * offset narrower than the conversation above it; match them. */
+[data-testid="global-chat-overlay"]
+  div:has(> div > div > textarea[data-testid="chat-composer-textarea"]) {
+  padding-left: 1.25rem !important;
+  padding-right: 1.25rem !important;
+}
 
 /* macOS desktop: the chat overlay is fixed (ignores body safe-area padding),
  * so reserve space at the top-left of the sidebar for the traffic-light

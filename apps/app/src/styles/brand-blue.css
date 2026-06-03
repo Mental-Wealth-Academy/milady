@@ -197,3 +197,83 @@
   background-color: #5168ff !important;
   color: #ffffff !important;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Polish layer — soft layered elevation + interaction refinements.
+ * Shadows are low-opacity and multi-layer (ambient + key) for diffuse,
+ * "lit-from-above" depth. No hard single drop-shadows; CTAs never get a
+ * heavy shadow. No decorative gradients.
+ * ──────────────────────────────────────────────────────────────────────── */
+:root {
+  --shadow-xs: 0 1px 2px rgba(26, 27, 36, 0.04);
+  --shadow-sm:
+    0 1px 2px rgba(26, 27, 36, 0.04), 0 1px 3px rgba(26, 27, 36, 0.06);
+  --shadow-md:
+    0 2px 6px rgba(26, 27, 36, 0.04), 0 6px 16px rgba(26, 27, 36, 0.07);
+  --shadow-lg:
+    0 4px 10px rgba(26, 27, 36, 0.05), 0 16px 32px rgba(26, 27, 36, 0.1);
+  --shadow-xl:
+    0 8px 16px rgba(26, 27, 36, 0.06), 0 28px 56px rgba(26, 27, 36, 0.12);
+  --shadow-2xl: 0 32px 64px rgba(26, 27, 36, 0.16);
+  /* Subtle brand-tinted lift for primary surfaces (used sparingly). */
+  --shadow-accent-soft: 0 6px 18px rgba(81, 104, 255, 0.18);
+}
+
+[data-theme="dark"],
+.dark {
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.32), 0 6px 16px rgba(0, 0, 0, 0.44);
+  --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.36), 0 16px 32px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.4), 0 28px 56px rgba(0, 0, 0, 0.58);
+  --shadow-2xl: 0 32px 64px rgba(0, 0, 0, 0.62);
+  --shadow-accent-soft: 0 6px 18px rgba(81, 104, 255, 0.34);
+}
+
+/* Brand text selection. */
+::selection {
+  background: rgba(81, 104, 255, 0.2);
+}
+
+/* Smooth, consistent micro-interactions on interactive elements. */
+a,
+button,
+[role="button"],
+input,
+textarea,
+select {
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+
+/* ── Chat composer: ChatGPT-style rounded pill with soft, diffuse lift ──── */
+div:has(> textarea[data-testid="chat-composer-textarea"]) {
+  border-radius: var(--radius-2xl);
+  padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+  gap: 0.25rem;
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+}
+div:has(> textarea[data-testid="chat-composer-textarea"]):focus-within {
+  border-color: var(--accent);
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 3px var(--focus);
+}
+textarea[data-testid="chat-composer-textarea"] {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+/* ── Chat messages: calmer vertical rhythm, comfortable reading column ──── */
+[data-testid="chat-messages-scroll"] {
+  scroll-padding-bottom: 2rem;
+}
+[data-testid="chat-message"] {
+  padding-block: 0.5rem;
+}

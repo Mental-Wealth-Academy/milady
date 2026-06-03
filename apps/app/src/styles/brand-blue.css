@@ -294,8 +294,8 @@ textarea[data-testid="chat-composer-textarea"] {
  * (ChatGPT pattern). The right-aligned bubble already signals "you", so the
  * redundant label is hidden. */
 [data-testid="chat-message"].justify-end > div {
-  background: var(--bg-accent);
-  border: 1px solid var(--border);
+  background: rgba(81, 104, 255, 0.08);
+  border: 1px solid rgba(81, 104, 255, 0.14);
   border-radius: 1.125rem;
   padding: 0.5rem 0.875rem;
 }

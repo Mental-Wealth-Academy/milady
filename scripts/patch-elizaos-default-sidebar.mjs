@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * Whitelabel (Project Azul): turn the chat overlay's single centered column
- * into a full product shell that matches the references:
+ * Whitelabel (Project Azul): turn the chat overlay into a persistent product
+ * shell that matches the references:
  *
- *   - a left sidebar with a collapse + search header, a nav row
- *     (New agent / Skills / Messaging / Artifacts), then the conversation list
- *     (ConversationsSidebar in `embedded` mode — no internal collapse/resize
- *     chrome; the overlay owns the shell);
- *   - a chat top bar with Settings + a collapse-right toggle.
- *
- * Collapse is owned by the overlay: it removes the whole sidebar and gives the
- * room back to the chat, with an expand button surfacing in the top bar.
+ *   - a persistent left sidebar (rail) rendered across EVERY tab on desktop
+ *     widths — a collapse + search header, the primary nav (New agent / Skills /
+ *     Messaging / Artifacts), then the conversation list (ConversationsSidebar
+ *     in `embedded` mode — no internal collapse/resize chrome);
+ *   - the chat tab content offset beside the rail, with a top bar
+ *     (Settings + a collapse-right toggle);
+ *   - collapse owned by the App so it works from any view (a floating expand
+ *     button surfaces while collapsed).
  *
  * eliza/ is gitignored, so re-apply on every install. The ui dist is rebuilt by
  * local-mode setup (app-core closure build) after this patch runs, so the
@@ -48,9 +48,26 @@ import "./components/chat/chat-source-registration";`;
 const SIDEBAR_IMPORT_FROM =
   'import { HomePill } from "./components/shell/HomePill";';
 const SIDEBAR_IMPORT_TO = `import { HomePill } from "./components/shell/HomePill";
-import { ConversationsSidebar } from "./components/conversations/ConversationsSidebar";`;
+import { ConversationsSidebar } from "./components/conversations/ConversationsSidebar";
+import { useMediaQuery } from "./hooks/useMediaQuery";`;
 
-// ── App.tsx: GlobalChatOverlay (whole function) ─────────────────────────────
+// ── App.tsx: persistent sidebar state ───────────────────────────────────────
+
+const STATE_FROM = `  const isCoordinatorReady = startupCoordinator.phase === "ready";
+
+  const { state: authState, refetch: refetchAuth } = useAuthStatus({`;
+const STATE_TO = `  const isCoordinatorReady = startupCoordinator.phase === "ready";
+
+  // Persistent app sidebar — shown as a left rail across every tab on desktop
+  // widths; collapse is owned here so it works from any view.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isWideViewport = useMediaQuery("(min-width: 820px)", {
+    defaultValue: true,
+  });
+
+  const { state: authState, refetch: refetchAuth } = useAuthStatus({`;
+
+// ── App.tsx: GlobalChatOverlay (whole function) → sidebar + slim overlay ─────
 
 const OVERLAY_FROM = `function GlobalChatOverlay(): ReactNode {
   return (
@@ -70,10 +87,20 @@ const OVERLAY_TO = `const AZUL_NAV_ICON_CLASS =
   "inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-strong transition-colors hover:bg-bg-hover hover:text-txt";
 const AZUL_NAV_ITEM_CLASS =
   "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm font-medium text-txt transition-colors hover:bg-bg-hover";
+const AZUL_SIDEBAR_WIDTH = 244;
 
-function GlobalChatOverlay(): ReactNode {
+/**
+ * Persistent app sidebar — collapse + search header, the primary nav
+ * (New agent / Skills / Messaging / Artifacts), then the conversation list.
+ * Rendered as a left rail across every tab so the shell matches the product
+ * references; collapse is owned by the App so it works from any view.
+ */
+function AzulShellSidebar({
+  onCollapse,
+}: {
+  onCollapse: () => void;
+}): ReactNode {
   const { setTab, setState, handleNewConversation } = useApp();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const handleNewAgent = useCallback(() => {
     setState("activeInboxChat", null);
@@ -82,99 +109,100 @@ function GlobalChatOverlay(): ReactNode {
   }, [handleNewConversation, setState, setTab]);
 
   return (
-    <div
-      className="pointer-events-none fixed inset-0 flex"
-      data-testid="global-chat-overlay"
-      style={{ zIndex: Z_OVERLAY }}
+    <aside
+      className="flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-bg-accent"
+      style={{ width: AZUL_SIDEBAR_WIDTH }}
+      data-testid="global-chat-sidebar"
     >
-      {sidebarCollapsed ? null : (
-        <aside
-          className="pointer-events-auto flex h-full w-[244px] shrink-0 flex-col overflow-hidden border-r border-border bg-bg-accent"
-          data-testid="global-chat-sidebar"
+      <div className="flex items-center justify-between px-3 pb-1 pt-3">
+        <button
+          type="button"
+          aria-label="Collapse sidebar"
+          onClick={onCollapse}
+          className={AZUL_NAV_ICON_CLASS}
+          data-testid="azul-sidebar-collapse"
         >
-          <div className="flex items-center justify-between px-3 pb-1 pt-3">
-            <button
-              type="button"
-              aria-label="Collapse sidebar"
-              onClick={() => setSidebarCollapsed(true)}
-              className={AZUL_NAV_ICON_CLASS}
-              data-testid="azul-sidebar-collapse"
-            >
-              <PanelLeft className="size-[18px]" aria-hidden />
-            </button>
-            <button
-              type="button"
-              aria-label="Search conversations"
-              onClick={() => setTab("skills")}
-              className={AZUL_NAV_ICON_CLASS}
-            >
-              <Search className="size-[18px]" aria-hidden />
-            </button>
-          </div>
-          <nav className="flex flex-col gap-0.5 px-2 pb-2 pt-1">
-            <button
-              type="button"
-              onClick={handleNewAgent}
-              className={AZUL_NAV_ITEM_CLASS}
-              data-testid="azul-nav-new-agent"
-            >
-              <Bot className="size-[18px] text-muted-strong" aria-hidden />
-              <span>New agent</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("skills")}
-              className={AZUL_NAV_ITEM_CLASS}
-              data-testid="azul-nav-skills"
-            >
-              <Sparkles className="size-[18px] text-muted-strong" aria-hidden />
-              <span>Skills</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("messages")}
-              className={AZUL_NAV_ITEM_CLASS}
-              data-testid="azul-nav-messaging"
-            >
-              <MessageSquare
-                className="size-[18px] text-muted-strong"
-                aria-hidden
-              />
-              <span>Messaging</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("documents")}
-              className={AZUL_NAV_ITEM_CLASS}
-              data-testid="azul-nav-artifacts"
-            >
-              <FileText className="size-[18px] text-muted-strong" aria-hidden />
-              <span>Artifacts</span>
-            </button>
-          </nav>
-          <div className="min-h-0 flex-1 overflow-hidden border-t border-border/60">
-            <ConversationsSidebar embedded />
-          </div>
-        </aside>
-      )}
+          <PanelLeft className="size-[18px]" aria-hidden />
+        </button>
+        <button
+          type="button"
+          aria-label="Search conversations"
+          onClick={() => setTab("skills")}
+          className={AZUL_NAV_ICON_CLASS}
+        >
+          <Search className="size-[18px]" aria-hidden />
+        </button>
+      </div>
+      <nav className="flex flex-col gap-0.5 px-2 pb-2 pt-1">
+        <button
+          type="button"
+          onClick={handleNewAgent}
+          className={AZUL_NAV_ITEM_CLASS}
+          data-testid="azul-nav-new-agent"
+        >
+          <Bot className="size-[18px] text-muted-strong" aria-hidden />
+          <span>New agent</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("skills")}
+          className={AZUL_NAV_ITEM_CLASS}
+          data-testid="azul-nav-skills"
+        >
+          <Sparkles className="size-[18px] text-muted-strong" aria-hidden />
+          <span>Skills</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("messages")}
+          className={AZUL_NAV_ITEM_CLASS}
+          data-testid="azul-nav-messaging"
+        >
+          <MessageSquare className="size-[18px] text-muted-strong" aria-hidden />
+          <span>Messaging</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("documents")}
+          className={AZUL_NAV_ITEM_CLASS}
+          data-testid="azul-nav-artifacts"
+        >
+          <FileText className="size-[18px] text-muted-strong" aria-hidden />
+          <span>Artifacts</span>
+        </button>
+      </nav>
+      <div className="min-h-0 flex-1 overflow-hidden border-t border-border/60">
+        <ConversationsSidebar embedded />
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * Chat tab content — a top bar (Settings + collapse-right) over the centered
+ * conversation column. Rendered as a fixed layer offset by the persistent
+ * sidebar so it fills the content area without covering the rail.
+ */
+function GlobalChatOverlay({
+  leftOffset,
+  onToggleSidebar,
+}: {
+  leftOffset: number;
+  onToggleSidebar: () => void;
+}): ReactNode {
+  const { setTab } = useApp();
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-y-0 right-0 flex"
+      data-testid="global-chat-overlay"
+      style={{ zIndex: Z_OVERLAY, left: leftOffset }}
+    >
       <div className="pointer-events-auto flex h-full min-w-0 flex-1 flex-col bg-bg">
         <div
-          className="flex shrink-0 items-center justify-between px-3 py-2"
+          className="flex shrink-0 items-center justify-end px-3 py-2"
           data-testid="global-chat-topbar"
         >
-          <div className="flex items-center gap-1">
-            {sidebarCollapsed ? (
-              <button
-                type="button"
-                aria-label="Expand sidebar"
-                onClick={() => setSidebarCollapsed(false)}
-                className={AZUL_NAV_ICON_CLASS}
-                data-testid="azul-sidebar-expand"
-              >
-                <PanelLeft className="size-[18px]" aria-hidden />
-              </button>
-            ) : null}
-          </div>
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -188,7 +216,7 @@ function GlobalChatOverlay(): ReactNode {
             <button
               type="button"
               aria-label="Toggle sidebar"
-              onClick={() => setSidebarCollapsed((value) => !value)}
+              onClick={onToggleSidebar}
               className={AZUL_NAV_ICON_CLASS}
               data-testid="azul-sidebar-toggle"
             >
@@ -205,6 +233,50 @@ function GlobalChatOverlay(): ReactNode {
     </div>
   );
 }`;
+
+// ── App.tsx: main shell render (persistent rail + offset content) ───────────
+
+const RENDER_FROM = `      <ShellControllerProvider>
+        <div className="flex h-[100dvh] w-full max-w-full flex-col overflow-hidden">
+          <ConnectionFailedBanner />
+          <SystemWarningBanner />
+          {shellContent}
+        </div>`;
+const RENDER_TO = `      <ShellControllerProvider>
+        <div className="flex h-[100dvh] w-full max-w-full overflow-hidden">
+          {isWideViewport && !sidebarCollapsed ? (
+            <AzulShellSidebar onCollapse={() => setSidebarCollapsed(true)} />
+          ) : null}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <ConnectionFailedBanner />
+            <SystemWarningBanner />
+            {shellContent}
+          </div>
+        </div>
+        {isWideViewport && sidebarCollapsed ? (
+          <button
+            type="button"
+            aria-label="Expand sidebar"
+            onClick={() => setSidebarCollapsed(false)}
+            data-testid="azul-sidebar-expand"
+            className="fixed left-3 top-2.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-bg-accent/80 text-muted-strong shadow-xs backdrop-blur transition-colors hover:bg-bg-hover hover:text-txt"
+            style={{ zIndex: Z_OVERLAY + 1 }}
+          >
+            <PanelLeft className="size-[18px]" aria-hidden />
+          </button>
+        ) : null}`;
+
+const CALLSITE_FROM = `        {isChat ? <GlobalChatOverlay /> : <EmbeddedShellPill />}`;
+const CALLSITE_TO = `        {isChat ? (
+          <GlobalChatOverlay
+            leftOffset={
+              isWideViewport && !sidebarCollapsed ? AZUL_SIDEBAR_WIDTH : 0
+            }
+            onToggleSidebar={() => setSidebarCollapsed((value) => !value)}
+          />
+        ) : (
+          <EmbeddedShellPill />
+        )}`;
 
 // ── ConversationsSidebar.tsx: embedded mode ─────────────────────────────────
 
@@ -282,14 +354,17 @@ function patchApp() {
     return;
   }
   let src = fs.readFileSync(appFile, "utf8");
-  if (src.includes('data-testid="azul-sidebar-collapse"')) {
+  if (src.includes("function AzulShellSidebar(")) {
     console.log(`${LOG} App.tsx already-applied`);
     return;
   }
   const changes = { n: 0 };
   src = applyReplace(src, LUCIDE_IMPORT_FROM, LUCIDE_IMPORT_TO, "lucide import", changes);
   src = applyReplace(src, SIDEBAR_IMPORT_FROM, SIDEBAR_IMPORT_TO, "sidebar import", changes);
+  src = applyReplace(src, STATE_FROM, STATE_TO, "sidebar state", changes);
   src = applyReplace(src, OVERLAY_FROM, OVERLAY_TO, "GlobalChatOverlay", changes);
+  src = applyReplace(src, RENDER_FROM, RENDER_TO, "shell render", changes);
+  src = applyReplace(src, CALLSITE_FROM, CALLSITE_TO, "overlay call site", changes);
   if (changes.n > 0) {
     fs.writeFileSync(appFile, src);
     console.log(`${LOG} patched App.tsx (${changes.n} edit(s))`);

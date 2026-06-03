@@ -336,13 +336,10 @@ div:has(> div > textarea[data-testid="chat-composer-textarea"]) button[aria-labe
 body.desktop [data-testid="global-chat-sidebar"] {
   padding-top: 38px;
 }
-/* When the sidebar is collapsed it's removed from the tree, so the chat top
- * bar's expand button sits at the window's top-left under the traffic lights —
- * clear it on desktop only while collapsed. */
-body.desktop
-  [data-testid="global-chat-overlay"]:not(:has([data-testid="global-chat-sidebar"]))
-  [data-testid="global-chat-topbar"] {
-  padding-left: 78px;
+/* When the sidebar is collapsed, the floating expand button sits at the
+ * window's top-left under the macOS traffic lights — clear it on desktop. */
+body.desktop [data-testid="azul-sidebar-expand"] {
+  left: 84px;
 }
 
 /* Sidebar conversation/terminal rows: rounded hover + clear active highlight

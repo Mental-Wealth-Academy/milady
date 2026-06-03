@@ -286,6 +286,7 @@ div:has(> div > textarea[data-testid="chat-composer-textarea"]) {
   box-shadow: var(--shadow-md) !important;
   padding: 0.3rem 0.4rem !important;
   gap: 0.25rem !important;
+  margin-bottom: 0.5rem !important;
 }
 div:has(> div > textarea[data-testid="chat-composer-textarea"]):focus-within {
   border-color: var(--accent) !important;

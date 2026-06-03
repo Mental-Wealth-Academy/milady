@@ -406,6 +406,7 @@ body.desktop [data-testid="global-chat-sidebar"] {
   border: 1px solid rgba(81, 104, 255, 0.14);
   border-radius: 1.125rem;
   padding: 0.5rem 0.875rem;
+  max-width: 85%;
 }
 [data-testid="chat-message"].justify-end .font-semibold.text-accent {
   display: none;

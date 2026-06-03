@@ -277,3 +277,49 @@ textarea[data-testid="chat-composer-textarea"] {
 [data-testid="chat-message"] {
   padding-block: 0.5rem;
 }
+
+/* Calm the per-message name labels into refined muted micro-labels — reserve
+ * brand blue for genuine accents/actions, ChatGPT-style. */
+[data-testid="chat-message"] .font-semibold.text-accent {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-bottom: 0.125rem;
+}
+
+/* ── Global refinements ────────────────────────────────────────────────── */
+
+/* Inline code → subtle monospace chips; code blocks stay flat. */
+:not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--bg-accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.08em 0.34em;
+}
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+/* Accessible, on-brand keyboard focus ring (pointer clicks unaffected). */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus);
+}
+
+/* Thin, unobtrusive scrollbars (Firefox + WebKit). */
+* {
+  scrollbar-width: thin;
+}

@@ -246,6 +246,15 @@
   --shadow-accent-soft: 0 6px 18px rgba(81, 104, 255, 0.34);
 }
 
+/* The base shell + index.html hardcode a dark body background; pin the root
+ * surfaces to the themed token so Light mode actually turns the whole window
+ * light (uncovered shell areas were staying dark). */
+html,
+body,
+#root {
+  background-color: var(--bg);
+}
+
 /* Brand text selection. */
 ::selection {
   background: rgba(81, 104, 255, 0.2);

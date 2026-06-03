@@ -62,6 +62,8 @@ const packageSafeBridgePatchScripts = [
   "patch-elizaos-startup-splash.mjs",
   // whitelabel: fix Electrobun bundler's @elizaos/shared path in nested layout.
   "patch-elizaos-electrobun-shared-path.mjs",
+  // whitelabel: render a default left ConversationsSidebar in the chat shell.
+  "patch-elizaos-default-sidebar.mjs",
   // milady-only fix for claude.ai OAuth tier — see script header.
   "patch-coding-agent-adapters-tools-flag.mjs",
   // milady-only fix for codex 0.128 — see script header.

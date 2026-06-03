@@ -275,31 +275,57 @@ select {
     opacity 0.15s ease;
 }
 
-/* ── Chat composer: ChatGPT-style rounded pill with soft, diffuse lift ──── */
-div:has(> textarea[data-testid="chat-composer-textarea"]) {
-  border-radius: var(--radius-2xl);
-  padding: 0.4rem 0.5rem 0.4rem 0.75rem;
-  gap: 0.25rem;
-  background: var(--card);
-  border-color: var(--border);
-  box-shadow: var(--shadow-md);
+/* ── Chat composer: ONE smooth rounded pill ─────────────────────────────────
+ * The composer nests: outer bar (buttons + text) > inner text wrapper > textarea.
+ * Style the OUTER bar as the single pill; flatten the inner wrapper and the
+ * action buttons so there are no nested boxes / clashing borders. */
+div:has(> div > textarea[data-testid="chat-composer-textarea"]) {
+  border-radius: var(--radius-2xl) !important;
+  border: 1px solid var(--border) !important;
+  background: var(--card) !important;
+  box-shadow: var(--shadow-md) !important;
+  padding: 0.3rem 0.4rem !important;
+  gap: 0.25rem !important;
 }
-div:has(> textarea[data-testid="chat-composer-textarea"]):focus-within {
-  border-color: var(--accent);
+div:has(> div > textarea[data-testid="chat-composer-textarea"]):focus-within {
+  border-color: var(--accent) !important;
   box-shadow:
     var(--shadow-md),
-    0 0 0 3px var(--focus);
+    0 0 0 3px var(--focus) !important;
+}
+/* Inner text wrapper → transparent so it blends into the pill (no white box). */
+div:has(> textarea[data-testid="chat-composer-textarea"]) {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 0.25rem !important;
 }
 textarea[data-testid="chat-composer-textarea"] {
   font-size: 0.9375rem;
   line-height: 1.55;
 }
-/* Composer action buttons → clean circular icon buttons. */
-div:has(> textarea[data-testid="chat-composer-textarea"]) button {
-  border-radius: 9999px;
+/* Action buttons → flat circular icon buttons (no gray bordered boxes). */
+div:has(> div > textarea[data-testid="chat-composer-textarea"]) button {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 9999px !important;
 }
-div:has(> textarea[data-testid="chat-composer-textarea"]) button:hover:not(:disabled) {
-  background: var(--bg-hover);
+div:has(> div > textarea[data-testid="chat-composer-textarea"]) button:hover:not(:disabled) {
+  background: var(--bg-hover) !important;
+}
+/* Keep a primary send/submit button filled with the brand accent. */
+div:has(> div > textarea[data-testid="chat-composer-textarea"]) button[type="submit"],
+div:has(> div > textarea[data-testid="chat-composer-textarea"]) button[aria-label*="Send" i] {
+  background: var(--accent) !important;
+  color: var(--accent-foreground) !important;
+}
+
+/* macOS desktop: the chat overlay is fixed (ignores body safe-area padding),
+ * so reserve space at the top-left of the sidebar for the traffic-light
+ * window controls instead of letting them overlap the CONVERSATIONS header. */
+body.desktop [data-testid="global-chat-sidebar"] {
+  padding-top: 38px;
 }
 
 /* Breathing room at the top of the conversation. */

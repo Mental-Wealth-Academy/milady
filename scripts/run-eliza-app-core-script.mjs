@@ -82,9 +82,19 @@ const resolvedScriptPath = shouldUseLocalScript ? localScriptPath : scriptPath;
 const useBun = path
   .resolve(resolvedScriptPath)
   .startsWith(`${path.resolve(localElizaRoot)}${path.sep}`);
+// In local mode, repo-local eliza/ is the source of truth. Bun must resolve
+// @elizaos/* to each package's `eliza-source` export condition (src/) rather
+// than its unbuilt dist. Without `--conditions=eliza-source` the orchestrator
+// (dev-ui / dev-platform) and the API it spawns fail to resolve @elizaos/*,
+// so dev:desktop hangs on the loading splash (renderer can't reach a backend
+// that never booted).
+const childArgs =
+  useBun && localModeActive
+    ? ["--conditions=eliza-source", resolvedScriptPath, ...scriptArgs]
+    : [resolvedScriptPath, ...scriptArgs];
 const child = spawn(
   useBun ? resolveBunExecutable() : process.execPath,
-  [resolvedScriptPath, ...scriptArgs],
+  childArgs,
   {
     cwd: repoRoot,
     // app-core scripts that diff/validate the consuming repo (e.g.
@@ -104,6 +114,13 @@ const child = spawn(
       // since this fork ships no eliza.mjs shim. No-op for app-core builds that
       // predate #8126 (they fall back to eliza.mjs); ignored by other scripts.
       ELIZA_ENTRY_FILE: process.env.ELIZA_ENTRY_FILE?.trim() || "milady.mjs",
+      // Local mode: the app-core dev orchestrators (dev-ui / dev-platform)
+      // gate source resolution + the API child's `--conditions=eliza-source`
+      // on ELIZA_DEV_SOURCE=1. Without it the renderer hangs on the splash
+      // because the backend never resolves @elizaos/* and never reports ready.
+      ...(localModeActive
+        ? { ELIZA_DEV_SOURCE: process.env.ELIZA_DEV_SOURCE?.trim() || "1" }
+        : {}),
     },
     stdio: "inherit",
   },

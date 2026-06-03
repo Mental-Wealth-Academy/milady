@@ -47,7 +47,11 @@ const targets = [
     guard: "startup-shell-loading",
     edits: [
       ["./brand/favicons/favicon.svg", "/splashlogo.png"],
-      ["elizaOS", "Azura"],
+      ["elizaOS", "Project Azul"],
+      [
+        "text-4xl font-medium leading-none tracking-normal",
+        "text-2xl font-semibold leading-none tracking-tight",
+      ],
       ["#0B35F1", "#5168FF"],
       ["#F7F9FF", "#F4F5FE"],
     ],

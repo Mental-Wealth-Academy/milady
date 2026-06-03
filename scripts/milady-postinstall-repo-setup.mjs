@@ -60,6 +60,8 @@ const packageSafeBridgePatchScripts = [
   "patch-elizaos-plugin-browser-bridge-package.mjs",
   // whitelabel: rebrand the @elizaos/ui boot splash to "Blue" + splashlogo.
   "patch-elizaos-startup-splash.mjs",
+  // whitelabel: fix Electrobun bundler's @elizaos/shared path in nested layout.
+  "patch-elizaos-electrobun-shared-path.mjs",
   // milady-only fix for claude.ai OAuth tier — see script header.
   "patch-coding-agent-adapters-tools-flag.mjs",
   // milady-only fix for codex 0.128 — see script header.

@@ -64,6 +64,8 @@ const packageSafeBridgePatchScripts = [
   "patch-elizaos-electrobun-shared-path.mjs",
   // whitelabel: render a default left ConversationsSidebar in the chat shell.
   "patch-elizaos-default-sidebar.mjs",
+  // whitelabel: replace the Electrobun desktop app icon with the Azul portrait.
+  "patch-elizaos-desktop-icon.mjs",
   // milady-only fix for claude.ai OAuth tier — see script header.
   "patch-coding-agent-adapters-tools-flag.mjs",
   // milady-only fix for codex 0.128 — see script header.

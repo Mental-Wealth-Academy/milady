@@ -360,3 +360,47 @@ select:focus-visible,
 * {
   scrollbar-width: thin;
 }
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-mid);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover-mid);
+  background-clip: padding-box;
+}
+
+/* Brand text caret. */
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: var(--accent);
+}
+
+/* Consistent disabled affordance. */
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+/* Respect reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

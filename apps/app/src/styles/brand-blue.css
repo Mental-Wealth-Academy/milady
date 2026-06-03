@@ -282,6 +282,12 @@ div:has(> textarea[data-testid="chat-composer-textarea"]) button:hover:not(:disa
   padding-top: 1.25rem;
 }
 
+/* Comfortable reading column (~768px), matching modern LLM chat line length
+ * instead of the wider default. Applies to messages + composer together. */
+[data-testid="global-chat-overlay"] > div {
+  max-width: 48rem;
+}
+
 /* ── Chat messages: calmer vertical rhythm, comfortable reading column ──── */
 [data-testid="chat-messages-scroll"] {
   scroll-padding-bottom: 2rem;

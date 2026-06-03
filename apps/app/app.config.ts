@@ -40,7 +40,7 @@ type AppConfigWithAospPropertyPrefix = Omit<AppConfig, "aosp"> & {
 };
 
 const config = {
-  appName: "Project Azul",
+  appName: "Project Azul Agent",
   appId: "ai.milady.milady",
   orgName: "milady-ai",
   repoName: "milady",
@@ -96,7 +96,7 @@ const config = {
   },
 
   branding: {
-    appName: "Project Azul",
+    appName: "Project Azul Agent",
     orgName: "milady-ai",
     repoName: "milady",
     docsUrl: "https://docs.milady.ai",

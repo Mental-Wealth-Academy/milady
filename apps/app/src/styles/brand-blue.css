@@ -194,7 +194,23 @@
  * Recolor to the Blue brand so the boot flash matches. (The splash-bg.png image
  * still renders on top; swapping that asset is a follow-up.) */
 [data-testid="startup-shell-loading"] {
+  /* Blue field with a faint digital/ASCII glyph texture so it doesn't read as
+   * a flat, pale wash. Texture tiles behind the centered logo + wordmark. */
   background-color: #5168ff !important;
+  background-image:
+    url("/ascii-texture.png"),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.05) 0 1px,
+      transparent 1px 32px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.04) 0 1px,
+      transparent 1px 32px
+    ) !important;
+  background-repeat: repeat, repeat, repeat !important;
+  background-size: 300px 210px, auto, auto !important;
   color: #ffffff !important;
 }
 

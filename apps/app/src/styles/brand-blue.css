@@ -329,6 +329,21 @@ body.desktop [data-testid="global-chat-sidebar"] {
   padding-top: 38px;
 }
 
+/* Sidebar conversation/terminal rows: rounded hover + clear active highlight
+ * (the active chat had no selected state — ChatGPT/references pattern). */
+[data-testid="global-chat-sidebar"] .group {
+  border-radius: 0.5rem;
+}
+[data-testid="global-chat-sidebar"] .group:hover {
+  background: var(--bg-hover);
+}
+[data-testid="global-chat-sidebar"] [aria-current="true"],
+[data-testid="global-chat-sidebar"] [aria-current="page"],
+[data-testid="global-chat-sidebar"] [data-active="true"] {
+  background: var(--accent-subtle);
+  border-radius: 0.5rem;
+}
+
 /* Center the chat column in the space beside the sidebar — it was left-shoved
  * flush against the sidebar with a large empty gap on the right. The chat area
  * (flex-1) was being capped instead of filling, so force it to fill, then

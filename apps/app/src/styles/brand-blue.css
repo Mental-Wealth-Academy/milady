@@ -269,6 +269,18 @@ textarea[data-testid="chat-composer-textarea"] {
   font-size: 0.9375rem;
   line-height: 1.55;
 }
+/* Composer action buttons → clean circular icon buttons. */
+div:has(> textarea[data-testid="chat-composer-textarea"]) button {
+  border-radius: 9999px;
+}
+div:has(> textarea[data-testid="chat-composer-textarea"]) button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+/* Breathing room at the top of the conversation. */
+[data-testid="chat-messages-scroll"] {
+  padding-top: 1.25rem;
+}
 
 /* ── Chat messages: calmer vertical rhythm, comfortable reading column ──── */
 [data-testid="chat-messages-scroll"] {

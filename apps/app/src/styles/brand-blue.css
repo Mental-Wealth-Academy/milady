@@ -328,6 +328,21 @@ body.desktop [data-testid="global-chat-sidebar"] {
   padding-top: 38px;
 }
 
+/* Center the chat column in the space beside the sidebar — it was left-shoved
+ * flush against the sidebar with a large empty gap on the right. The chat area
+ * (flex-1) was being capped instead of filling, so force it to fill, then
+ * center the reading column inside it. */
+[data-testid="global-chat-overlay"] > div:last-child {
+  flex: 1 1 0% !important;
+  max-width: none !important;
+  align-items: center !important;
+}
+[data-testid="global-chat-overlay"] > div:last-child > div {
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
 /* Breathing room at the top of the conversation. */
 [data-testid="chat-messages-scroll"] {
   padding-top: 1.25rem;
